@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCC Chess — Dungeon Crawler Carl Chess</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- ═══ START SCREEN ═══ -->
+    <div id="start-screen" class="screen active">
+        <div class="start-container">
+            <h1 class="title">Dungeon Crawler Carl Chess</h1>
+            <p class="subtitle">Tactical Battle on an 11×11 Board</p>
+            <div class="mode-select">
+                <button class="btn btn-primary" onclick="Game.selectMode('pvai')">Player vs AI</button>
+                <button class="btn btn-secondary" onclick="Game.selectMode('pvp')">Player vs Player</button>
+                <button class="btn btn-dev" onclick="Game.selectMode('dev')">Dev Game</button>
+            </div>
+            <div class="dev-controls">
+                <button class="btn btn-settings" onclick="Game.openDevSettings()" title="Dev Settings">⚙️ Dev Settings</button>
+                <div id="dev-status" class="dev-status">Dev: Random Roster</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ DRAFT SCREEN ═══ -->
+    <div id="draft-screen" class="screen">
+        <div class="draft-container">
+            <div class="draft-header">
+                <h2 id="draft-title">Draft Your Pawns</h2>
+                <p id="draft-subtitle">Select exactly 8 pawns for your army</p>
+                <div class="draft-counter">
+                    <span id="draft-count">0</span> / 8 selected
+                </div>
+            </div>
+            <div id="draft-grid" class="draft-grid"></div>
+            <div class="draft-actions">
+                <button id="draft-confirm" class="btn btn-primary" disabled onclick="Game.confirmDraft()">Confirm Draft</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ GAME SCREEN ═══ -->
+    <div id="game-screen" class="screen">
+        <div class="game-layout">
+            <!-- Left: Board -->
+            <div class="board-section">
+                <div class="game-header">
+                    <div class="turn-info">
+                        <span id="turn-label" class="turn-label">White's Turn</span>
+                        <span id="turn-number" class="turn-number">Turn 0</span>
+                    </div>
+                    <div id="phase-label" class="phase-label">Move Phase</div>
+                </div>
+                <div class="board-wrapper">
+                    <div class="row-labels left">
+                        <span>10</span><span>9</span><span>8</span><span>7</span><span>6</span>
+                        <span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+                    </div>
+                    <div>
+                        <div class="col-labels top">
+                            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+                            <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+                        </div>
+                        <div id="board" class="board"></div>
+                        <div class="col-labels bottom">
+                            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+                            <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+                        </div>
+                    </div>
+                    <div class="row-labels right">
+                        <span>10</span><span>9</span><span>8</span><span>7</span><span>6</span>
+                        <span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+                    </div>
+                </div>
+                <!-- Dice Panel -->
+                <div id="dice-panel" class="dice-panel hidden">
+                    <h3>Dungeon Dice</h3>
+                    <div id="dice-display" class="dice-display"></div>
+                    <div id="ability-buttons" class="ability-buttons"></div>
+                    <button id="end-turn-btn" class="btn btn-end-turn" onclick="Game.endTurn()">End Turn</button>
+                </div>
+            </div>
+
+            <!-- Right: Sidebar -->
+            <div class="sidebar">
+                <div class="sidebar-section">
+                    <h3 id="sidebar-player-label">White's Pieces</h3>
+                    <div id="piece-list" class="piece-list"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Battle Log</h3>
+                    <div id="battle-log" class="battle-log"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ GAME OVER OVERLAY ═══ -->
+    <div id="game-over-overlay" class="overlay hidden">
+        <div class="overlay-content">
+            <h2 id="game-over-title">Game Over</h2>
+            <p id="game-over-message"></p>
+            <button class="btn btn-primary" onclick="Game.backToStart()">Play Again</button>
+        </div>
+    </div>
+
+    <!-- ═══ DEV SETTINGS MODAL ═══ -->
+    <div id="dev-settings-modal" class="overlay hidden">
+        <div class="modal-content dev-settings-modal">
+            <h2>Dev Game Settings</h2>
+            <p class="modal-subtitle">Configure custom pawn rosters for Dev Game mode</p>
+            
+            <div class="roster-section">
+                <h3>White Pawns <span id="white-count" class="roster-counter">0 / 8</span></h3>
+                <div id="white-roster" class="roster-checklist"></div>
+            </div>
+            
+            <div class="roster-section">
+                <h3>Black Pawns <span id="black-count" class="roster-counter">0 / 8</span></h3>
+                <div id="black-roster" class="roster-checklist"></div>
+            </div>
+            
+            <div class="dev-board-section">
+                <h3>Board Layout</h3>
+                <p class="dev-board-hint">Click a piece to select it, then click any square to move it. Clicking an occupied square swaps pieces.</p>
+                <div id="dev-staging-board"></div>
+                <div class="dev-board-actions">
+                    <button class="btn btn-secondary" onclick="Game.saveDevBoardLayout()">Save Board Layout</button>
+                    <button class="btn btn-secondary" onclick="Game.resetDevBoardLayout()">Reset to Default</button>
+                    <button class="btn btn-secondary" onclick="Game.clearDevBoard()">Clear Board</button>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="Game.saveDevSettings()">Save Settings</button>
+                <button class="btn btn-secondary" onclick="Game.clearDevSettings()">Clear Settings</button>
+                <button class="btn btn-secondary" onclick="Game.closeDevSettings()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ NOTIFICATION TOAST ═══ -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/game.js"></script>
+</body>
+</html>
