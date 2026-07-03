@@ -28,7 +28,9 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(kill 9329)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git config *)"
     ]
   }
 }
