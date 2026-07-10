@@ -290,6 +290,19 @@ body {
     font-weight: 600;
 }
 
+/* Check banner */
+.check-banner {
+    background: #b91c1c;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 10px 16px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+}
+
 /* Board */
 .board-wrapper {
     display: flex;

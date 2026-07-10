@@ -156,10 +156,15 @@ def is_square_attacked(board: Board, row: int, col: int, by_color: Color) -> boo
             if p is None or p.color != by_color:
                 continue
 
-            # For pawns, only check diagonal attack squares (not forward moves)
+            # For pawns, only check diagonal attack squares (not forward moves).
+            # White pawns advance toward row 10 (+1) and attack the row ABOVE them.
+            # Black pawns advance toward row 0 (-1) and attack the row BELOW them.
             if p.is_pawn:
-                direction = p.color.direction
-                if r + direction == row and abs(c - col) == 1:
+                if p.color == Color.WHITE:
+                    attacked_row = r + 1   # white attacks upward
+                else:
+                    attacked_row = r - 1   # black attacks downward
+                if attacked_row == row and abs(c - col) == 1:
                     return True
                 continue
 

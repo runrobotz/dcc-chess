@@ -30,7 +30,12 @@
       "Bash(git init *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(python3 -c \"import flask\")",
+      "Bash(find /Library/Frameworks/Python.framework /usr/local/bin /opt/homebrew -name \"flask\" 2>/dev/null | head -5; find /Library/Frameworks/Python.framework -name \"python3*\" -path \"*/bin/*\" 2>/dev/null | head -10)",
+      "Bash(pip3 show *)",
+      "Bash(pip show *)",
+      "Bash(pip3 install *)"
     ]
   }
 }

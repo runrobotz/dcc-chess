@@ -241,6 +241,7 @@ def build_game_state_response():
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
         "plot_armor_active": {color.value: turns for color, turns in gs.plot_armor_active.items() if turns > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
+        "carl_in_check": is_in_check(board, gs.current_player),
     }
     return resp
 

@@ -215,6 +215,7 @@ const Game = {
         if (!this.state) return;
         this.renderBoard();
         this.renderHeader();
+        this.renderCheckBanner();
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
         } else {
@@ -225,6 +226,16 @@ const Game = {
         }
         this.checkForAutoAbilityEvents();
         this.checkGameOver();
+    },
+
+    renderCheckBanner() {
+        const banner = document.getElementById('check-banner');
+        if (!banner) return;
+        if (this.state.carl_in_check && !this.state.game_over) {
+            banner.classList.remove('hidden');
+        } else {
+            banner.classList.add('hidden');
+        }
     },
 
     renderHeader() {
