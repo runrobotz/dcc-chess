@@ -8,7 +8,7 @@ from dcc_chess.pieces import Piece, PieceType, Color
 from dcc_chess.board import Board, BOARD_SIZE, CENTER_SQUARE, PAWN_ROSTER, MAJOR_PIECE_ORDER
 from dcc_chess.dice import DungeonDice
 from dcc_chess.abilities import GameState
-from dcc_chess.movement import all_legal_moves, is_checkmate, is_stalemate, is_in_check
+from dcc_chess.movement import all_legal_moves, is_checkmate, is_stalemate, is_in_check, resolve_orthrus_action
 from dcc_chess.pawns import PAWN_CHARACTERS, AbilityTrigger
 from dcc_chess.ai import smart_move, smart_abilities, random_draft, random_back_rank
 
@@ -38,7 +38,7 @@ PAWN_SHORT_NAMES = {
     "Garret": "GARRET",
     "Signet": "SIGNET",
     "Miriam Dom": "MIRIAM",
-    "Orthrus": "ORTHRUS",
+    "Orthrus": "ORTH",
     "Raul the Crab": "RAUL",
     "Bad Llama": "LLAMA",
 }
@@ -94,13 +94,19 @@ def serialize_board(board):
             else:
                 short = PAWN_SHORT_NAMES.get(p.pawn_name, "") if p.is_pawn else MAJOR_SHORT_NAMES.get(p.piece_type, "?")
                 full_name = p.pawn_name if p.pawn_name else p.piece_type.value
-                row.append({
+                piece_data = {
                     "type": p.piece_type.value,
                     "color": p.color.value,
                     "name": full_name,
                     "short": short,
                     "is_pawn": p.is_pawn,
-                })
+                }
+                if p.pawn_name == "Orthrus":
+                    is_head = (r, c) == p.orthrus_head_pos
+                    piece_data["is_orthrus_head"] = is_head
+                    piece_data["orthrus_direction"] = p.orthrus_direction if is_head else None
+                    piece_data["orthrus_head_pos"] = list(p.orthrus_head_pos) if p.orthrus_head_pos else None
+                row.append(piece_data)
             row_data = row
         grid.append(row_data)
     return grid
@@ -123,7 +129,26 @@ def get_piece_abilities(piece, game_state, row, col):
     abilities = []
     color = piece.color
 
-    if piece.is_pawn and piece.pawn_name:
+    if piece.is_pawn and piece.pawn_name == "Juice Box":
+        # Juice Box has no ability of her own — she shows one entry per pawn
+        # ability she has captured (instead of a generic Shapeshift button).
+        captured_list = game_state.juice_box_captured.get((row, col), [])
+        for captured_name in captured_list:
+            cchar = PAWN_CHARACTERS.get(captured_name)
+            if not cchar:
+                continue
+            cab = cchar.ability
+            abilities.append({
+                "name": cab.name,
+                "floor": cab.floor_number,
+                "description": cab.description,
+                "trigger": cab.trigger.value,
+                "uses_left": None,
+                "uses_per_game": None,
+                "requires_combined": getattr(cab, 'requires_combined', False),
+                "juice_box_source_pawn": captured_name,
+            })
+    elif piece.is_pawn and piece.pawn_name:
         char = PAWN_CHARACTERS.get(piece.pawn_name)
         if char:
             ab = char.ability
@@ -337,6 +362,13 @@ def new_game():
                         color = Color(cell["color"])
                         if cell.get("is_pawn"):
                             piece = Piece(PieceType.PAWN, color, pawn_name=cell["name"])
+                            if cell["name"] == "Orthrus":
+                                # Staging board only knows single squares -- treat the
+                                # clicked cell as his anchor/butt and auto-place his head.
+                                # If his head square collides with another staged piece,
+                                # he's silently skipped (dev-tool limitation).
+                                board.place_orthrus_body(piece, r, c)
+                                continue
                         else:
                             piece = Piece(PieceType(cell["type"]), color)
                         board.set(r, c, piece)
@@ -351,7 +383,7 @@ def new_game():
             random.shuffle(shuffled_white)
             for i, pawn_name in enumerate(shuffled_white):
                 piece = Piece(PieceType.PAWN, Color.WHITE, pawn_name=pawn_name)
-                board.set(1, i + 1, piece)
+                board.place_piece(1, i + 1, piece, False)
 
             for col, piece_name in enumerate(placement_order):
                 piece_type_enum = PieceType(piece_name)
@@ -362,7 +394,7 @@ def new_game():
             random.shuffle(shuffled_black)
             for i, pawn_name in enumerate(shuffled_black):
                 piece = Piece(PieceType.PAWN, Color.BLACK, pawn_name=pawn_name)
-                board.set(9, i + 1, piece)
+                board.place_piece(9, i + 1, piece, False)
 
         # Start the first turn immediately: roll dice and enter ability phase
         gs.current_player = Color.WHITE
@@ -581,7 +613,22 @@ def make_move():
     target = gs.board.get(*to_pos)
     captured = None
 
-    if target is not None:
+    piece_at_from = gs.board.get(*from_pos)
+    is_orthrus_move = (
+        piece_at_from is not None and piece_at_from.is_pawn
+        and piece_at_from.pawn_name == "Orthrus"
+        and from_pos == piece_at_from.orthrus_head_pos
+    )
+
+    if is_orthrus_move:
+        # Orthrus never captures -- his own moves (forward or rotate) always
+        # land on an empty square, and shift/pivot his 2-square body.
+        action = resolve_orthrus_action(piece_at_from, to_pos)
+        if action is None:
+            return jsonify({"error": "Illegal Orthrus move"}), 400
+        new_head, new_butt, new_direction = action
+        gs.board.move_orthrus_body(piece_at_from, new_head, new_butt, new_direction)
+    elif target is not None:
         cap_result = gs.attempt_capture(from_pos, to_pos)
         if cap_result == "captured":
             captured = gs.board.make_move(from_pos, to_pos)
@@ -590,6 +637,8 @@ def make_move():
                 gs.process_post_capture(captured, to_pos, attacker, from_pos)
         elif cap_result == "defended_elle":
             gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
+        elif cap_result == "defended_orthrus":
+            gs.log_event("move_blocked", reason="Orthrus can only be captured by major pieces")
         elif cap_result == "defended_quasar":
             attacker = gs.board.get(*from_pos)
             gs.board.set(from_pos[0], from_pos[1], None)
@@ -675,6 +724,7 @@ def get_ability_targets():
 
     valid_targets = []
     message = f"Select a target for {ability_name}"
+    direction_options = None
 
     # For non-combined abilities paid via combined dice, compute the effective die value
     def effective_die_value(idx):
@@ -798,13 +848,13 @@ def get_ability_targets():
             message = "Select enemy piece to prevent from moving"
         
         elif ability_name == "Slut Shame":
-            # Enemy pawns within 3 squares
+            # Enemy pawns within 3 squares (Orthrus is a 2-square body and can't be swallowed)
             for dr in range(-3, 4):
                 for dc in range(-3, 4):
                     nr, nc = piece_row + dr, piece_col + dc
                     if gs.board.in_bounds(nr, nc):
                         p = gs.board.get(nr, nc)
-                        if p and p.is_pawn and p.color != piece.color:
+                        if p and p.is_pawn and p.color != piece.color and p.pawn_name != "Orthrus":
                             valid_targets.append([nr, nc])
             message = "Select enemy pawn to swallow (within 3 squares)"
         
@@ -858,11 +908,26 @@ def get_ability_targets():
                             valid_targets.append([nr, nc])
             message = "Select enemy piece to freeze (within 5 squares)"
 
-        return jsonify({
+        elif ability_name == "Lava Surge":
+            if gs.chris_lava_surge_adjacent_enemy((piece_row, piece_col)):
+                return jsonify({"error": "Chris cannot cast while enemies are adjacent"}), 400
+            direction_options = {}
+            for d in ("horizontal", "vertical"):
+                squares = gs.chris_lava_surge_direction_squares((piece_row, piece_col), d)
+                direction_options[d] = {
+                    "valid": gs.chris_lava_surge_direction_valid((piece_row, piece_col), d),
+                    "squares": [[sr, sc] for sr, sc in squares],
+                }
+            message = "Choose a direction for Lava Surge"
+
+        resp_data = {
             "valid_targets": valid_targets,
             "message": message
-        })
-    
+        }
+        if direction_options is not None:
+            resp_data["direction_options"] = direction_options
+        return jsonify(resp_data)
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -890,6 +955,7 @@ def use_ability():
     target_row = data.get("target_row")
     target_col = data.get("target_col")
     use_combined = data.get("use_combined", False)
+    direction = data.get("direction")
 
     if None in (piece_row, piece_col, ability_name, die_index):
         return jsonify({"error": "Missing data"}), 400
@@ -909,7 +975,11 @@ def use_ability():
     # Determine whether this ability is designed as requires_combined
     # (those abilities handle their own combined dice internally)
     _requires_combined_by_design = False
-    if piece.is_pawn and piece.pawn_name:
+    if piece.is_pawn and piece.pawn_name == "Juice Box" and ability_name != "Shapeshift":
+        _copied_char = gs.find_captured_ability((piece_row, piece_col), ability_name)
+        if _copied_char:
+            _requires_combined_by_design = getattr(_copied_char.ability, 'requires_combined', False)
+    elif piece.is_pawn and piece.pawn_name:
         _char = PAWN_CHARACTERS.get(piece.pawn_name)
         if _char:
             _requires_combined_by_design = getattr(_char.ability, 'requires_combined', False)
@@ -1087,7 +1157,7 @@ def use_ability():
             # Slut Shame uses target_pos to select which pawn to swallow
             if target_pos:
                 target_piece = gs.board.get(target_pos[0], target_pos[1])
-                if target_piece and target_piece.is_pawn and target_piece.color != piece.color:
+                if target_piece and target_piece.is_pawn and target_piece.color != piece.color and target_piece.pawn_name != "Orthrus":
                     # Manually execute slut shame with specific target
                     key = (piece.color, id(piece))
                     if not gs.slut_shame_used.get(key, False) and dice.can_combine_for_cost(8):
@@ -1128,7 +1198,7 @@ def use_ability():
 
         # Pawn abilities
         elif piece.is_pawn and piece.pawn_name:
-            success, result_msg = _handle_pawn_ability(gs, dice, piece, piece_row, piece_col, ability_name, die_index, target_pos)
+            success, result_msg = _handle_pawn_ability(gs, dice, piece, piece_row, piece_col, ability_name, die_index, target_pos, direction=direction, use_combined=use_combined)
 
         else:
             return jsonify({"error": f"Unknown ability: {ability_name}"}), 400
@@ -1145,7 +1215,7 @@ def use_ability():
     return jsonify(resp)
 
 
-def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, target_pos=None):
+def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, target_pos=None, direction=None, use_combined=False):
     """Handle pawn ability usage. Returns (success, message)."""
     name = piece.pawn_name
     pos = (row, col)
@@ -1174,8 +1244,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         if target_pos:
             target_piece = gs.board.get(target_pos[0], target_pos[1])
             if target_piece and target_piece.is_pawn and target_piece.color != piece.color:
-                if dice.can_combine_for_cost(7):
-                    dice.spend_combined(7)
+                if dice.can_combine_for_cost(10):
+                    dice.spend_combined(10)
                     from dcc_chess.pieces import Color
                     target_piece.color = piece.color
                     success = True
@@ -1207,7 +1277,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                     for dc in range(2):
                         nr, nc = target_pos[0] + dr, target_pos[1] + dc
                         if gs.board.in_bounds(nr, nc):
-                            gs.air_strike_zones[(nr, nc)] = 3  # 3 turns duration
+                            gs.air_strike_zones[(nr, nc)] = 2  # 2 turns duration
                 gs.louie_cant_move = set(gs.air_strike_zones.keys())
                 success = True
                 msg = "Air strike!"
@@ -1233,11 +1303,20 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         success = gs.try_body_guard(pos, dice, die_index)
         msg = "Body guard activated!" if success else "Failed"
     elif name == "Chris" and ability_name == "Lava Surge":
-        success = gs.try_lava_surge_chunk2(pos, dice, die_index)
+        if gs.chris_lava_surge_adjacent_enemy(pos):
+            return False, "Chris cannot cast while enemies are adjacent"
+        if direction not in ("horizontal", "vertical"):
+            return False, "Select a direction for Lava Surge"
+        if not gs.chris_lava_surge_direction_valid(pos, direction):
+            return False, "Lava Surge zone must be completely empty"
+        success = gs.try_lava_surge_chunk2(pos, dice, die_index, direction=direction)
         msg = "Lava surge!" if success else "Failed"
     elif name == "Juice Box" and ability_name == "Shapeshift":
-        success = gs.try_shapeshift(pos, dice, die_index)
-        msg = "Shapeshifted!" if success else "Failed"
+        success = False
+        msg = "Select a captured ability to use instead of Shapeshift"
+    elif name == "Juice Box":
+        success = gs.try_juice_box_use_captured_ability(pos, ability_name, dice, die_index, use_combined=use_combined)
+        msg = f"Used {ability_name}!" if success else "Failed"
     elif name == "Florin" and ability_name == "Suppressing Fire":
         success = gs.try_suppressing_fire(pos, dice, die_index)
         msg = "Suppressing fire!" if success else "Failed"
@@ -1254,17 +1333,20 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                 if dice.can_combine_for_cost(8):
                     dice.spend_combined(8)
                     gs.board.set(target_pos[0], target_pos[1], None)
-                    # Resurrect captured pawn on back rank
-                    captured = gs.captured_pieces.get(piece.color, [])
+                    # Resurrect captured pawn on back rank (Orthrus can never be resurrected)
+                    source = gs.captured_pieces.get(piece.color, [])
+                    captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
                     if captured:
                         resurrected = random.choice(captured)
-                        captured.remove(resurrected)
+                        source.remove(resurrected)
                         from dcc_chess.pieces import Color, BOARD_SIZE
                         back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
                         spawn_squares = [(back_rank, c) for c in range(BOARD_SIZE) if gs.board.get(back_rank, c) is None]
                         if spawn_squares:
                             spawn_pos = random.choice(spawn_squares)
                             gs.board.set(spawn_pos[0], spawn_pos[1], resurrected)
+                            if resurrected.is_pawn and resurrected.pawn_name:
+                                gs._juice_box_lose_ability(resurrected.pawn_name)
                             success = True
                             msg = "Blood magic!"
                         else:
@@ -1518,7 +1600,20 @@ def _play_ai_turn():
     # Execute move
     target = gs.board.get(*to_pos)
     captured = None
-    if target is not None:
+
+    piece_at_from = gs.board.get(*from_pos)
+    is_orthrus_move = (
+        piece_at_from is not None and piece_at_from.is_pawn
+        and piece_at_from.pawn_name == "Orthrus"
+        and from_pos == piece_at_from.orthrus_head_pos
+    )
+
+    if is_orthrus_move:
+        action = resolve_orthrus_action(piece_at_from, to_pos)
+        if action is not None:
+            new_head, new_butt, new_direction = action
+            gs.board.move_orthrus_body(piece_at_from, new_head, new_butt, new_direction)
+    elif target is not None:
         cap_result = gs.attempt_capture(from_pos, to_pos)
         if cap_result == "captured":
             captured = gs.board.make_move(from_pos, to_pos)
@@ -1526,6 +1621,8 @@ def _play_ai_turn():
                 attacker = gs.board.get(*to_pos)
                 gs.process_post_capture(captured, to_pos, attacker, from_pos)
         elif cap_result == "defended_elle":
+            pass
+        elif cap_result == "defended_orthrus":
             pass
         elif cap_result == "defended_quasar":
             attacker = gs.board.get(*from_pos)

@@ -2,7 +2,7 @@
 
 from typing import List, Tuple, Optional
 
-from .pieces import Piece, PieceType, Color
+from .pieces import Piece, PieceType, Color, ORTHRUS_DIRECTIONS, ORTHRUS_LEFT_TURN, ORTHRUS_RIGHT_TURN
 from .board import Board, BOARD_SIZE
 
 
@@ -16,6 +16,9 @@ def pseudo_legal_moves_for_piece(
     piece = board.get(row, col)
     if piece is None:
         return []
+
+    if piece.is_pawn and piece.pawn_name == "Orthrus":
+        return _orthrus_moves(board, row, col, piece)
 
     generators = {
         PieceType.CARL: _king_moves,
@@ -31,6 +34,65 @@ def pseudo_legal_moves_for_piece(
     if gen is None:
         return []
     return gen(board, row, col, piece)
+
+
+def orthrus_action_candidates(piece: Piece) -> dict:
+    """Return Orthrus's 3 possible actions as {action_name: (new_head_pos, new_direction)}.
+
+    Does not check board occupancy -- callers filter for in-bounds/empty.
+    """
+    head_pos = piece.orthrus_head_pos
+    direction = piece.orthrus_direction
+    dr, dc = ORTHRUS_DIRECTIONS[direction]
+    butt_pos = (head_pos[0] - dr, head_pos[1] - dc)
+
+    forward = (head_pos[0] + dr, head_pos[1] + dc)
+
+    left_dir = ORTHRUS_LEFT_TURN[direction]
+    ldr, ldc = ORTHRUS_DIRECTIONS[left_dir]
+    rotate_left = (butt_pos[0] + ldr, butt_pos[1] + ldc)
+
+    right_dir = ORTHRUS_RIGHT_TURN[direction]
+    rdr, rdc = ORTHRUS_DIRECTIONS[right_dir]
+    rotate_right = (butt_pos[0] + rdr, butt_pos[1] + rdc)
+
+    return {
+        "move": (forward, direction),
+        "rotate_left": (rotate_left, left_dir),
+        "rotate_right": (rotate_right, right_dir),
+    }
+
+
+def _orthrus_moves(board: Board, row: int, col: int, piece: Piece) -> List[Tuple[int, int]]:
+    """Orthrus's head-first move + 90-degree rotation destinations.
+
+    Only the head square generates moves -- clicking his butt square never does,
+    since he's a single logical piece anchored by his head.
+    """
+    if piece.orthrus_head_pos is None or (row, col) != piece.orthrus_head_pos:
+        return []
+
+    moves = []
+    for dest, _new_direction in orthrus_action_candidates(piece).values():
+        if board.in_bounds(*dest) and board.get(*dest) is None:
+            moves.append(dest)
+    return moves
+
+
+def resolve_orthrus_action(piece: Piece, to_pos: Tuple[int, int]):
+    """Given a validated destination for Orthrus's head, return
+    (new_head_pos, new_butt_pos, new_direction), or None if to_pos doesn't
+    match any of his current candidate actions.
+    """
+    for action, (dest, new_direction) in orthrus_action_candidates(piece).items():
+        if dest == to_pos:
+            if action == "move":
+                new_butt = piece.orthrus_head_pos
+            else:
+                dr, dc = ORTHRUS_DIRECTIONS[piece.orthrus_direction]
+                new_butt = (piece.orthrus_head_pos[0] - dr, piece.orthrus_head_pos[1] - dc)
+            return dest, new_butt, new_direction
+    return None
 
 
 def _sliding_moves(
@@ -154,6 +216,10 @@ def is_square_attacked(board: Board, row: int, col: int, by_color: Color) -> boo
         for c in range(BOARD_SIZE):
             p = board.get(r, c)
             if p is None or p.color != by_color:
+                continue
+
+            # Orthrus can never capture, so he never threatens any square.
+            if p.pawn_name == "Orthrus":
                 continue
 
             # For pawns, only check diagonal attack squares (not forward moves).

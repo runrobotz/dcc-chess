@@ -75,7 +75,7 @@ PAWN_CHARACTERS = {
         name="Mordecai",
         ability=PawnAbility(
             name="Manager Benefit",
-            description="Cannot attack. When captured, creates a ghost blocking his square and all 8 surrounding squares for 2 full turns. No piece can enter those squares. After 2 turns Mordecai respawns on his player's back rank. While within 1 square of Carl or Donut, their abilities cost 1 less.",
+            description="Cannot attack. When captured, creates a ghost blocking only the square where he was captured for 3 full turns. No piece can enter that square. After 3 turns Mordecai respawns on his player's back rank on any open square. While within 1 square of Carl or Donut, their abilities cost 1 less.",
             floor_number=0,
             trigger=AbilityTrigger.AUTO_ON_CAPTURE,
         ),
@@ -120,7 +120,7 @@ PAWN_CHARACTERS = {
         ability=PawnAbility(
             name="One Of Us",
             description="Recruit any one enemy pawn to your team for the rest of the match. Recruited pawn keeps its ability. If captured it returns to original owner.",
-            floor_number=7,
+            floor_number=10,
             trigger=AbilityTrigger.FLOOR_ROLL,
             uses_per_game=1,
             requires_combined=True,
@@ -132,7 +132,7 @@ PAWN_CHARACTERS = {
         name="Louie",
         ability=PawnAbility(
             name="Air Strike",
-            description="Create a 2x2 blocked zone anywhere within 4 squares. No piece can enter for 3 full turns. Louie cannot move this turn.",
+            description="Create a 2x2 blocked zone anywhere within 4 squares. All 4 squares must be completely empty. No piece can enter for 2 full turns. Louie cannot move this turn.",
             floor_number=6,
             trigger=AbilityTrigger.FLOOR_ROLL,
             requires_combined=True,
@@ -145,7 +145,7 @@ PAWN_CHARACTERS = {
         ability=PawnAbility(
             name="Body Guard",
             description="Sledge becomes completely immovable and invulnerable for 2 full turns. Cannot be captured, moved, or affected by any ability.",
-            floor_number=3,
+            floor_number=4,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
         is_female=False,
@@ -180,7 +180,7 @@ PAWN_CHARACTERS = {
         name="Lucia Mar",
         ability=PawnAbility(
             name="Sic Em",
-            description="Restrains 1 enemy piece within 2 squares for the next full turn. Restrained piece cannot move or use abilities.",
+            description="Restrains 1 enemy piece anywhere on the board for the next full turn. Restrained piece cannot move or use abilities.",
             floor_number=3,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
@@ -191,7 +191,7 @@ PAWN_CHARACTERS = {
         name="Chris",
         ability=PawnAbility(
             name="Lava Surge",
-            description="Covers Chris's square and 1 square on each side in his current rank or file — 3 squares total — with lava for 2 full turns. No piece can enter those squares. Chris cannot move during those 2 turns.",
+            description="Covers Chris's square and 1 square on each side in a chosen direction (horizontal or vertical) — 3 squares total — with lava for 2 full turns. All 3 squares must be completely empty, and Chris cannot cast while an enemy is adjacent. No piece can enter those squares. Chris cannot move during those 2 turns.",
             floor_number=4,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
@@ -214,7 +214,7 @@ PAWN_CHARACTERS = {
         ability=PawnAbility(
             name="Suppressing Fire",
             description="Push any one enemy piece 2 squares directly away from Florin. If it cannot move 2 full squares it moves as far as possible.",
-            floor_number=4,
+            floor_number=6,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
         is_female=False,
@@ -257,8 +257,8 @@ PAWN_CHARACTERS = {
     "Orthrus": PawnCharacter(
         name="Orthrus",
         ability=PawnAbility(
-            name="Aloof",
-            description="Always moves 2 squares instead of 1. Can only be captured by major pieces. Cannot be resurrected once captured — permanently removed when killed.",
+            name="No Ability",
+            description="A 1x2 piece with no active ability. Moves 1 square per turn in the direction his head faces, or rotates 90° left/right around his fixed butt square (one action per turn, not both). Cannot move or rotate into any occupied square. Cannot capture — a move into an enemy square is blocked. Can only be captured by a major piece (Carl, Donut, Mongo, Katia, Samantha) moving onto either his head or butt square. Capture is permanent — he can never be resurrected or respawned.",
             floor_number=0,
             trigger=AbilityTrigger.NO_ROLL,
         ),

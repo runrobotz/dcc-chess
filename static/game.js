@@ -31,6 +31,15 @@ const Game = {
     devStagingGrid: null,      // 11×11 array of piece objects (or null) for the staging board
     devStagingSelected: null,  // [row, col] of currently selected staging piece, or null
 
+    ORTHRUS_ARROWS: { up: '▲', down: '▼', left: '◀', right: '▶' },
+
+    pieceLabel(piece) {
+        if (piece.name === 'Orthrus' && piece.is_orthrus_head && piece.orthrus_direction) {
+            return `${piece.short}${this.ORTHRUS_ARROWS[piece.orthrus_direction] || ''}`;
+        }
+        return piece.short;
+    },
+
     STAGING_MAJOR_ORDER: ['Samantha', 'Katia', 'Mongo', 'Donut', 'Carl', 'Samantha', 'Katia', 'Mongo'],
     STAGING_MAJOR_INFO: {
         'Samantha': { type: 'Samantha', short: 'SAM' },
@@ -216,6 +225,7 @@ const Game = {
         this.renderBoard();
         this.renderHeader();
         this.renderCheckBanner();
+        this.renderSidebar();
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
         } else {
@@ -280,6 +290,11 @@ const Game = {
             (this.targetingAbility.abilityName === 'Air Strike' ||
              this.targetingAbility.abilityName === 'Lava Spit');
         const zoneRegionSquares = isZoneAbility ? this.getZoneRegionSquares() : null;
+        const isDirectionAbility = this.targetingMode && this.targetingAbility &&
+            this.targetingAbility.abilityName === 'Lava Surge';
+        const directionPreviewSet = isDirectionAbility
+            ? new Set(this.getDirectionPreviewSquares().map(([r, c]) => `${r},${c}`))
+            : null;
 
         // Persistent zone overlay sets
         const airStrikeSet = new Set((this.state.air_strike_zones || []).map(z => `${z[0]},${z[1]}`));
@@ -375,6 +390,10 @@ const Game = {
                             // .square.light / .square.dark background color shows through
                         }
                         sq.addEventListener('mouseover', () => this.handleZoneHover(row, col));
+                    } else if (isDirectionAbility) {
+                        if (directionPreviewSet.has(`${row},${col}`)) {
+                            sq.style.boxShadow = 'inset 0 0 0 2px rgba(255,120,40,0.95), inset 0 0 0 999px rgba(255,90,0,0.35)';
+                        }
                     } else {
                         const isValidTarget = this.validTargets.some(t => t[0] === row && t[1] === col);
                         if (isValidTarget) {
@@ -430,14 +449,14 @@ const Game = {
                     if (effectSymbols.length > 0) {
                         pieceEl.style.position = 'relative';
                         const labelSpan = document.createElement('span');
-                        labelSpan.textContent = piece.short;
+                        labelSpan.textContent = this.pieceLabel(piece);
                         pieceEl.appendChild(labelSpan);
                         const badge = document.createElement('span');
                         badge.className = 'effect-badge';
                         badge.textContent = effectSymbols.join('');
                         pieceEl.appendChild(badge);
                     } else {
-                        pieceEl.textContent = piece.short;
+                        pieceEl.textContent = this.pieceLabel(piece);
                     }
 
                     sq.appendChild(pieceEl);
@@ -850,10 +869,13 @@ const Game = {
                     const btn = document.createElement('button');
                     btn.className = `ability-btn ${canActivate ? 'can-activate' : 'cannot-activate'}`;
 
+                    const abLabel = ab.juice_box_source_pawn
+                        ? `${ab.name} (${ab.juice_box_source_pawn})`
+                        : ab.name;
                     btn.innerHTML = `
                         <span>
                             <span class="ab-piece">${pc.short || pc.name}</span>
-                            <span class="ab-name">${ab.name}</span>
+                            <span class="ab-name">${abLabel}</span>
                         </span>
                         <span class="ab-floor">${(ab.requires_combined || useCombined) ? '⚄+⚄' : ''} ${ab.floor} Mana</span>
                     `;
@@ -906,20 +928,45 @@ const Game = {
             card.className = `piece-card ${pc.suppressed ? 'suppressed' : ''}`;
 
             let abHtml = '';
-            for (const ab of pc.abilities) {
-                let usedTag = '';
-                if (ab.uses_per_game && ab.uses_left !== null && ab.uses_left <= 0) {
-                    usedTag = '<span class="used-label">USED</span>';
+            if (pc.name === 'Juice Box') {
+                const count = pc.abilities.length;
+                let entries = '';
+                if (count === 0) {
+                    entries = `<div class="pc-ability">No abilities acquired yet.</div>`;
+                } else {
+                    for (const ab of pc.abilities) {
+                        const floorText = ab.floor > 0 ? `${ab.floor} Mana` : 'Auto';
+                        entries += `
+                            <div class="pc-ability">
+                                <span class="ab-label">${ab.juice_box_source_pawn} — ${ab.name}</span>
+                                <span class="floor-num">${floorText}</span>
+                                <br><span>${ab.description}</span>
+                            </div>
+                        `;
+                    }
                 }
-                const floorText = ab.floor > 0 ? `${ab.floor} Mana` : (ab.trigger === 'floor_roll' ? '0 Mana' : 'Auto');
-                abHtml += `
-                    <div class="pc-ability">
-                        <span class="ab-label">${ab.name}</span>
-                        <span class="floor-num">${floorText}</span>
-                        ${usedTag}
-                        <br><span>${ab.description}</span>
-                    </div>
+                abHtml = `
+                    <details class="juice-box-abilities" ${count > 0 ? 'open' : ''}>
+                        <summary>Acquired Abilities (${count})</summary>
+                        ${entries}
+                    </details>
                 `;
+            } else {
+                for (const ab of pc.abilities) {
+                    let usedTag = '';
+                    if (ab.uses_per_game && ab.uses_left !== null && ab.uses_left <= 0) {
+                        usedTag = '<span class="used-label">USED</span>';
+                    }
+                    const floorText = ab.floor > 0 ? `${ab.floor} Mana` : (ab.trigger === 'floor_roll' ? '0 Mana' : 'Auto');
+                    abHtml += `
+                        <div class="pc-ability">
+                            <span class="ab-label">${ab.name}</span>
+                            <span class="floor-num">${floorText}</span>
+                            ${usedTag}
+                            <br><span>${ab.description}</span>
+                        </div>
+                    `;
+                }
             }
 
             card.innerHTML = `
@@ -1003,6 +1050,8 @@ const Game = {
             const abilityName = this.targetingAbility ? this.targetingAbility.abilityName : null;
             if (abilityName === 'Air Strike' || abilityName === 'Lava Spit') {
                 await this.handleZoneClick(row, col);
+            } else if (abilityName === 'Lava Surge') {
+                // Direction is chosen via the Horizontal/Vertical panel buttons, not board clicks
             } else {
                 await this.handleTargetSelection(row, col);
             }
@@ -1022,8 +1071,15 @@ const Game = {
 
         // If clicking own piece, select it (even if another piece is already selected)
         if (piece && piece.color === this.state.current_player) {
-            this.selectedSquare = { row, col };
-            await this.fetchLegalMoves(row, col);
+            // Orthrus is one logical piece across 2 squares -- clicking either
+            // his head or butt square always selects him via his head, since
+            // that's the only square his moves/rotations are generated from.
+            let selRow = row, selCol = col;
+            if (piece.name === 'Orthrus' && !piece.is_orthrus_head && piece.orthrus_head_pos) {
+                [selRow, selCol] = piece.orthrus_head_pos;
+            }
+            this.selectedSquare = { row: selRow, col: selCol };
+            await this.fetchLegalMoves(selRow, selCol);
             this.renderBoard();
             return;
         }
@@ -1178,17 +1234,156 @@ const Game = {
             'Blood Magic': 'sacrifice',
             // Freeze abilities
             'Frozen': 'target_piece',
+            // Direction-toggle abilities
+            'Lava Surge': 'direction',
         };
-        
+
         const targetingType = targetingAbilities[abilityName];
-        
-        if (targetingType) {
+
+        if (targetingType === 'direction') {
+            await this.enterDirectionTargeting(pieceRow, pieceCol, abilityName, dieIndex, useCombined);
+        } else if (targetingType) {
             // Enter targeting mode - fetch valid targets from backend
             await this.enterTargetingMode(pieceRow, pieceCol, abilityName, dieIndex, targetingType, useCombined);
         } else {
             // Execute ability directly (no targeting needed)
             await this.executeAbility(pieceRow, pieceCol, abilityName, dieIndex, null, useCombined);
         }
+    },
+
+    async enterDirectionTargeting(pieceRow, pieceCol, abilityName, dieIndex, useCombined = false) {
+        try {
+            const resp = await fetch('/ability/get_targets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    piece_row: pieceRow,
+                    piece_col: pieceCol,
+                    ability_name: abilityName,
+                    die_index: dieIndex,
+                    use_combined: useCombined,
+                }),
+            });
+            const data = await resp.json();
+
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+
+            this.targetingMode = true;
+            this.targetingAbility = {
+                pieceRow,
+                pieceCol,
+                abilityName,
+                dieIndex,
+                targetingType: 'direction',
+                useCombined,
+                directionOptions: data.direction_options || {},
+                selectedDirection: null,
+            };
+
+            this.showDirectionTargetingUI();
+            this.renderBoard();
+        } catch (e) {
+            console.error('Failed to enter direction targeting:', e);
+            this.showToast('Failed to get valid directions', 'fail');
+        }
+    },
+
+    showDirectionTargetingUI() {
+        const existing = document.getElementById('targeting-ui');
+        if (existing) existing.remove();
+
+        const ta = this.targetingAbility;
+        const opts = ta.directionOptions || {};
+
+        const ui = document.createElement('div');
+        ui.id = 'targeting-ui';
+        ui.className = 'targeting-ui-docked';
+
+        const title = document.createElement('div');
+        title.className = 'targeting-ui-title';
+        title.textContent = ta.abilityName;
+
+        const message = document.createElement('div');
+        message.className = 'targeting-ui-msg';
+        message.textContent = 'Choose lava direction';
+
+        ui.appendChild(title);
+        ui.appendChild(message);
+
+        const dirRow = document.createElement('div');
+        dirRow.style.cssText = 'display: flex; gap: 8px; margin: 8px 0;';
+
+        [['horizontal', 'Horizontal'], ['vertical', 'Vertical']].forEach(([dir, label]) => {
+            const opt = opts[dir];
+            const btn = document.createElement('button');
+            btn.textContent = label;
+            btn.className = 'btn btn-secondary';
+            btn.style.cssText = 'flex: 1; padding: 6px 10px; font-size: 0.78rem;';
+            if (!opt || !opt.valid) {
+                btn.disabled = true;
+                btn.style.opacity = '0.4';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                if (ta.selectedDirection === dir) {
+                    btn.style.border = '2px solid var(--accent-gold)';
+                }
+                btn.addEventListener('click', () => {
+                    this.targetingAbility.selectedDirection = dir;
+                    this.showDirectionTargetingUI();
+                    this.renderBoard();
+                });
+            }
+            dirRow.appendChild(btn);
+        });
+        ui.appendChild(dirRow);
+
+        const actionRow = document.createElement('div');
+        actionRow.style.cssText = 'display: flex; gap: 8px;';
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Confirm';
+        confirmBtn.className = 'btn btn-primary';
+        confirmBtn.style.cssText = 'flex: 1; padding: 6px 10px; font-size: 0.78rem;';
+        confirmBtn.disabled = !ta.selectedDirection;
+        confirmBtn.addEventListener('click', () => this.confirmDirectionTargeting());
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.style.cssText = 'flex: 1; padding: 6px 10px; font-size: 0.78rem;';
+        cancelBtn.addEventListener('click', () => this.cancelTargeting());
+
+        actionRow.appendChild(confirmBtn);
+        actionRow.appendChild(cancelBtn);
+        ui.appendChild(actionRow);
+
+        const dicePanel = document.getElementById('dice-panel');
+        if (dicePanel) {
+            dicePanel.classList.remove('hidden');
+            dicePanel.prepend(ui);
+        } else {
+            document.body.appendChild(ui);
+        }
+    },
+
+    async confirmDirectionTargeting() {
+        const ta = this.targetingAbility;
+        if (!ta || !ta.selectedDirection) return;
+        await this.executeAbility(
+            ta.pieceRow, ta.pieceCol, ta.abilityName, ta.dieIndex,
+            null, ta.useCombined, ta.selectedDirection
+        );
+        this.exitTargetingMode();
+    },
+
+    getDirectionPreviewSquares() {
+        const ta = this.targetingAbility;
+        if (!ta || !ta.selectedDirection) return [];
+        const opt = ta.directionOptions && ta.directionOptions[ta.selectedDirection];
+        return opt ? opt.squares : [];
     },
 
     async enterTargetingMode(pieceRow, pieceCol, abilityName, dieIndex, targetingType, useCombined = false) {
@@ -1325,7 +1520,7 @@ const Game = {
         this.render();
     },
 
-    async executeAbility(pieceRow, pieceCol, abilityName, dieIndex, target, useCombined = false) {
+    async executeAbility(pieceRow, pieceCol, abilityName, dieIndex, target, useCombined = false, direction = null) {
         try {
             const payload = {
                 piece_row: pieceRow,
@@ -1334,12 +1529,15 @@ const Game = {
                 die_index: dieIndex,
                 use_combined: useCombined,
             };
-            
+
             if (target) {
                 payload.target_row = target.row;
                 payload.target_col = target.col;
             }
-            
+            if (direction) {
+                payload.direction = direction;
+            }
+
             const resp = await fetch('/ability', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

@@ -3,7 +3,7 @@
 import random
 from typing import Optional, List, Tuple
 
-from .pieces import Piece, PieceType, Color, PIECE_SYMBOLS
+from .pieces import Piece, PieceType, Color, PIECE_SYMBOLS, ORTHRUS_DIRECTIONS
 
 
 BOARD_SIZE = 11
@@ -153,8 +153,9 @@ class Board:
         piece.has_moved = True
 
         # Pawn promotion check (row 10 for white, row 0 for black)
+        # Orthrus never promotes -- his 1x2 body doesn't fit the promotion model.
         promotion_rank = BOARD_SIZE - 1 if piece.color == Color.WHITE else 0
-        if piece.is_pawn and tr == promotion_rank:
+        if piece.is_pawn and tr == promotion_rank and piece.pawn_name != "Orthrus":
             self._promote_pawn(tr, tc, piece)
 
         return captured
@@ -219,9 +220,61 @@ class Board:
             valid_row = 1 if piece.color == Color.WHITE else 9
             if row != valid_row:
                 return False
-        
+
+        if piece.is_pawn and piece.pawn_name == "Orthrus":
+            return self.place_orthrus_body(piece, row, col)
+
         self.grid[row][col] = piece
         return True
+
+    def orthrus_butt_pos(self, piece: Piece) -> Optional[Tuple[int, int]]:
+        """Compute Orthrus's current butt square from his head square + facing direction."""
+        if piece.orthrus_head_pos is None or piece.orthrus_direction is None:
+            return None
+        hr, hc = piece.orthrus_head_pos
+        dr, dc = ORTHRUS_DIRECTIONS[piece.orthrus_direction]
+        return (hr - dr, hc - dc)
+
+    def place_orthrus_body(self, piece: Piece, anchor_row: int, anchor_col: int) -> bool:
+        """Place Orthrus's 2-square body anchored at (anchor_row, anchor_col), which
+        becomes his butt/pivot square. His head spawns one square further from his
+        own back rank (default facing), and must also be empty and in bounds.
+        Does not enforce back-rank/pawn-row restrictions -- callers that need those
+        (e.g. place_piece) must check before calling this.
+        """
+        if not self.in_bounds(anchor_row, anchor_col) or self.grid[anchor_row][anchor_col] is not None:
+            return False
+
+        direction = "up" if piece.color == Color.WHITE else "down"
+        dr, dc = ORTHRUS_DIRECTIONS[direction]
+        head_row, head_col = anchor_row + dr, anchor_col + dc
+
+        if not self.in_bounds(head_row, head_col) or self.grid[head_row][head_col] is not None:
+            return False
+
+        piece.orthrus_direction = direction
+        piece.orthrus_head_pos = (head_row, head_col)
+        self.grid[anchor_row][anchor_col] = piece
+        self.grid[head_row][head_col] = piece
+        return True
+
+    def move_orthrus_body(self, piece: Piece, new_head: Tuple[int, int],
+                           new_butt: Tuple[int, int], new_direction: str) -> None:
+        """Execute a validated Orthrus move or rotation: relocate his head/butt
+        squares and update his facing direction.
+        """
+        old_head = piece.orthrus_head_pos
+        old_butt = self.orthrus_butt_pos(piece)
+
+        for pos in (old_head, old_butt):
+            if pos is not None and pos != new_head and pos != new_butt:
+                self.grid[pos[0]][pos[1]] = None
+
+        self.grid[new_head[0]][new_head[1]] = piece
+        self.grid[new_butt[0]][new_butt[1]] = piece
+        piece.orthrus_head_pos = new_head
+        piece.orthrus_direction = new_direction
+        piece.has_moved = True
 
     def _promote_pawn(self, row: int, col: int, pawn: Piece):
         """Promote a pawn. For Stage 1, always promote to Dungeon Boss."""

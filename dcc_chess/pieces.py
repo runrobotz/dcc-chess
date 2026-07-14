@@ -55,6 +55,14 @@ class Piece:
         self.pawn_name = pawn_name  # e.g. "Zev", "Mordecai", etc. Only for pawns.
         self.has_moved = False
 
+        # Orthrus is a 1x2 piece: the same Piece instance occupies both his
+        # head and butt squares on the board. orthrus_head_pos is the head's
+        # current square; orthrus_direction is the way his head currently
+        # faces. The butt square is always orthrus_head_pos minus the
+        # direction vector (see ORTHRUS_DIRECTIONS below).
+        self.orthrus_head_pos = None
+        self.orthrus_direction = None
+
     @property
     def symbol(self) -> str:
         return PIECE_SYMBOLS.get((self.piece_type, self.color), "?")
@@ -70,3 +78,16 @@ class Piece:
     def __repr__(self):
         name = self.pawn_name if self.pawn_name else self.piece_type.value
         return f"{self.color.value}_{name}"
+
+
+# Orthrus movement/rotation direction vectors, keyed by facing direction.
+# 'up'/'down' move along rows (board-absolute, matching the board's own
+# up/down orientation), 'left'/'right' move along columns.
+ORTHRUS_DIRECTIONS = {
+    "up": (1, 0),
+    "down": (-1, 0),
+    "left": (0, -1),
+    "right": (0, 1),
+}
+ORTHRUS_LEFT_TURN = {"up": "left", "left": "down", "down": "right", "right": "up"}
+ORTHRUS_RIGHT_TURN = {"up": "right", "right": "down", "down": "left", "left": "up"}

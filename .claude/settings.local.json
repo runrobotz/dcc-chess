@@ -35,7 +35,23 @@
       "Bash(find /Library/Frameworks/Python.framework /usr/local/bin /opt/homebrew -name \"flask\" 2>/dev/null | head -5; find /Library/Frameworks/Python.framework -name \"python3*\" -path \"*/bin/*\" 2>/dev/null | head -10)",
       "Bash(pip3 show *)",
       "Bash(pip show *)",
-      "Bash(pip3 install *)"
+      "Bash(pip3 install *)",
+      "Bash(python3 -m py_compile app.py dcc_chess/abilities.py dcc_chess/pawns.py)",
+      "Bash(node -c static/game.js)",
+      "Bash(python3 -m py_compile dcc_chess/abilities.py)",
+      "Bash(python3 -m py_compile dcc_chess/*.py app.py)",
+      "Bash(python3 -m pytest tests/ -q)",
+      "Bash(python3 tests/test_abilities.py)",
+      "Bash(git stash *)",
+      "Bash(python3 \"/private/tmp/claude-501/-Users-joey-CascadeProjects-WS---DCC-Chess/751a4bd0-7835-478a-a40e-3ebddb5fe35e/scratchpad/verify_changes.py\")",
+      "Bash(python3 -m py_compile dcc_chess/pieces.py)",
+      "Bash(python3 -m py_compile dcc_chess/board.py)",
+      "Bash(python3 -m py_compile dcc_chess/movement.py)",
+      "Bash(python3 -m py_compile app.py)",
+      "Bash(python3 -m py_compile dcc_chess/pawns.py app.py dcc_chess/abilities.py dcc_chess/board.py dcc_chess/movement.py dcc_chess/pieces.py)",
+      "Bash(python3 \"/private/tmp/claude-501/-Users-joey-CascadeProjects-WS---DCC-Chess/751a4bd0-7835-478a-a40e-3ebddb5fe35e/scratchpad/verify_orthrus.py\")",
+      "Bash(python3 tests/test_movement.py)",
+      "Bash(python3 tests/test_game.py)"
     ]
   }
 }

@@ -17,6 +17,7 @@ from .pawns import (
 from .movement import (
     pseudo_legal_moves_for_piece, legal_moves_for_piece,
     is_in_check, is_square_attacked, all_legal_moves,
+    resolve_orthrus_action,
 )
 
 
@@ -239,9 +240,6 @@ class GameState:
         self.she_tank_targets = self.she_tank_pending.copy()
         self.she_tank_pending.clear()
 
-        # Process Orthrus Aloof for the current player
-        self._process_orthrus_aloof()
-
     def end_turn(self):
         """Called at end of turn. Tick down durations, swap player."""
         # Tick ghost tokens
@@ -335,6 +333,8 @@ class GameState:
             for c in range(BOARD_SIZE):
                 if self.board.get(back_rank, c) is None:
                     self.board.set(back_rank, c, piece)
+                    if piece.is_pawn and piece.pawn_name:
+                        self._juice_box_lose_ability(piece.pawn_name)
                     self.log_event("mordecai_respawn", piece=repr(piece), pos=(back_rank, c))
                     break
 
@@ -427,6 +427,9 @@ class GameState:
             # Orthrus cannot capture pieces
             if piece.is_pawn and piece.pawn_name == "Orthrus" and target is not None:
                 continue
+            # Only major pieces can capture Orthrus
+            if target and target.is_pawn and target.pawn_name == "Orthrus" and piece.is_pawn:
+                continue
             filtered.append(((fr, fc), (tr, tc)))
 
         # Forced retreat filter (Florin's Suppressing Fire)
@@ -459,6 +462,14 @@ class GameState:
                 self.log_event("ability_auto", piece="Garret", ability="Indestructible",
                                result="success", detail="Cannot be captured by non-Carl")
                 return "defended_garret"
+
+        # Orthrus can only be captured by major pieces (defense in depth --
+        # get_legal_moves_with_status already keeps non-majors from reaching here)
+        if defender.is_pawn and defender.pawn_name == "Orthrus":
+            if not self.check_orthrus_capturable(attacker):
+                self.log_event("ability_auto", piece="Orthrus", ability="Only Majors Can Capture",
+                               result="success", detail="Cannot be captured by non-major pieces")
+                return "defended_orthrus"
 
         # Check Elle McGib's Frozen Immunity (auto-trigger)
         if defender.is_pawn and defender.pawn_name == "Elle McGib":
@@ -510,14 +521,13 @@ class GameState:
         if captured_piece.is_pawn and captured_piece.pawn_name == "Mordecai":
             self.process_mordecai_capture(capture_pos, captured_piece)
         
-        # Orthrus permanent death (Chunk 2)
+        # Orthrus permanent death: only majors can capture him, and it's final
         if captured_piece.is_pawn and captured_piece.pawn_name == "Orthrus":
-            # Check if attacker can capture Orthrus
             if self.check_orthrus_capturable(attacker):
-                self.process_orthrus_permanent_death(captured_piece)
+                self.process_orthrus_permanent_death(captured_piece, capture_pos)
             else:
-                # Orthrus cannot be captured by pawns - this shouldn't happen
-                # but if it does, don't mark as permanently dead
+                # Orthrus cannot be captured by non-majors -- this shouldn't
+                # happen since get_legal_moves_with_status already filters it out
                 pass
         
         # Juice Box Shapeshift (Chunk 2)
@@ -1199,42 +1209,6 @@ class GameState:
             return moves
         return result
 
-    def _process_orthrus_aloof(self):
-        """Process Orthrus's Aloof ability at the start of each turn."""
-        color = self.current_player
-        for r, c, p in self.board.all_pieces(color):
-            if not (p.is_pawn and p.pawn_name == "Orthrus"):
-                continue
-            roll = random.randint(1, 6)
-            if roll <= 2:
-                # Move one square in random direction
-                # Direction map: 1=forward, 2=forward-right, 3=right,
-                # 4=back-right, 5=back, 6=left
-                fwd = color.direction
-                direction_map = {
-                    1: (fwd, 0),
-                    2: (fwd, 1),
-                    3: (0, 1),
-                    4: (-fwd, 1),
-                    5: (-fwd, 0),
-                    6: (0, -1),
-                }
-                dir_roll = random.randint(1, 6)
-                attempts = 0
-                while attempts < 12:
-                    dr, dc = direction_map[dir_roll]
-                    nr, nc = r + dr, c + dc
-                    if (self.board.in_bounds(nr, nc)
-                            and self.board.get(nr, nc) is None
-                            and not self.is_square_blocked(nr, nc)):
-                        self.board.set(r, c, None)
-                        self.board.set(nr, nc, p)
-                        self.log_event("orthrus_aloof", from_pos=(r, c), to_pos=(nr, nc),
-                                       roll=roll, dir_roll=dir_roll)
-                        break
-                    dir_roll = random.randint(1, 6)
-                    attempts += 1
-                # If all attempts fail, Orthrus stays put
 
     # ── New Pawn Abilities ─────────────────────────────────────────
 
@@ -1578,7 +1552,7 @@ class GameState:
 
     def try_sic_em(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                    die_index: int) -> bool:
-        """Lucia Mar's Sic Em (Floor 3): Restrain 1 enemy piece within 2 squares."""
+        """Lucia Mar's Sic Em (Floor 3): Restrain 1 enemy piece anywhere on the board."""
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Lucia Mar":
             return False
@@ -1592,17 +1566,15 @@ class GameState:
             return False
 
         r, c = pawn_pos
-        # Find enemy pieces within 2 squares
+        # Find enemy pieces anywhere on the board
         targets = []
-        for dr in range(-2, 3):
-            for dc in range(-2, 3):
-                if dr == 0 and dc == 0:
+        for nr in range(BOARD_SIZE):
+            for nc in range(BOARD_SIZE):
+                if (nr, nc) == (r, c):
                     continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    target = self.board.get(nr, nc)
-                    if target and target.color != piece.color:
-                        targets.append((nr, nc))
+                target = self.board.get(nr, nc)
+                if target and target.color != piece.color:
+                    targets.append((nr, nc))
 
         if not targets:
             return False
@@ -1694,16 +1666,16 @@ class GameState:
 
     def try_body_guard(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                        die_index: int) -> bool:
-        """Sledge's Body Guard (Floor 3): Become immovable and invulnerable for 2 turns."""
+        """Sledge's Body Guard (Floor 4): Become immovable and invulnerable for 2 turns."""
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Sledge":
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
 
-        success = dice.spend_die(die_index, 3)
+        success = dice.spend_die(die_index, 4)
         self.log_event("ability_roll", piece="Sledge", ability="Body Guard",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
+                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
         if not success:
             return False
 
@@ -1790,16 +1762,16 @@ class GameState:
 
     def try_suppressing_fire(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                              die_index: int) -> bool:
-        """Florin's Suppressing Fire (Floor 4): Push enemy piece 2 squares away."""
+        """Florin's Suppressing Fire (Floor 6): Push enemy piece 2 squares away."""
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Florin":
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
 
-        success = dice.spend_die(die_index, 4)
+        success = dice.spend_die(die_index, 6)
         self.log_event("ability_roll", piece="Florin", ability="Suppressing Fire",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
+                       die_value=dice.dice[die_index], floor=6, result="success" if success else "fail")
         if not success:
             return False
 
@@ -1813,7 +1785,8 @@ class GameState:
                 nr, nc = r + dr, c + dc
                 if self.board.in_bounds(nr, nc):
                     target = self.board.get(nr, nc)
-                    if target and target.color != piece.color:
+                    # Orthrus is a 2-square body; a single-square push would corrupt it
+                    if target and target.color != piece.color and target.pawn_name != "Orthrus":
                         targets.append((nr, nc, target))
 
         if not targets:
@@ -1821,7 +1794,7 @@ class GameState:
 
         # Pick random target
         tr, tc, target = random.choice(targets)
-        
+
         # Calculate push direction (away from Florin)
         dr = tr - r
         dc = tc - c
@@ -1855,13 +1828,56 @@ class GameState:
         
         return False
 
+    def chris_lava_surge_adjacent_enemy(self, pawn_pos: Tuple[int, int]) -> bool:
+        """Check whether any enemy piece is adjacent (within 1 square) to Chris."""
+        piece = self.board.get(*pawn_pos)
+        if piece is None:
+            return False
+        r, c = pawn_pos
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
+                if self.board.in_bounds(nr, nc):
+                    t = self.board.get(nr, nc)
+                    if t and t.color != piece.color:
+                        return True
+        return False
+
+    def chris_lava_surge_direction_squares(self, pawn_pos: Tuple[int, int], direction: str) -> List[Tuple[int, int]]:
+        """Return the 3 squares (Chris's square + 1 each side) for a given direction."""
+        r, c = pawn_pos
+        if direction == "horizontal":
+            return [(r, c - 1), (r, c), (r, c + 1)]
+        return [(r - 1, c), (r, c), (r + 1, c)]
+
+    def chris_lava_surge_direction_valid(self, pawn_pos: Tuple[int, int], direction: str) -> bool:
+        """A direction is valid only if all 3 squares are in bounds and completely empty (Chris's own square excepted)."""
+        for (sr, sc) in self.chris_lava_surge_direction_squares(pawn_pos, direction):
+            if not self.board.in_bounds(sr, sc):
+                return False
+            if (sr, sc) != pawn_pos and self.board.get(sr, sc) is not None:
+                return False
+        return True
+
     def try_lava_surge_chunk2(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                              die_index: int) -> bool:
-        """Chris's Lava Surge (Floor 4): Cover 3 squares with lava for 2 turns."""
+                              die_index: int, direction: Optional[str] = None) -> bool:
+        """Chris's Lava Surge (Floor 4): Cover 3 squares with lava for 2 turns.
+
+        Chris cannot cast while an enemy is adjacent, and the chosen direction's
+        3 squares must be completely empty. `direction` is 'horizontal' or 'vertical'.
+        """
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Chris":
             return False
         if self.is_piece_suppressed(*pawn_pos):
+            return False
+        if self.chris_lava_surge_adjacent_enemy(pawn_pos):
+            return False
+        if direction not in ("horizontal", "vertical"):
+            return False
+        if not self.chris_lava_surge_direction_valid(pawn_pos, direction):
             return False
 
         success = dice.spend_die(die_index, 4)
@@ -1870,25 +1886,17 @@ class GameState:
         if not success:
             return False
 
-        r, c = pawn_pos
-        # Cover Chris's square and 1 square on each side in rank or file
-        # Randomly choose rank or file
-        if random.choice([True, False]):
-            # Rank (horizontal)
-            lava_squares = [(r, c), (r, c-1), (r, c+1)]
-        else:
-            # File (vertical)
-            lava_squares = [(r, c), (r-1, c), (r+1, c)]
-        
+        lava_squares = self.chris_lava_surge_direction_squares(pawn_pos, direction)
+
         # Add lava zones
         for lr, lc in lava_squares:
             if self.board.in_bounds(lr, lc):
                 self.lava_zones[(lr, lc)] = 2
-        
+
         # Chris can't move for 2 turns
         self.chris_stuck.add(pawn_pos)
-        
-        self.log_event("lava_surge", pos=pawn_pos, lava_squares=lava_squares,
+
+        self.log_event("lava_surge", pos=pawn_pos, lava_squares=lava_squares, direction=direction,
                        detail="Lava for 2 turns, Chris stuck")
         return True
 
@@ -1923,9 +1931,9 @@ class GameState:
         
         if valid_zones:
             zone_pos = random.choice(valid_zones)
-            self.smoke_zones.append({"pos": zone_pos, "turns": 3})
+            self.smoke_zones.append({"pos": zone_pos, "turns": 2})
             self.louie_cant_move.add(pawn_pos)
-            self.log_event("air_strike", zone_pos=zone_pos, detail="2x2 blocked for 3 turns")
+            self.log_event("air_strike", zone_pos=zone_pos, detail="2x2 blocked for 2 turns")
             return True
         
         return False
@@ -1967,25 +1975,21 @@ class GameState:
 
     def process_mordecai_capture(self, mordecai_pos: Tuple[int, int], mordecai_piece: Piece):
         """Mordecai's Manager Benefit: Auto-trigger on capture.
-        Creates 3x3 ghost zone and schedules respawn after 2 turns.
+        Creates a single-square ghost zone on his captured square and
+        schedules respawn after 3 turns.
         """
-        r, c = mordecai_pos
-        # Create ghost tokens in 3x3 area (Mordecai's square + 8 surrounding)
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    self.ghost_tokens[(nr, nc)] = 2
-        
-        # Schedule Mordecai respawn after 2 turns
+        # Single ghost square on exactly the square where Mordecai was captured
+        self.ghost_tokens[mordecai_pos] = 3
+
+        # Schedule Mordecai respawn after 3 turns
         self.mordecai_respawn_pending.append({
             "piece": mordecai_piece,
-            "turns_left": 2,
+            "turns_left": 3,
             "color": mordecai_piece.color
         })
-        
-        self.log_event("mordecai_manager_benefit", pos=mordecai_pos, 
-                       detail="3x3 ghost zone for 2 turns, respawn scheduled")
+
+        self.log_event("mordecai_manager_benefit", pos=mordecai_pos,
+                       detail="Single ghost square for 3 turns, respawn scheduled")
 
     def check_mordecai_cost_reduction(self, piece_pos: Tuple[int, int], piece: Piece) -> int:
         """Check if Carl or Donut is within 1 square of Mordecai for cost reduction.
@@ -2024,15 +2028,6 @@ class GameState:
         
         return False
 
-    def process_orthrus_movement(self) -> None:
-        """Orthrus Aloof: Auto-trigger at turn start.
-        Orthrus always moves 2 squares instead of 1.
-        This is handled in movement generation, not here.
-        """
-        # This ability is passive and affects movement generation
-        # No processing needed here
-        pass
-
     def check_orthrus_capturable(self, attacker: Piece) -> bool:
         """Check if attacker can capture Orthrus.
         Orthrus can only be captured by major pieces.
@@ -2041,11 +2036,24 @@ class GameState:
             return False
         return True
 
-    def process_orthrus_permanent_death(self, orthrus_piece: Piece):
-        """Mark Orthrus as permanently dead - cannot be resurrected."""
+    def process_orthrus_permanent_death(self, orthrus_piece: Piece, capture_pos: Tuple[int, int]):
+        """Mark Orthrus as permanently dead and remove the rest of his 1x2 body.
+
+        capture_pos is whichever of his two squares the attacker actually landed
+        on; the other square (head or butt) still references this same Piece
+        object and must be cleared too, since the whole creature dies together.
+        """
         key = f"{orthrus_piece.color.value}_orthrus"
         self.orthrus_permanently_dead.add(key)
-        self.log_event("orthrus_permanent_death", detail="Orthrus permanently removed")
+
+        head_pos = orthrus_piece.orthrus_head_pos
+        butt_pos = self.board.orthrus_butt_pos(orthrus_piece)
+        other_pos = butt_pos if capture_pos == head_pos else head_pos
+        if other_pos is not None and self.board.get(*other_pos) is orthrus_piece:
+            self.board.set(other_pos[0], other_pos[1], None)
+
+        self.log_event("orthrus_permanent_death", pos=capture_pos, other_pos=other_pos,
+                       detail="Orthrus permanently removed")
 
     def process_juice_box_capture(self, juice_box_pos: Tuple[int, int], 
                                    captured_pawn: Piece, captured_pos: Tuple[int, int]):
@@ -2069,44 +2077,60 @@ class GameState:
                        captured=captured_pawn.pawn_name,
                        detail="Gained ability, cannot use this turn")
 
+    def find_captured_ability(self, juice_box_pos: Tuple[int, int], ability_name: str):
+        """Look up the PawnCharacter behind one of Juice Box's currently-acquired abilities."""
+        captured_list = self.juice_box_captured.get(juice_box_pos, [])
+        for pawn_name in captured_list:
+            char = PAWN_CHARACTERS.get(pawn_name)
+            if char and char.ability.name == ability_name:
+                return char
+        return None
+
+    def _juice_box_lose_ability(self, pawn_name: str):
+        """Strip a captured-ability entry from every Juice Box list.
+
+        Called whenever a pawn is resurrected — per her Shapeshift rule, if the
+        opponent brings the captured pawn back, Juice Box loses that ability.
+        """
+        for jb_pos, names in self.juice_box_captured.items():
+            if pawn_name in names:
+                names.remove(pawn_name)
+                self.log_event("juice_box_lost_ability", pos=jb_pos, pawn=pawn_name,
+                               detail="Captured pawn was resurrected")
+
     def try_juice_box_use_captured_ability(self, juice_box_pos: Tuple[int, int],
                                            ability_name: str, dice: DungeonDice,
-                                           die_index: int) -> bool:
+                                           die_index: int, use_combined: bool = False) -> bool:
         """Juice Box uses a captured pawn's ability.
-        Player selects which captured ability to use.
+        Player selects which captured ability to use, at that ability's real cost.
         """
         piece = self.board.get(*juice_box_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Juice Box":
             return False
-        
+        if self.is_piece_suppressed(*juice_box_pos):
+            return False
+
         # Check if Juice Box used ability this turn (captured someone)
         if juice_box_pos in self.juice_box_used_this_turn:
             return False
-        
-        # Check if Juice Box has captured abilities
-        if juice_box_pos not in self.juice_box_captured:
-            return False
-        
-        captured_list = self.juice_box_captured[juice_box_pos]
-        if not captured_list:
-            return False
-        
-        # Find the pawn character for the ability
-        from .pawns import PAWN_CHARACTERS
-        pawn_char = None
-        for pawn_name in captured_list:
-            char = PAWN_CHARACTERS.get(pawn_name)
-            if char and char.ability.name == ability_name:
-                pawn_char = char
-                break
-        
+
+        pawn_char = self.find_captured_ability(juice_box_pos, ability_name)
         if pawn_char is None:
             return False
-        
+
+        floor = pawn_char.ability.floor_number
+        if pawn_char.ability.requires_combined or use_combined:
+            if not dice.can_combine_for_cost(floor):
+                return False
+            dice.spend_combined(floor)
+        else:
+            if not dice.spend_die(die_index, floor):
+                return False
+
         # Use the captured ability (delegate to the appropriate handler)
         # This is a simplified version - full implementation would call the actual ability
-        self.log_event("juice_box_use_ability", pos=juice_box_pos, 
-                       ability=ability_name, pawn=pawn_char.name)
+        self.log_event("juice_box_use_ability", pos=juice_box_pos,
+                       ability=ability_name, pawn=pawn_char.name, floor=floor)
         return True
 
     # ── Chunk 2 Abilities: Priority Group 5 (Complex Major Piece Abilities) ──
@@ -2516,15 +2540,16 @@ class GameState:
         # Mark as used
         self.resurrection_used[piece.color] = True
         
-        # Find captured pieces for this color
-        captured = self.captured_pieces.get(piece.color, [])
+        # Find captured pieces for this color (Orthrus can never be resurrected)
+        source = self.captured_pieces.get(piece.color, [])
+        captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
         if not captured:
             return None
-        
+
         # Pick random captured piece to resurrect
         resurrected = random.choice(captured)
-        captured.remove(resurrected)
-        
+        source.remove(resurrected)
+
         # Find adjacent empty squares to Donut
         r, c = donut_pos
         adjacent = []
@@ -2536,16 +2561,18 @@ class GameState:
                 if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
                     if self.board.get(nr, nc) is None:
                         adjacent.append((nr, nc))
-        
+
         if not adjacent:
             # No space to resurrect - put piece back in captured
-            captured.append(resurrected)
+            source.append(resurrected)
             return None
         
         # Place at random adjacent position
         spawn_pos = random.choice(adjacent)
         self.board.set(spawn_pos[0], spawn_pos[1], resurrected)
-        
+        if resurrected.is_pawn and resurrected.pawn_name:
+            self._juice_box_lose_ability(resurrected.pawn_name)
+
         self.log_event("cockroach", piece_resurrected=repr(resurrected), pos=spawn_pos)
         return resurrected
 
@@ -2647,9 +2674,10 @@ class GameState:
                 nr, nc = r + dr, c + dc
                 if self.board.in_bounds(nr, nc):
                     target = self.board.get(nr, nc)
-                    if target and target.is_pawn and target.color != piece.color:
+                    # Orthrus is a 2-square body; swallowing one square would corrupt it
+                    if target and target.is_pawn and target.color != piece.color and target.pawn_name != "Orthrus":
                         target_pawns.append((nr, nc))
-        
+
         if not target_pawns:
             return False
         
@@ -2672,7 +2700,7 @@ class GameState:
         return True
 
     def try_one_of_us(self, slugalo_pos: Tuple[int, int], dice: DungeonDice) -> bool:
-        """Slugalo's One Of Us (Floor 7, requires combined):
+        """Slugalo's One Of Us (Floor 10, requires combined):
         Convert enemy pawn within 2 squares to friendly side.
         """
         piece = self.board.get(*slugalo_pos)
@@ -2680,14 +2708,14 @@ class GameState:
             return False
         if self.is_piece_suppressed(*slugalo_pos):
             return False
-        
-        # Requires combined dice (total >= 7)
-        if not dice.can_combine_for_cost(7):
+
+        # Requires combined dice (total >= 10)
+        if not dice.can_combine_for_cost(10):
             return False
-        
-        dice.spend_combined(7)
+
+        dice.spend_combined(10)
         self.log_event("ability_roll", piece="Slugalo", ability="One Of Us",
-                       detail="Combined dice for cost 7", result="success")
+                       detail="Combined dice for cost 10", result="success")
         
         # Find enemy pawns within 2 squares
         r, c = slugalo_pos
@@ -2748,34 +2776,35 @@ class GameState:
                     if target and target.is_pawn and target.color == piece.color:
                         adjacent_pawns.append((nr, nc))
         
-        # Check for captured friendly pieces to resurrect
-        captured = self.captured_pieces.get(piece.color, [])
-        
+        # Check for captured friendly pieces to resurrect (Orthrus can never be resurrected)
+        source = self.captured_pieces.get(piece.color, [])
+        captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
+
         if not adjacent_pawns or not captured:
             return False
-        
+
         # Pick random adjacent pawn to sacrifice (player will target this later)
         sacrifice_pos = random.choice(adjacent_pawns)
         sacrificed = self.board.get(*sacrifice_pos)
-        
+
         # Remove sacrificed pawn without triggering on-capture effects
         self.board.set(sacrifice_pos[0], sacrifice_pos[1], None)
         # Do NOT add to captured_pieces - it's sacrificed, not captured
-        
+
         # Pick random captured piece to resurrect (player will target this later)
         resurrected = random.choice(captured)
-        captured.remove(resurrected)
-        
+        source.remove(resurrected)
+
         # Find open squares on player's back rank
         back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
         back_rank_squares = []
         for col in range(BOARD_SIZE):
             if self.board.get(back_rank, col) is None:
                 back_rank_squares.append((back_rank, col))
-        
+
         if not back_rank_squares:
             # No space on back rank - put piece back in captured
-            captured.append(resurrected)
+            source.append(resurrected)
             # Put sacrificed piece back
             self.board.set(sacrifice_pos[0], sacrifice_pos[1], sacrificed)
             return False
@@ -2783,7 +2812,9 @@ class GameState:
         # Place resurrected piece at random back rank position (player will target this later)
         spawn_pos = random.choice(back_rank_squares)
         self.board.set(spawn_pos[0], spawn_pos[1], resurrected)
-        
+        if resurrected.is_pawn and resurrected.pawn_name:
+            self._juice_box_lose_ability(resurrected.pawn_name)
+
         self.log_event("blood_magic", sacrificed=repr(sacrificed), sacrificed_pos=sacrifice_pos,
                        resurrected=repr(resurrected), spawn_pos=spawn_pos)
         return True
