@@ -226,9 +226,13 @@ const Game = {
         this.renderBoard();
         this.renderHeader();
         this.renderCheckBanner();
-        this.renderSidebar();
-        this.renderStatusEffects();
-        this.renderCapturedPieces();
+        this.updateActivePanelHighlight();
+        for (const color of ['white', 'black']) {
+            this.renderSidebar(color);
+            this.renderStatusEffectsForColor(color);
+            this.renderCapturedPiecesForColor(color);
+            this.renderAbilityGridForColor(color);
+        }
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
         } else {
@@ -239,6 +243,13 @@ const Game = {
         }
         this.checkForAutoAbilityEvents();
         this.checkGameOver();
+    },
+
+    updateActivePanelHighlight() {
+        const whitePanel = document.getElementById('white-player-panel');
+        const blackPanel = document.getElementById('black-player-panel');
+        if (whitePanel) whitePanel.classList.toggle('active-panel', this.state.current_player === 'white');
+        if (blackPanel) blackPanel.classList.toggle('active-panel', this.state.current_player === 'black');
     },
 
     renderCheckBanner() {
@@ -651,8 +662,7 @@ const Game = {
         panel.classList.remove('hidden');
 
         const diceDisplay = document.getElementById('dice-display');
-        const abilityBtns = document.getElementById('ability-buttons');
-        abilityBtns.classList.remove('ability-grid');
+        const abilityBtns = document.getElementById('placement-pieces');
         const endTurnBtn = document.getElementById('end-turn-btn');
 
         endTurnBtn.classList.add('hidden');
@@ -712,7 +722,6 @@ const Game = {
     renderDicePanel() {
         const panel = document.getElementById('dice-panel');
         const diceDisplay = document.getElementById('dice-display');
-        const abilityBtns = document.getElementById('ability-buttons');
         const endTurnBtn = document.getElementById('end-turn-btn');
 
         // Show panel for ability phase only
@@ -792,34 +801,41 @@ const Game = {
             diceDisplay.appendChild(currentDice);
         }
 
-        // Available dice values — exclude spent and reserved dice
-        const availableDice = [];
-        if (dice && dice.values) {
-            const numDice = dice.values.length;
-            for (let i = 0; i < 2; i++) {
-                if (i >= numDice) continue;
-                const isReserved = this.targetingMode &&
-                                   this.targetingAbility &&
-                                   this.targetingAbility.dieIndex === i;
-                if (!dice.used[i] && !isReserved) {
-                    availableDice.push({ index: i, value: dice.values[i] });
-                }
-            }
-        }
-
-        // Render the ability card grid from current player's pieces
-        abilityBtns.innerHTML = '';
-        abilityBtns.classList.add('ability-grid');
-
-        if (this.state.phase === 'ability') {
-            this.renderAbilityCardGrid(abilityBtns, availableDice);
-        }
     },
 
     MAJOR_CARD_ORDER: ['Carl', 'Donut', 'Mongo', 'Katia', 'Samantha'],
 
     squareLabel(row, col) {
         return `${String.fromCharCode(65 + col)}${row + 1}`;
+    },
+
+    // Compute the dice a given color may currently spend on an ability: only
+    // the active player has real dice to spend, and only during the ability phase.
+    availableDiceForColor(color) {
+        const dice = this.state.dice;
+        const available = [];
+        if (this.state.current_player !== color || this.state.phase !== 'ability' || !dice || !dice.values) {
+            return available;
+        }
+        const numDice = dice.values.length;
+        for (let i = 0; i < 2; i++) {
+            if (i >= numDice) continue;
+            const isReserved = this.targetingMode &&
+                               this.targetingAbility &&
+                               this.targetingAbility.dieIndex === i;
+            if (!dice.used[i] && !isReserved) {
+                available.push({ index: i, value: dice.values[i] });
+            }
+        }
+        return available;
+    },
+
+    renderAbilityGridForColor(color) {
+        const container = document.getElementById(`ability-grid-${color}`);
+        if (!container) return;
+        container.innerHTML = '';
+        container.classList.add('ability-grid');
+        this.renderAbilityCardGrid(container, this.availableDiceForColor(color), color);
     },
 
     showAbilityTooltip(anchorEl, ab, pieceLabel) {
@@ -852,27 +868,46 @@ const Game = {
         const margin = 8;
         const boardEl = document.getElementById('board');
         const boardRect = boardEl ? boardEl.getBoundingClientRect() : null;
-        const minTop = boardRect ? boardRect.bottom + margin : margin;
 
-        // Prefer above the card; flip below if that would overlap the board or the
-        // viewport top. Never let either placement push back above minTop (the board's
-        // bottom edge) — that constraint always wins over fitting the viewport bottom.
-        const above = anchorRect.top - ttRect.height - margin;
-        const below = anchorRect.bottom + margin;
-        let top;
-        if (above >= minTop) {
-            top = above;
-        } else if (below + ttRect.height <= window.innerHeight - margin) {
-            top = below;
-        } else {
-            top = Math.max(minTop, window.innerHeight - ttRect.height - margin);
-        }
-        top = Math.max(minTop, top);
+        const overlapsBoard = (top, left) => {
+            if (!boardRect) return false;
+            return left < boardRect.right && (left + ttRect.width) > boardRect.left &&
+                   top < boardRect.bottom && (top + ttRect.height) > boardRect.top;
+        };
 
         let left = anchorRect.left + (anchorRect.width / 2) - (ttRect.width / 2);
         if (left < margin) left = margin;
         if (left + ttRect.width > window.innerWidth - margin) left = window.innerWidth - ttRect.width - margin;
         left = Math.max(margin, left);
+
+        // Prefer above the card; flip below if that would overlap the viewport top or
+        // the board. Ability cards live in the side panels (beside the board) or the
+        // center dice panel (below the board), so the board can sit above, below, or
+        // beside the anchor depending on which panel the card is in.
+        const above = anchorRect.top - ttRect.height - margin;
+        const below = anchorRect.bottom + margin;
+
+        let top;
+        if (above >= margin && !overlapsBoard(above, left)) {
+            top = above;
+        } else if (below + ttRect.height <= window.innerHeight - margin && !overlapsBoard(below, left)) {
+            top = below;
+        } else if (!overlapsBoard(above, left)) {
+            top = Math.max(margin, above);
+        } else if (!overlapsBoard(below, left)) {
+            top = Math.min(below, window.innerHeight - ttRect.height - margin);
+        } else if (boardRect) {
+            // Both vertical placements still overlap the board — nudge horizontally
+            // fully outside it instead, keeping the tooltip near the anchor's row.
+            top = Math.max(margin, Math.min(above, window.innerHeight - ttRect.height - margin));
+            if (anchorRect.left < boardRect.left) {
+                left = Math.max(margin, boardRect.left - ttRect.width - margin);
+            } else {
+                left = Math.min(window.innerWidth - ttRect.width - margin, boardRect.right + margin);
+            }
+        } else {
+            top = Math.max(margin, above);
+        }
 
         tt.style.top = `${top}px`;
         tt.style.left = `${left}px`;
@@ -883,8 +918,8 @@ const Game = {
         if (tt) tt.classList.remove('visible');
     },
 
-    renderAbilityCardGrid(container, availableDice) {
-        const pieces = this.state.player_pieces || [];
+    renderAbilityCardGrid(container, availableDice, color) {
+        const pieces = this.state[`${color}_player_pieces`] || [];
         const majors = pieces.filter(pc => !pc.is_pawn);
         const pawns = pieces.filter(pc => pc.is_pawn);
 
@@ -896,9 +931,7 @@ const Game = {
         }
         const orderedMajorNames = this.MAJOR_CARD_ORDER.filter(n => majorGroups[n]);
 
-        const draftOrder = this.state.current_player === 'white'
-            ? (this.state.white_pawns || [])
-            : (this.state.black_pawns || []);
+        const draftOrder = color === 'white' ? (this.state.white_pawns || []) : (this.state.black_pawns || []);
         const orderedPawns = [...pawns].sort((a, b) => draftOrder.indexOf(a.name) - draftOrder.indexOf(b.name));
 
         if (orderedMajorNames.length > 0) {
@@ -1179,18 +1212,31 @@ const Game = {
         return sorted.length > 0 ? sorted[0] : null;
     },
 
-    renderSidebar() {
-        const label = document.getElementById('sidebar-player-label');
-        const list = document.getElementById('piece-list');
+    DUPLICABLE_MAJORS: new Set(['Mongo', 'Katia', 'Samantha']),
 
-        const current = this.state.current_player;
-        label.textContent = `${current === 'white' ? "White" : "Black"}'s Pieces`;
+    renderSidebar(color) {
+        const list = document.getElementById(`piece-list-${color}`);
+        if (!list) return;
 
-        const pieces = this.state.player_pieces || [];
+        const pieces = this.state[`${color}_player_pieces`] || [];
         list.innerHTML = '';
 
+        // Merge duplicate major-piece copies (Mongo/Katia/Samantha) into one entry
+        const grouped = [];
+        const seenMajorNames = new Set();
+        for (const pc of pieces) {
+            if (!pc.is_pawn && this.DUPLICABLE_MAJORS.has(pc.name)) {
+                if (seenMajorNames.has(pc.name)) continue;
+                seenMajorNames.add(pc.name);
+                const copies = pieces.filter(p => !p.is_pawn && p.name === pc.name);
+                grouped.push({ ...pc, _copyCount: copies.length, _instances: copies });
+            } else {
+                grouped.push({ ...pc, _copyCount: 1, _instances: [pc] });
+            }
+        }
+
         // Sort: major pieces first, then pawns
-        const sorted = [...pieces].sort((a, b) => {
+        const sorted = [...grouped].sort((a, b) => {
             if (a.is_pawn && !b.is_pawn) return 1;
             if (!a.is_pawn && b.is_pawn) return -1;
             return 0;
@@ -1242,97 +1288,77 @@ const Game = {
                 }
             }
 
+            const x2Badge = pc._copyCount > 1 ? '<span class="pc-x2-badge">x2</span>' : '';
             card.innerHTML = `
                 <div class="pc-header">
-                    <span class="pc-name">${pc.name}</span>
+                    <span class="pc-name">${pc.name}${x2Badge}</span>
                     <span class="pc-type">${pc.type}${pc.suppressed ? ' (Suppressed)' : ''}</span>
                 </div>
                 ${abHtml}
             `;
 
             card.addEventListener('click', () => {
-                // Clicking a sidebar piece selects it on the board
-                this.handleSquareClick(pc.row, pc.col);
+                // Clicking a sidebar piece selects it on the board (first copy, if merged)
+                const target = pc._instances[0];
+                this.handleSquareClick(target.row, target.col);
             });
 
             list.appendChild(card);
         }
     },
 
-    renderStatusEffects() {
-        const container = document.getElementById('status-effects');
+    renderStatusEffectsForColor(color) {
+        const container = document.getElementById(`status-effects-${color}`);
         if (!container) return;
         container.innerHTML = '';
 
         const effects = this.state.status_effects || { white: [], black: [] };
+        const entries = effects[color] || [];
 
-        for (const side of ['white', 'black']) {
-            const sideDiv = document.createElement('div');
-            sideDiv.className = 'status-effects-side';
-
-            const heading = document.createElement('h4');
-            heading.textContent = side === 'white' ? 'White Active Effects' : 'Black Active Effects';
-            sideDiv.appendChild(heading);
-
-            const entries = effects[side] || [];
-            if (entries.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'status-effects-empty';
-                empty.textContent = 'No active effects';
-                sideDiv.appendChild(empty);
-            } else {
-                for (const eff of entries) {
-                    const row = document.createElement('div');
-                    row.className = 'status-effect-entry';
-                    const turnsText = eff.turns === null || eff.turns === undefined
-                        ? ''
-                        : `${eff.turns} turn${eff.turns !== 1 ? 's' : ''} left`;
-                    row.innerHTML = `
-                        <span class="se-label"><span class="se-piece">${eff.piece}</span> — ${eff.effect}</span>
-                        <span class="se-turns">${turnsText}</span>
-                    `;
-                    sideDiv.appendChild(row);
-                }
+        if (entries.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'status-effects-empty';
+            empty.textContent = 'No active effects';
+            container.appendChild(empty);
+        } else {
+            for (const eff of entries) {
+                const row = document.createElement('div');
+                row.className = 'status-effect-entry';
+                const turnsText = eff.turns === null || eff.turns === undefined
+                    ? ''
+                    : `${eff.turns} turn${eff.turns !== 1 ? 's' : ''} left`;
+                row.innerHTML = `
+                    <span class="se-label"><span class="se-piece">${eff.piece}</span> — ${eff.effect}</span>
+                    <span class="se-turns">${turnsText}</span>
+                `;
+                container.appendChild(row);
             }
-
-            container.appendChild(sideDiv);
         }
     },
 
-    renderCapturedPieces() {
-        const container = document.getElementById('captured-pieces');
+    renderCapturedPiecesForColor(color) {
+        const container = document.getElementById(`captured-pieces-${color}`);
         if (!container) return;
         container.innerHTML = '';
 
         const captured = this.state.captured_pieces || { white: [], black: [] };
+        const entries = captured[color] || [];
 
-        for (const side of ['white', 'black']) {
-            const rowDiv = document.createElement('div');
-            rowDiv.className = 'captured-pieces-row';
-
-            const heading = document.createElement('h4');
-            heading.textContent = side === 'white' ? "White's Captured Pieces" : "Black's Captured Pieces";
-            rowDiv.appendChild(heading);
-
-            const entries = captured[side] || [];
-            if (entries.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'captured-empty';
-                empty.textContent = 'No captured pieces';
-                rowDiv.appendChild(empty);
-            } else {
-                const tagsDiv = document.createElement('div');
-                tagsDiv.className = 'captured-tags';
-                for (const piece of entries) {
-                    const tag = document.createElement('span');
-                    tag.className = 'captured-tag' + (piece.permanently_dead ? ' permanently-dead' : '');
-                    tag.textContent = piece.permanently_dead ? `${piece.name} ☠` : piece.name;
-                    tagsDiv.appendChild(tag);
-                }
-                rowDiv.appendChild(tagsDiv);
+        if (entries.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'captured-empty';
+            empty.textContent = 'No captured pieces';
+            container.appendChild(empty);
+        } else {
+            const tagsDiv = document.createElement('div');
+            tagsDiv.className = 'captured-tags';
+            for (const piece of entries) {
+                const tag = document.createElement('span');
+                tag.className = 'captured-tag' + (piece.permanently_dead ? ' permanently-dead' : '');
+                tag.textContent = piece.permanently_dead ? `${piece.name} ☠` : piece.name;
+                tagsDiv.appendChild(tag);
             }
-
-            container.appendChild(rowDiv);
+            container.appendChild(tagsDiv);
         }
     },
 

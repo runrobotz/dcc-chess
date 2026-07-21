@@ -44,7 +44,28 @@
     <!-- ═══ GAME SCREEN ═══ -->
     <div id="game-screen" class="screen">
         <div class="game-layout">
-            <!-- Left: Board -->
+            <!-- Left: Black's permanent panel -->
+            <div class="player-panel" id="black-player-panel" data-color="black">
+                <div class="player-panel-header black-panel-header">Black</div>
+                <div class="sidebar-section">
+                    <h3>Black's Pieces</h3>
+                    <div id="piece-list-black" class="piece-list"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Abilities</h3>
+                    <div id="ability-grid-black" class="ability-buttons ability-grid"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Status Effects</h3>
+                    <div id="status-effects-black" class="status-effects"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Black Graveyard</h3>
+                    <div id="captured-pieces-black" class="captured-pieces"></div>
+                </div>
+            </div>
+
+            <!-- Center: Board -->
             <div class="board-section">
                 <div class="game-header">
                     <div class="turn-info">
@@ -79,24 +100,29 @@
                 <div id="dice-panel" class="dice-panel hidden">
                     <h3>Dungeon Dice</h3>
                     <div id="dice-display" class="dice-display"></div>
-                    <div id="ability-buttons" class="ability-buttons"></div>
+                    <div id="placement-pieces" class="ability-buttons"></div>
                     <button id="end-turn-btn" class="btn btn-end-turn" onclick="Game.endTurn()">End Turn</button>
                 </div>
             </div>
 
-            <!-- Right: Sidebar -->
-            <div class="sidebar">
+            <!-- Right: White's permanent panel -->
+            <div class="player-panel" id="white-player-panel" data-color="white">
+                <div class="player-panel-header white-panel-header">White</div>
                 <div class="sidebar-section">
-                    <h3 id="sidebar-player-label">White's Pieces</h3>
-                    <div id="piece-list" class="piece-list"></div>
+                    <h3>White's Pieces</h3>
+                    <div id="piece-list-white" class="piece-list"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Abilities</h3>
+                    <div id="ability-grid-white" class="ability-buttons ability-grid"></div>
                 </div>
                 <div class="sidebar-section">
                     <h3>Status Effects</h3>
-                    <div id="status-effects" class="status-effects"></div>
+                    <div id="status-effects-white" class="status-effects"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Captured Pieces</h3>
-                    <div id="captured-pieces" class="captured-pieces"></div>
+                    <h3>White Graveyard</h3>
+                    <div id="captured-pieces-white" class="captured-pieces"></div>
                 </div>
             </div>
         </div>

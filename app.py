@@ -341,6 +341,8 @@ def build_game_state_response():
         "winner": winner,
         "result_reason": reason,
         "player_pieces": get_all_player_pieces(gs, current),
+        "white_player_pieces": get_all_player_pieces(gs, "white"),
+        "black_player_pieces": get_all_player_pieces(gs, "black"),
         "mode": game_data.get("mode", "pvp"),
         "events": gs.events[-20:] if gs.events else [],  # Last 20 events
         "white_pawns": game_data.get("white_pawns", []),

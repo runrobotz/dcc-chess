@@ -248,7 +248,7 @@ body {
 .game-layout {
     display: flex;
     gap: 20px;
-    max-width: 1400px;
+    max-width: 1600px;
     margin: 0 auto;
     height: calc(100vh - 32px);
 }
@@ -865,15 +865,40 @@ body {
     margin-top: 3px;
 }
 
-/* ═══ SIDEBAR ═══ */
-.sidebar {
+/* ═══ PLAYER PANELS (permanent dual sidebar) ═══ */
+.player-panel {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-width: 280px;
-    max-width: 340px;
+    gap: 10px;
+    min-width: 260px;
+    max-width: 320px;
     overflow: hidden;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    padding: 2px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.player-panel.active-panel {
+    border-color: var(--accent-gold);
+    box-shadow: 0 0 14px rgba(201, 168, 76, 0.25);
+}
+.player-panel-header {
+    text-align: center;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px;
+    border-radius: 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+}
+.player-panel-header.white-panel-header {
+    color: var(--white-piece);
+}
+.player-panel-header.black-panel-header {
+    color: var(--black-piece);
 }
 .sidebar-section {
     background: var(--bg-panel);
@@ -908,13 +933,6 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-}
-.status-effects-side h4 {
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 5px;
 }
 .status-effect-entry {
     display: flex;
@@ -951,13 +969,6 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-}
-.captured-pieces-row h4 {
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 5px;
 }
 .captured-tags {
     display: flex;
@@ -1009,6 +1020,17 @@ body {
 .piece-card .pc-type {
     font-size: 0.7rem;
     color: var(--text-secondary);
+}
+.piece-card .pc-x2-badge {
+    display: inline-block;
+    background: var(--accent-gold);
+    color: var(--bg-darkest);
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: 6px;
+    vertical-align: middle;
 }
 .piece-card .pc-ability {
     font-size: 0.72rem;
