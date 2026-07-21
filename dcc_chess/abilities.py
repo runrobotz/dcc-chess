@@ -1048,81 +1048,6 @@ class GameState:
             return True
         return False
 
-    def try_gun_show(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                     die_index: int) -> bool:
-        """Stripper Anaconda's Gun Show (Floor 4): move/pull female pieces."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Stripper Anaconda":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Stripper Anaconda", ability="Gun Show",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        # Option A: move adjacent friendly female piece up to 3 squares
-        friendly_females = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.color == piece.color and self._is_female(t):
-                        friendly_females.append((nr, nc, t))
-
-        # Option B: pull enemy female major piece 1 square closer
-        enemy_females = []
-        for er, ec, ep in self.board.all_pieces(piece.color.opponent):
-            if self._is_female(ep) and not ep.is_pawn:
-                if not self.is_piece_invulnerable(er, ec):
-                    enemy_females.append((er, ec, ep))
-
-        # AI randomly picks an option
-        options = []
-        if friendly_females:
-            options.append("move_friendly")
-        if enemy_females:
-            options.append("pull_enemy")
-
-        if not options:
-            return False
-
-        choice = random.choice(options)
-        if choice == "move_friendly":
-            fr, fc_f, fp = random.choice(friendly_females)
-            # Move up to 3 squares in a random valid direction
-            directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-            random.shuffle(directions)
-            for ddr, ddc in directions:
-                for dist in range(3, 0, -1):
-                    nr, nc = fr + ddr * dist, fc_f + ddc * dist
-                    if (self.board.in_bounds(nr, nc) and self.board.get(nr, nc) is None
-                            and not self.is_square_blocked(nr, nc)):
-                        self.board.set(fr, fc_f, None)
-                        self.board.set(nr, nc, fp)
-                        self.log_event("gun_show_move", target=repr(fp), to=(nr, nc))
-                        return True
-        elif choice == "pull_enemy":
-            er, ec, ep = random.choice(enemy_females)
-            # Pull 1 square closer to Anaconda
-            dr_dir = 0 if er == r else (1 if r > er else -1)
-            dc_dir = 0 if ec == c else (1 if c > ec else -1)
-            nr, nc = er + dr_dir, ec + dc_dir
-            if (self.board.in_bounds(nr, nc) and self.board.get(nr, nc) is None
-                    and not self.is_square_blocked(nr, nc)):
-                self.board.set(er, ec, None)
-                self.board.set(nr, nc, ep)
-                self.log_event("gun_show_pull", target=repr(ep), to=(nr, nc))
-                return True
-
-        return False
-
     # ── Helpers ───────────────────────────────────────────────────
 
     def _find_pawn(self, color: Color, pawn_name: str) -> Optional[Tuple[int, int]]:
@@ -1331,44 +1256,6 @@ class GameState:
         # We just log the copy — the actual effect is simplified as a success
         return True
 
-    def try_suppressing_fire(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                             die_index: int) -> bool:
-        """Florin's Suppressing Fire (Floor 3): force enemy to retreat."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Florin":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Florin", ability="Suppressing Fire",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        # Find enemies within 3 squares in a straight line (ortho or diagonal)
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-        targets = []
-        for dr, dc in directions:
-            for dist in range(1, 4):
-                nr, nc = r + dr * dist, c + dc * dist
-                if not self.board.in_bounds(nr, nc):
-                    break
-                t = self.board.get(nr, nc)
-                if t and t.color != piece.color:
-                    targets.append((nr, nc))
-                    break
-                if t:
-                    break  # Friendly piece blocks line of sight
-
-        if targets:
-            target_pos = random.choice(targets)
-            self.forced_retreat_pending[target_pos] = pawn_pos
-            self.log_event("suppressing_fire_applied", target_pos=target_pos, florin_pos=pawn_pos)
-            return True
-        return False
-
     def try_enthrall(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                      die_index: int) -> bool:
         """Signet's Enthrall (Floor 4): force adjacent enemy major piece toward Signet."""
@@ -1401,70 +1288,6 @@ class GameState:
             self.log_event("enthrall_applied", target_pos=target_pos, signet_pos=pawn_pos)
             return True
         return False
-
-    def try_blood_magic(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int) -> bool:
-        """Miriam Dom's Blood Magic (Floor 5): sacrifice friendly pawn, resurrect captured pawn."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Miriam Dom":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        # Need: adjacent friendly pawn to sacrifice, captured friendly pawn to resurrect
-        r, c = pawn_pos
-        sacrifice_candidates = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.is_pawn and t.color == piece.color and t.pawn_name != "Miriam Dom":
-                        sacrifice_candidates.append((nr, nc, t))
-
-        captured_pawns = [p for p in self.board.captured[piece.color] if p.is_pawn]
-        if not sacrifice_candidates or not captured_pawns:
-            return False
-
-        success = dice.spend_die(die_index, 5)
-        self.log_event("ability_roll", piece="Miriam Dom", ability="Blood Magic",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Sacrifice (no on-capture effects)
-        sr, sc, sacrifice = random.choice(sacrifice_candidates)
-        self.board.set(sr, sc, None)
-        # Don't add to captured list and don't trigger post-capture effects
-        self.log_event("blood_magic_sacrifice", sacrificed=repr(sacrifice), pos=(sr, sc))
-
-        # Resurrect
-        revived = random.choice(captured_pawns)
-        self.board.captured[piece.color].remove(revived)
-
-        # Place on open adjacent square
-        adj_open = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if (self.board.in_bounds(nr, nc) and self.board.get(nr, nc) is None
-                        and not self.is_square_blocked(nr, nc)):
-                    adj_open.append((nr, nc))
-
-        if adj_open:
-            place_pos = random.choice(adj_open)
-            self.board.set(place_pos[0], place_pos[1], revived)
-            revived.has_moved = True
-            self.log_event("blood_magic_resurrect", revived=repr(revived), pos=place_pos)
-            return True
-        else:
-            # No space — put revived back in captured
-            self.board.captured[piece.color].append(revived)
-            return False
 
     def try_meditative_strike(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                               die_index: int) -> bool:

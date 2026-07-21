@@ -51,7 +51,15 @@
       "Bash(python3 -m py_compile dcc_chess/pawns.py app.py dcc_chess/abilities.py dcc_chess/board.py dcc_chess/movement.py dcc_chess/pieces.py)",
       "Bash(python3 \"/private/tmp/claude-501/-Users-joey-CascadeProjects-WS---DCC-Chess/751a4bd0-7835-478a-a40e-3ebddb5fe35e/scratchpad/verify_orthrus.py\")",
       "Bash(python3 tests/test_movement.py)",
-      "Bash(python3 tests/test_game.py)"
+      "Bash(python3 tests/test_game.py)",
+      "Bash(awk '{print $2}')",
+      "Bash(awk '$1>1')",
+      "Bash(python3 -m py_compile app.py dcc_chess/*.py)",
+      "Bash(python3 -m py_compile dcc_chess/ai.py)",
+      "Bash(python3 \"/private/tmp/claude-501/-Users-joey-CascadeProjects-WS---DCC-Chess/751a4bd0-7835-478a-a40e-3ebddb5fe35e/scratchpad/verify_ai_sync.py\")",
+      "Bash(git rm *)",
+      "Bash(find /private/tmp/claude-501 -maxdepth 3 -type d 2>/dev/null)",
+      "Bash(python3 \"/private/tmp/claude-501/-Users-joey-CascadeProjects-WS---DCC-Chess/751a4bd0-7835-478a-a40e-3ebddb5fe35e/scratchpad/verify_all.py\")"
     ]
   }
 }

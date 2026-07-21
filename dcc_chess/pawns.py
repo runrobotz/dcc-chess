@@ -156,7 +156,7 @@ PAWN_CHARACTERS = {
         ability=PawnAbility(
             name="Gun Show",
             description="Pull any one female piece 1 square closer to Anaconda via the shortest route. Female pieces are Donut plus any pieces designated female before the game. Can target friendly or enemy female pieces.",
-            floor_number=3,
+            floor_number=5,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
         is_female=False,
@@ -236,7 +236,7 @@ PAWN_CHARACTERS = {
         ability=PawnAbility(
             name="Succubus",
             description="Draw any 1 male character — friendly or enemy — 1 square closer to Signet via the shortest route.",
-            floor_number=3,
+            floor_number=6,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
         is_female=False,

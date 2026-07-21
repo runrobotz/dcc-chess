@@ -195,17 +195,45 @@ def _try_samantha_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, in
             gs.try_portal_spike(pos, dice, idx)
 
 
+def _pick_chris_direction(gs: GameState, pos: Tuple[int, int]) -> Optional[str]:
+    """Pick a valid Lava Surge direction for Chris, or None if neither is valid."""
+    for direction in ("horizontal", "vertical"):
+        if gs.chris_lava_surge_direction_valid(pos, direction):
+            return direction
+    return None
+
+
 def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
     """Try a pawn's ability based on its character."""
     if dice.remaining_count == 0:
         return
 
     name = piece.pawn_name
+
+    # Juice Box has no ability of her own -- she uses one of the abilities
+    # she's captured from enemy pawns, each at that pawn's own floor/cost.
+    if name == "Juice Box":
+        if pos in gs.juice_box_used_this_turn:
+            return
+        captured_list = gs.juice_box_captured.get(pos, [])
+        options = [n for n in captured_list
+                   if PAWN_CHARACTERS.get(n) and PAWN_CHARACTERS[n].ability.trigger == AbilityTrigger.FLOOR_ROLL]
+        if not options or random.random() > 0.5:
+            return
+        captured_name = random.choice(options)
+        cchar = PAWN_CHARACTERS[captured_name]
+        idx = dice.get_best_die_for_floor(cchar.ability.floor_number)
+        if idx is None:
+            return
+        gs.try_juice_box_use_captured_ability(pos, cchar.ability.name, dice, idx,
+                                              use_combined=cchar.ability.requires_combined)
+        return
+
     char = PAWN_CHARACTERS.get(name)
     if char is None:
         return
 
-    # Auto-trigger abilities don't need dice (Mordecai, Elle, Quasar)
+    # Auto-trigger abilities don't need dice (Mordecai, Garret, Quasar, Orthrus)
     if char.ability.trigger != AbilityTrigger.FLOOR_ROLL:
         return
 
@@ -218,41 +246,44 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
         return
 
     if name == "Zev":
-        gs.try_pack_rally(pos, dice, idx)
+        gs.try_biggest_fan(pos, dice, idx)
     elif name == "The AI":
         gs.try_glitch(pos, dice, idx)
     elif name == "Prepotente":
-        result = gs.try_titan_stride(pos, dice, idx)
+        result = gs.try_special_boy(pos, dice, idx)
         if result:
+            dest = random.choice(result)
             gs.board.set(pos[0], pos[1], None)
-            gs.board.set(result[0], result[1], piece)
+            gs.board.set(dest[0], dest[1], piece)
             piece.has_moved = True
+    elif name == "Elle McGib":
+        gs.try_frozen(pos, dice, idx)
     elif name == "Imani":
-        gs.try_suppression(pos, dice, idx)
+        gs.try_suppress(pos, dice, idx)
     elif name == "Slugalo":
-        gs.try_recruit(pos, dice, idx)
+        gs.try_one_of_us(pos, dice)
     elif name == "Louie":
-        gs.try_smoke_bomb(pos, dice, idx)
+        gs.try_air_strike(pos, dice, idx)
     elif name == "Sledge":
-        gs.try_iron_wall(pos, dice, idx)
+        gs.try_body_guard(pos, dice, idx)
     elif name == "Stripper Anaconda":
         gs.try_gun_show(pos, dice, idx)
     elif name == "Lucia Mar":
-        gs.try_sicced(pos, dice, idx)
+        gs.try_sic_em(pos, dice, idx)
     elif name == "Chris":
-        gs.try_lava_surge(pos, dice, idx)
-    elif name == "Juice Box":
-        gs.try_shapeshift(pos, dice, idx)
+        direction = _pick_chris_direction(gs, pos)
+        if direction:
+            gs.try_lava_surge_chunk2(pos, dice, idx, direction=direction)
     elif name == "Florin":
         gs.try_suppressing_fire(pos, dice, idx)
     elif name == "Signet":
-        gs.try_enthrall(pos, dice, idx)
+        gs.try_succubus(pos, dice, idx)
     elif name == "Miriam Dom":
-        gs.try_blood_magic(pos, dice, idx)
+        gs.try_blood_magic(pos, dice)
     elif name == "Raul the Crab":
-        gs.try_meditative_strike(pos, dice, idx)
+        gs.try_group_climax(pos, dice)
     elif name == "Bad Llama":
-        gs.try_lava_spit(pos, dice, idx)
+        gs.try_lava_spit_chunk2(pos, dice, idx)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -469,6 +500,19 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
                               offensive, defensive):
     """Sort pawn abilities into offensive/defensive buckets."""
     name = piece.pawn_name
+
+    # Juice Box has no ability of her own -- offer each captured ability at
+    # that pawn's own floor/cost, same as a human would see in her sidebar list.
+    if name == "Juice Box":
+        if (row, col) in gs.juice_box_used_this_turn:
+            return
+        for captured_name in gs.juice_box_captured.get((row, col), []):
+            cchar = PAWN_CHARACTERS.get(captured_name)
+            if cchar and cchar.ability.trigger == AbilityTrigger.FLOOR_ROLL:
+                offensive.append((f"juice_box:{cchar.ability.name}", (row, col), piece,
+                                  cchar.ability.floor_number))
+        return
+
     char = PAWN_CHARACTERS.get(name)
     if char is None or char.ability.trigger != AbilityTrigger.FLOOR_ROLL:
         return
@@ -478,10 +522,11 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
     if name == "Imani":
         if _has_enemy_in_range(board, row, col, 1, opponent):
             offensive.append(("imani", (row, col), piece, floor))
+    elif name == "Elle McGib":
+        if _has_enemy_in_range(board, row, col, 5, opponent):
+            offensive.append(("elle_mcgib", (row, col), piece, floor))
     elif name == "Slugalo":
-        key = f"{piece.color.value}_Slugalo"
-        uses = gs.pawn_ability_uses.get(key, {}).get("Recruit", 1)
-        if uses > 0 and _has_enemy_in_range(board, row, col, 1, opponent):
+        if _has_enemy_in_range(board, row, col, 2, opponent):
             offensive.append(("slugalo", (row, col), piece, floor))
     elif name == "Stripper Anaconda":
         if _has_enemy_in_range(board, row, col, 1, opponent):
@@ -520,21 +565,14 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         if _has_enemy_in_range(board, row, col, 2, opponent):
             offensive.append(("the_ai", (row, col), piece, 4))  # Approximate floor
     elif name == "Lucia Mar":
-        if _has_enemy_in_range(board, row, col, 1, opponent):
+        # Sic Em can target any enemy piece anywhere on the board
+        if any(True for _ in board.all_pieces(opponent)):
             offensive.append(("lucia_mar", (row, col), piece, floor))
     elif name == "Chris":
-        if _has_enemy_in_range(board, row, col, 1, opponent):
+        # Lava Surge is blocked entirely while an enemy is adjacent, and
+        # needs at least one direction whose 3 squares are fully empty
+        if not gs.chris_lava_surge_adjacent_enemy((row, col)) and _pick_chris_direction(gs, (row, col)):
             offensive.append(("chris", (row, col), piece, floor))
-    elif name == "Juice Box":
-        # Shapeshift: only useful if friendly pawns with floor_roll abilities exist
-        has_copyable = any(
-            p.is_pawn and p.pawn_name and p.pawn_name != "Juice Box"
-            and PAWN_CHARACTERS.get(p.pawn_name)
-            and PAWN_CHARACTERS[p.pawn_name].ability.trigger == AbilityTrigger.FLOOR_ROLL
-            for _, _, p in board.all_pieces(piece.color)
-        )
-        if has_copyable:
-            offensive.append(("juice_box", (row, col), piece, floor))
     elif name == "Florin":
         if _has_enemy_in_range(board, row, col, 3, opponent):
             offensive.append(("florin", (row, col), piece, floor))
@@ -605,38 +643,47 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     elif ability_name == "bulldozer":
         gs.try_bulldozer(pos, dice, die_idx)
     elif ability_name == "imani":
-        gs.try_suppression(pos, dice, die_idx)
+        gs.try_suppress(pos, dice, die_idx)
+    elif ability_name == "elle_mcgib":
+        gs.try_frozen(pos, dice, die_idx)
     elif ability_name == "slugalo":
-        gs.try_recruit(pos, dice, die_idx)
+        gs.try_one_of_us(pos, dice)
     elif ability_name == "gun_show":
         gs.try_gun_show(pos, dice, die_idx)
     elif ability_name == "louie":
-        gs.try_smoke_bomb(pos, dice, die_idx)
+        gs.try_air_strike(pos, dice, die_idx)
     elif ability_name == "prepotente":
-        result = gs.try_titan_stride(pos, dice, die_idx)
+        result = gs.try_special_boy(pos, dice, die_idx)
         if result:
+            dest = random.choice(result)
             gs.board.set(pos[0], pos[1], None)
-            gs.board.set(result[0], result[1], piece)
+            gs.board.set(dest[0], dest[1], piece)
             piece.has_moved = True
     elif ability_name == "zev":
-        gs.try_pack_rally(pos, dice, die_idx)
+        gs.try_biggest_fan(pos, dice, die_idx)
     elif ability_name == "sledge":
-        gs.try_iron_wall(pos, dice, die_idx)
+        gs.try_body_guard(pos, dice, die_idx)
     elif ability_name == "the_ai":
         gs.try_glitch(pos, dice, die_idx)
     elif ability_name == "lucia_mar":
-        gs.try_sicced(pos, dice, die_idx)
+        gs.try_sic_em(pos, dice, die_idx)
     elif ability_name == "chris":
-        gs.try_lava_surge(pos, dice, die_idx)
-    elif ability_name == "juice_box":
-        gs.try_shapeshift(pos, dice, die_idx)
+        direction = _pick_chris_direction(gs, pos)
+        if direction:
+            gs.try_lava_surge_chunk2(pos, dice, die_idx, direction=direction)
+    elif ability_name.startswith("juice_box:"):
+        captured_ability_name = ability_name.split(":", 1)[1]
+        cchar = gs.find_captured_ability(pos, captured_ability_name)
+        use_combined = bool(cchar and cchar.ability.requires_combined)
+        gs.try_juice_box_use_captured_ability(pos, captured_ability_name, dice, die_idx,
+                                              use_combined=use_combined)
     elif ability_name == "florin":
         gs.try_suppressing_fire(pos, dice, die_idx)
     elif ability_name == "signet":
-        gs.try_enthrall(pos, dice, die_idx)
+        gs.try_succubus(pos, dice, die_idx)
     elif ability_name == "miriam_dom":
-        gs.try_blood_magic(pos, dice, die_idx)
+        gs.try_blood_magic(pos, dice)
     elif ability_name == "raul":
-        gs.try_meditative_strike(pos, dice, die_idx)
+        gs.try_group_climax(pos, dice)
     elif ability_name == "bad_llama":
-        gs.try_lava_spit(pos, dice, die_idx)
+        gs.try_lava_spit_chunk2(pos, dice, die_idx)
