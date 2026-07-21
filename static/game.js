@@ -222,10 +222,13 @@ const Game = {
 
     render() {
         if (!this.state) return;
+        this.hideAbilityTooltip();
         this.renderBoard();
         this.renderHeader();
         this.renderCheckBanner();
         this.renderSidebar();
+        this.renderStatusEffects();
+        this.renderCapturedPieces();
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
         } else {
@@ -646,11 +649,12 @@ const Game = {
     renderPlacementPanel() {
         const panel = document.getElementById('dice-panel');
         panel.classList.remove('hidden');
-        
+
         const diceDisplay = document.getElementById('dice-display');
         const abilityBtns = document.getElementById('ability-buttons');
+        abilityBtns.classList.remove('ability-grid');
         const endTurnBtn = document.getElementById('end-turn-btn');
-        
+
         endTurnBtn.classList.add('hidden');
         
         const placementPlayer = this.state.placement_player;
@@ -803,98 +807,367 @@ const Game = {
             }
         }
 
-        // Render ability buttons from current player's pieces
+        // Render the ability card grid from current player's pieces
         abilityBtns.innerHTML = '';
-        
+        abilityBtns.classList.add('ability-grid');
+
         if (this.state.phase === 'ability') {
-            if (availableDice.length === 0) {
-                const msg = document.createElement('div');
-                msg.style.cssText = 'color: var(--text-secondary); font-size: 0.8rem; text-align: center; padding: 8px;';
-                msg.textContent = 'Make your move, then End Turn';
-                abilityBtns.appendChild(msg);
-                return;
-            }
+            this.renderAbilityCardGrid(abilityBtns, availableDice);
+        }
+    },
 
-            const pieces = this.state.player_pieces || [];
-            for (const pc of pieces) {
-                if (pc.suppressed) continue;
-                for (const ab of pc.abilities) {
-                    // Skip auto/passive abilities
-                    if (ab.trigger !== 'floor_roll') continue;
-                    // Skip used-up abilities
-                    if (ab.uses_per_game && ab.uses_left !== null && ab.uses_left <= 0) continue;
+    MAJOR_CARD_ORDER: ['Carl', 'Donut', 'Mongo', 'Katia', 'Samantha'],
 
-                    // Boss-only abilities are blocked outside boss events
-                    if (ab.is_boss_only && !this.state.boss_active) {
-                        const btn = document.createElement('button');
-                        btn.className = 'ability-btn boss-event-only';
-                        btn.disabled = true;
-                        btn.innerHTML = `
-                            <span>
-                                <span class="ab-piece">${pc.short || pc.name}</span>
-                                <span class="ab-name">${ab.name}</span>
-                            </span>
-                            <span class="ab-floor" style="font-style: italic; color: #9a60c0;">🔒 Boss Event Only</span>
-                        `;
-                        abilityBtns.appendChild(btn);
-                        continue;
-                    }
+    squareLabel(row, col) {
+        return `${String.fromCharCode(65 + col)}${row + 1}`;
+    },
 
-                    let bestDie = null;
-                    let canActivate = false;
-                    let useCombined = false;
+    showAbilityTooltip(anchorEl, ab, pieceLabel) {
+        let tt = document.getElementById('ability-tooltip');
+        if (!tt) {
+            tt = document.createElement('div');
+            tt.id = 'ability-tooltip';
+            tt.className = 'ability-tooltip';
+            document.body.appendChild(tt);
+        }
 
-                    if (ab.requires_combined) {
-                        // Always needs both dice combined
-                        const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                        canActivate = availableDice.length >= 2 && diceSum >= ab.floor;
-                        if (canActivate) bestDie = availableDice[0];
-                        useCombined = true;
-                    } else {
-                        // Prefer a single qualifying die; fall back to combined sum
-                        const single = this.findBestDie(availableDice, ab.floor);
-                        if (single !== null && single.value >= ab.floor) {
-                            bestDie = single;
-                            canActivate = true;
-                        } else if (availableDice.length >= 2) {
-                            const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                            if (diceSum >= ab.floor) {
-                                canActivate = true;
-                                useCombined = true;
-                                bestDie = availableDice[0];
-                            }
-                        }
-                    }
+        const limits = [];
+        if (ab.uses_per_game) limits.push(`${ab.uses_per_game} use${ab.uses_per_game !== 1 ? 's' : ''} per game`);
+        if (ab.requires_combined) limits.push('Requires combined dice');
+        if (ab.is_reaction) limits.push('Reaction ability — usable on opponent\'s turn');
+        if (ab.is_boss_only) limits.push('Boss Event only');
 
-                    const btn = document.createElement('button');
-                    btn.className = `ability-btn ${canActivate ? 'can-activate' : 'cannot-activate'}`;
+        const manaText = ab.floor > 0 ? `${ab.floor} Mana` : (ab.trigger === 'floor_roll' ? '0 Mana' : 'Passive / Automatic');
 
-                    const abLabel = ab.juice_box_source_pawn
-                        ? `${ab.name} (${ab.juice_box_source_pawn})`
-                        : ab.name;
-                    btn.innerHTML = `
-                        <span>
-                            <span class="ab-piece">${pc.short || pc.name}</span>
-                            <span class="ab-name">${abLabel}</span>
-                        </span>
-                        <span class="ab-floor">${(ab.requires_combined || useCombined) ? '⚄+⚄' : ''} ${ab.floor} Mana</span>
-                    `;
+        tt.innerHTML = `
+            <div class="at-title">${pieceLabel} — ${ab.name}</div>
+            <div class="at-mana">${manaText}</div>
+            <div class="at-desc">${ab.description || ''}</div>
+            ${limits.length ? `<div class="at-limits">${limits.join(' • ')}</div>` : ''}
+        `;
+        tt.classList.add('visible');
 
-                    if (canActivate) {
-                        btn.addEventListener('click', () => this.useAbility(pc.row, pc.col, ab.name, bestDie.index, useCombined));
-                    }
+        const anchorRect = anchorEl.getBoundingClientRect();
+        const ttRect = tt.getBoundingClientRect();
+        const margin = 8;
+        const boardEl = document.getElementById('board');
+        const boardRect = boardEl ? boardEl.getBoundingClientRect() : null;
+        const minTop = boardRect ? boardRect.bottom + margin : margin;
 
-                    abilityBtns.appendChild(btn);
+        // Prefer above the card; flip below if that would overlap the board or the
+        // viewport top. Never let either placement push back above minTop (the board's
+        // bottom edge) — that constraint always wins over fitting the viewport bottom.
+        const above = anchorRect.top - ttRect.height - margin;
+        const below = anchorRect.bottom + margin;
+        let top;
+        if (above >= minTop) {
+            top = above;
+        } else if (below + ttRect.height <= window.innerHeight - margin) {
+            top = below;
+        } else {
+            top = Math.max(minTop, window.innerHeight - ttRect.height - margin);
+        }
+        top = Math.max(minTop, top);
+
+        let left = anchorRect.left + (anchorRect.width / 2) - (ttRect.width / 2);
+        if (left < margin) left = margin;
+        if (left + ttRect.width > window.innerWidth - margin) left = window.innerWidth - ttRect.width - margin;
+        left = Math.max(margin, left);
+
+        tt.style.top = `${top}px`;
+        tt.style.left = `${left}px`;
+    },
+
+    hideAbilityTooltip() {
+        const tt = document.getElementById('ability-tooltip');
+        if (tt) tt.classList.remove('visible');
+    },
+
+    renderAbilityCardGrid(container, availableDice) {
+        const pieces = this.state.player_pieces || [];
+        const majors = pieces.filter(pc => !pc.is_pawn);
+        const pawns = pieces.filter(pc => pc.is_pawn);
+
+        // Group majors by type name so duplicate copies (Mongo/Katia/Samantha) merge into one card
+        const majorGroups = {};
+        for (const pc of majors) {
+            if (!majorGroups[pc.name]) majorGroups[pc.name] = [];
+            majorGroups[pc.name].push(pc);
+        }
+        const orderedMajorNames = this.MAJOR_CARD_ORDER.filter(n => majorGroups[n]);
+
+        const draftOrder = this.state.current_player === 'white'
+            ? (this.state.white_pawns || [])
+            : (this.state.black_pawns || []);
+        const orderedPawns = [...pawns].sort((a, b) => draftOrder.indexOf(a.name) - draftOrder.indexOf(b.name));
+
+        if (orderedMajorNames.length > 0) {
+            const divider = document.createElement('div');
+            divider.className = 'ability-section-divider';
+            divider.textContent = 'Major Pieces';
+            container.appendChild(divider);
+
+            for (const name of orderedMajorNames) {
+                const instances = majorGroups[name];
+                const abilityNames = instances[0].abilities
+                    .filter(ab => ab.trigger === 'floor_roll')
+                    .map(ab => ab.name);
+                for (const abName of abilityNames) {
+                    const perInst = instances
+                        .map(inst => ({ row: inst.row, col: inst.col, suppressed: inst.suppressed, ab: inst.abilities.find(a => a.name === abName) }))
+                        .filter(x => x.ab);
+                    if (perInst.length === 0) continue;
+                    this.appendAbilityCard(container, {
+                        pieceLabel: name,
+                        allInstances: perInst,
+                        ab: perInst[0].ab,
+                        availableDice,
+                    });
                 }
             }
+        }
 
-            if (abilityBtns.children.length === 0) {
-                const msg = document.createElement('div');
-                msg.style.cssText = 'color: var(--text-secondary); font-size: 0.8rem; text-align: center; padding: 8px;';
-                msg.textContent = 'No abilities available — make your move';
-                abilityBtns.appendChild(msg);
+        if (orderedPawns.length > 0) {
+            const divider = document.createElement('div');
+            divider.className = 'ability-section-divider';
+            divider.textContent = 'Pawns';
+            container.appendChild(divider);
+
+            for (const pc of orderedPawns) {
+                if (pc.name === 'Juice Box') {
+                    this.appendJuiceBoxCard(container, pc, availableDice);
+                    continue;
+                }
+                for (const ab of pc.abilities) {
+                    if (ab.trigger !== 'floor_roll') continue;
+                    this.appendAbilityCard(container, {
+                        pieceLabel: pc.short || pc.name,
+                        allInstances: [{ row: pc.row, col: pc.col, suppressed: pc.suppressed, ab }],
+                        ab,
+                        availableDice,
+                    });
+                }
             }
         }
+
+        if (container.children.length === 0) {
+            const msg = document.createElement('div');
+            msg.style.cssText = 'color: var(--text-secondary); font-size: 0.8rem; text-align: center; padding: 8px; grid-column: 1 / -1;';
+            msg.textContent = 'No pieces available';
+            container.appendChild(msg);
+        }
+    },
+
+    appendAbilityCard(container, { pieceLabel, allInstances, ab, availableDice }) {
+        let status = 'red';
+        let clickable = false;
+        let bestDie = null;
+        let useCombined = false;
+
+        if (ab.is_boss_only && !this.state.boss_active) {
+            status = 'purple';
+        } else {
+            const eligible = allInstances.filter(inst =>
+                !inst.suppressed && (ab.uses_per_game == null || inst.ab.uses_left === null || inst.ab.uses_left === undefined || inst.ab.uses_left > 0)
+            );
+            if (eligible.length === 0) {
+                status = 'grey';
+            } else if (availableDice.length === 0) {
+                status = 'grey';
+            } else if (ab.requires_combined) {
+                const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
+                if (availableDice.length >= 2 && diceSum >= ab.floor) {
+                    status = 'green'; clickable = true; bestDie = availableDice[0]; useCombined = true;
+                }
+            } else {
+                const single = this.findBestDie(availableDice, ab.floor);
+                if (single !== null && single.value >= ab.floor) {
+                    status = 'green'; clickable = true; bestDie = single;
+                } else if (availableDice.length >= 2) {
+                    const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
+                    if (diceSum >= ab.floor) {
+                        status = 'green'; clickable = true; bestDie = availableDice[0]; useCombined = true;
+                    }
+                }
+            }
+        }
+
+        const card = document.createElement('div');
+        card.className = `ability-card status-${status}`;
+
+        const abLabel = ab.juice_box_source_pawn ? `${ab.name} (${ab.juice_box_source_pawn})` : ab.name;
+        const manaLabel = (ab.is_boss_only && !this.state.boss_active)
+            ? '🔒 Boss Event Only'
+            : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${ab.floor} Mana`;
+
+        card.innerHTML = `
+            <span class="ac-piece-name">${pieceLabel}</span>
+            <span class="ac-ability-name">${abLabel}</span>
+            <span class="ac-mana">${manaLabel}</span>
+        `;
+
+        if (allInstances.length > 1) {
+            const badge = document.createElement('span');
+            badge.className = 'ac-x2-badge';
+            badge.textContent = 'x2';
+            card.appendChild(badge);
+        }
+
+        if (clickable) {
+            card.addEventListener('click', () => {
+                if (allInstances.length > 1) {
+                    this.showCopySelectPopover(card, allInstances, ab.name, bestDie.index, useCombined);
+                } else {
+                    this.useAbility(allInstances[0].row, allInstances[0].col, ab.name, bestDie.index, useCombined);
+                }
+            });
+        }
+
+        card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, ab, pieceLabel));
+        card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+
+        container.appendChild(card);
+    },
+
+    showCopySelectPopover(anchorEl, instances, abilityName, dieIndex, useCombined) {
+        const existing = document.getElementById('copy-select-popover');
+        if (existing) existing.remove();
+
+        const popover = document.createElement('div');
+        popover.id = 'copy-select-popover';
+        popover.className = 'copy-select-popover';
+
+        const title = document.createElement('div');
+        title.className = 'csp-title';
+        title.textContent = 'Choose which copy';
+        popover.appendChild(title);
+
+        for (const inst of instances) {
+            const btn = document.createElement('button');
+            btn.textContent = `Copy at ${this.squareLabel(inst.row, inst.col)}`;
+            btn.addEventListener('click', () => {
+                popover.remove();
+                this.useAbility(inst.row, inst.col, abilityName, dieIndex, useCombined);
+            });
+            popover.appendChild(btn);
+        }
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => popover.remove());
+        popover.appendChild(cancelBtn);
+
+        document.body.appendChild(popover);
+
+        const rect = anchorEl.getBoundingClientRect();
+        const popRect = popover.getBoundingClientRect();
+        let top = rect.bottom + 6;
+        let left = rect.left;
+        if (left + popRect.width > window.innerWidth - 8) left = window.innerWidth - popRect.width - 8;
+        if (top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 6;
+        popover.style.top = `${Math.max(8, top)}px`;
+        popover.style.left = `${Math.max(8, left)}px`;
+
+        const dismiss = (e) => {
+            if (!popover.contains(e.target) && e.target !== anchorEl) {
+                popover.remove();
+                document.removeEventListener('click', dismiss);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', dismiss), 0);
+    },
+
+    appendJuiceBoxCard(container, pc, availableDice) {
+        const card = document.createElement('div');
+        card.className = 'ability-card status-grey';
+        card.style.cursor = 'default';
+
+        card.innerHTML = `
+            <span class="ac-piece-name">${pc.short || pc.name}</span>
+            <span class="ac-ability-name">Shapeshift</span>
+            <span class="ac-mana">Select an acquired ability below</span>
+        `;
+
+        const jbBaseAbility = this.roster.find(p => p.name === 'Juice Box');
+        if (jbBaseAbility) {
+            const shapeshiftAb = {
+                name: jbBaseAbility.ability_name,
+                floor: jbBaseAbility.floor_number,
+                description: jbBaseAbility.ability_description,
+                trigger: jbBaseAbility.trigger,
+                uses_per_game: jbBaseAbility.uses_per_game,
+                requires_combined: false,
+                is_reaction: false,
+                is_boss_only: false,
+            };
+            card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, shapeshiftAb, pc.name));
+            card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+        }
+
+        const subpanel = document.createElement('details');
+        subpanel.className = 'juice-box-subpanel';
+
+        const summary = document.createElement('summary');
+        summary.textContent = `Acquired Abilities (${pc.abilities.length})`;
+        subpanel.appendChild(summary);
+
+        if (pc.abilities.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'jb-empty';
+            empty.textContent = 'No abilities acquired yet.';
+            subpanel.appendChild(empty);
+        } else {
+            for (const ab of pc.abilities) {
+                const entry = document.createElement('div');
+                entry.className = 'jb-entry';
+
+                let status = 'grey';
+                let bestDie = null;
+                let useCombined = false;
+                if (!pc.suppressed && availableDice.length > 0) {
+                    const single = this.findBestDie(availableDice, ab.floor);
+                    if (single !== null && single.value >= ab.floor) {
+                        status = 'green'; bestDie = single;
+                    } else if (availableDice.length >= 2) {
+                        const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
+                        if (diceSum >= ab.floor) {
+                            status = 'green'; bestDie = availableDice[0]; useCombined = true;
+                        } else {
+                            status = 'red';
+                        }
+                    } else {
+                        status = 'red';
+                    }
+                }
+
+                entry.innerHTML = `
+                    <span>${ab.juice_box_source_pawn} — ${ab.name}</span>
+                    <span>${ab.floor} Mana</span>
+                `;
+                entry.style.borderLeft = `3px solid var(--${status === 'green' ? 'success' : status === 'red' ? 'danger' : 'text-dim'})`;
+
+                if (status === 'green') {
+                    entry.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.useAbility(pc.row, pc.col, ab.name, bestDie.index, useCombined);
+                    });
+                }
+
+                entry.addEventListener('mouseenter', (e) => {
+                    e.stopPropagation();
+                    this.showAbilityTooltip(entry, ab, ab.juice_box_source_pawn);
+                });
+                entry.addEventListener('mouseleave', (e) => {
+                    e.stopPropagation();
+                    this.hideAbilityTooltip();
+                });
+
+                subpanel.appendChild(entry);
+            }
+        }
+
+        card.appendChild(subpanel);
+        container.appendChild(card);
     },
 
     findBestDie(availableDice, floor) {
@@ -986,38 +1259,80 @@ const Game = {
         }
     },
 
-    renderBattleLog() {
-        const log = document.getElementById('battle-log');
-        const events = this.state.events || [];
+    renderStatusEffects() {
+        const container = document.getElementById('status-effects');
+        if (!container) return;
+        container.innerHTML = '';
 
-        log.innerHTML = '';
-        // Show last 30 events in reverse
-        const recent = events.slice(-30).reverse();
-        for (const ev of recent) {
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
+        const effects = this.state.status_effects || { white: [], black: [] };
 
-            let text = '';
-            if (ev.type === 'move' || ev.type === 'ai_move') {
-                const from = ev.from_pos ? `(${ev.from_pos[0]},${ev.from_pos[1]})` : '?';
-                const to = ev.to_pos ? `(${ev.to_pos[0]},${ev.to_pos[1]})` : '?';
-                text = `${ev.piece || '?'} ${from}→${to}`;
-                if (ev.captured) text += ` captures ${ev.captured}`;
-            } else if (ev.type === 'ability_roll') {
-                entry.className += ev.result === 'success' ? ' success' : ' fail';
-                text = `${ev.piece} ${ev.ability}: ${ev.result} (rolled ${ev.die_value}, floor ${ev.floor})`;
-            } else if (ev.type === 'dice_roll') {
-                text = `Dice: [${ev.values}]`;
-            } else if (ev.type === 'ability_auto') {
-                text = `${ev.piece} ${ev.ability}: ${ev.result || ''}`;
-            } else if (ev.type === 'game_over') {
-                text = `Game Over: ${ev.result}${ev.winner ? ' — ' + ev.winner + ' wins' : ''}`;
+        for (const side of ['white', 'black']) {
+            const sideDiv = document.createElement('div');
+            sideDiv.className = 'status-effects-side';
+
+            const heading = document.createElement('h4');
+            heading.textContent = side === 'white' ? 'White Active Effects' : 'Black Active Effects';
+            sideDiv.appendChild(heading);
+
+            const entries = effects[side] || [];
+            if (entries.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'status-effects-empty';
+                empty.textContent = 'No active effects';
+                sideDiv.appendChild(empty);
             } else {
-                text = `${ev.type}: ${JSON.stringify(ev).substring(0, 80)}`;
+                for (const eff of entries) {
+                    const row = document.createElement('div');
+                    row.className = 'status-effect-entry';
+                    const turnsText = eff.turns === null || eff.turns === undefined
+                        ? ''
+                        : `${eff.turns} turn${eff.turns !== 1 ? 's' : ''} left`;
+                    row.innerHTML = `
+                        <span class="se-label"><span class="se-piece">${eff.piece}</span> — ${eff.effect}</span>
+                        <span class="se-turns">${turnsText}</span>
+                    `;
+                    sideDiv.appendChild(row);
+                }
             }
 
-            entry.innerHTML = `<span class="log-turn">T${ev.turn}</span>${text}`;
-            log.appendChild(entry);
+            container.appendChild(sideDiv);
+        }
+    },
+
+    renderCapturedPieces() {
+        const container = document.getElementById('captured-pieces');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const captured = this.state.captured_pieces || { white: [], black: [] };
+
+        for (const side of ['white', 'black']) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'captured-pieces-row';
+
+            const heading = document.createElement('h4');
+            heading.textContent = side === 'white' ? "White's Captured Pieces" : "Black's Captured Pieces";
+            rowDiv.appendChild(heading);
+
+            const entries = captured[side] || [];
+            if (entries.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'captured-empty';
+                empty.textContent = 'No captured pieces';
+                rowDiv.appendChild(empty);
+            } else {
+                const tagsDiv = document.createElement('div');
+                tagsDiv.className = 'captured-tags';
+                for (const piece of entries) {
+                    const tag = document.createElement('span');
+                    tag.className = 'captured-tag' + (piece.permanently_dead ? ' permanently-dead' : '');
+                    tag.textContent = piece.permanently_dead ? `${piece.name} ☠` : piece.name;
+                    tagsDiv.appendChild(tag);
+                }
+                rowDiv.appendChild(tagsDiv);
+            }
+
+            container.appendChild(rowDiv);
         }
     },
 

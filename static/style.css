@@ -457,6 +457,48 @@ body {
     opacity: 1;
 }
 
+/* Floating tooltip for ability cards */
+.ability-tooltip {
+    position: fixed;
+    background: rgba(16, 8, 28, 0.97);
+    color: #fff;
+    border: 1px solid var(--accent-gold);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.74rem;
+    font-family: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 7000;
+    white-space: normal;
+    line-height: 1.45;
+    max-width: 260px;
+}
+.ability-tooltip.visible {
+    opacity: 1;
+}
+.ability-tooltip .at-title {
+    color: var(--accent-gold);
+    font-weight: 700;
+    font-size: 0.8rem;
+    margin-bottom: 3px;
+}
+.ability-tooltip .at-mana {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    margin-bottom: 5px;
+}
+.ability-tooltip .at-desc {
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+.ability-tooltip .at-limits {
+    color: #d4a840;
+    font-size: 0.68rem;
+    font-style: italic;
+}
+
 /* Targeting instruction panel docked inside dice panel */
 .targeting-ui-docked {
     background: rgba(16, 8, 28, 0.96);
@@ -672,6 +714,157 @@ body {
     margin-right: 6px;
 }
 
+/* ═══ ABILITY CARD GRID ═══ */
+.ability-buttons.ability-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+    align-content: start;
+}
+.ability-section-divider {
+    grid-column: 1 / -1;
+    color: var(--accent-gold);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+    margin-top: 4px;
+}
+.ability-section-divider:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+.ability-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: var(--bg-medium);
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    padding: 7px 9px;
+    cursor: pointer;
+    font-size: 0.72rem;
+    transition: all 0.15s;
+}
+.ability-card:hover {
+    transform: translateY(-1px);
+}
+.ability-card.status-green {
+    border-color: var(--success);
+    background: rgba(64, 160, 64, 0.1);
+}
+.ability-card.status-red {
+    border-color: var(--danger);
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+.ability-card.status-grey {
+    border-color: var(--text-dim);
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.ability-card.status-purple {
+    border-color: #9a60c0;
+    background: rgba(60, 20, 80, 0.25);
+    opacity: 0.75;
+    cursor: not-allowed;
+}
+.ability-card .ac-piece-name {
+    font-weight: 700;
+    color: var(--accent-gold);
+    font-size: 0.76rem;
+}
+.ability-card .ac-ability-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.ability-card .ac-mana {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+}
+.ability-card .ac-x2-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--accent-gold);
+    color: var(--bg-darkest);
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+/* Copy-selection popover for x2 major-piece cards */
+.copy-select-popover {
+    position: fixed;
+    background: rgba(16, 8, 28, 0.98);
+    border: 1px solid var(--accent-gold);
+    border-radius: 6px;
+    padding: 8px;
+    z-index: 6000;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 140px;
+}
+.copy-select-popover .csp-title {
+    color: var(--accent-gold);
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.copy-select-popover button {
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+.copy-select-popover button:hover {
+    border-color: var(--accent-gold);
+}
+
+/* Juice Box acquired-abilities sub-panel inside her card */
+.juice-box-subpanel {
+    margin-top: 4px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 4px;
+}
+.juice-box-subpanel summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    user-select: none;
+}
+.juice-box-subpanel .jb-entry {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 3px 5px;
+    margin-top: 3px;
+    border-radius: 4px;
+    background: var(--bg-light);
+    font-size: 0.68rem;
+    cursor: pointer;
+}
+.juice-box-subpanel .jb-entry:hover {
+    background: rgba(201, 168, 76, 0.15);
+}
+.juice-box-subpanel .jb-empty {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.68rem;
+    margin-top: 3px;
+}
+
 /* ═══ SIDEBAR ═══ */
 .sidebar {
     flex: 1;
@@ -692,8 +885,9 @@ body {
 .sidebar-section:first-child {
     flex: 1;
 }
-.sidebar-section:last-child {
-    flex: 0 0 200px;
+.sidebar-section:not(:first-child) {
+    flex: 0 0 auto;
+    max-height: 220px;
 }
 .sidebar-section h3 {
     color: var(--accent-gold);
@@ -707,6 +901,85 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+/* ═══ STATUS EFFECTS PANEL ═══ */
+.status-effects {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.status-effects-side h4 {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+}
+.status-effect-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    font-size: 0.74rem;
+}
+.status-effect-entry .se-label {
+    color: var(--text-primary);
+}
+.status-effect-entry .se-label .se-piece {
+    font-weight: 700;
+    color: var(--accent-gold);
+}
+.status-effect-entry .se-turns {
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+.status-effects-empty {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+/* ═══ CAPTURED PIECES PANEL ═══ */
+.captured-pieces {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.captured-pieces-row h4 {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+}
+.captured-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.captured-tag {
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 2px 9px;
+    font-size: 0.7rem;
+    color: var(--text-primary);
+}
+.captured-tag.permanently-dead {
+    border-color: var(--accent-red);
+    color: var(--text-secondary);
+}
+.captured-empty {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-style: italic;
 }
 .piece-card {
     background: var(--bg-medium);
@@ -755,29 +1028,6 @@ body {
     font-size: 0.7rem;
     font-weight: 700;
     margin-left: 6px;
-}
-
-/* Battle Log */
-.battle-log {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
-    max-height: 160px;
-    overflow-y: auto;
-}
-.battle-log .log-entry {
-    padding: 2px 0;
-    border-bottom: 1px solid rgba(51, 48, 80, 0.5);
-}
-.battle-log .log-entry .log-turn {
-    color: var(--text-dim);
-    margin-right: 4px;
-}
-.battle-log .log-entry.success {
-    color: var(--success);
-}
-.battle-log .log-entry.fail {
-    color: var(--danger);
 }
 
 /* ═══ OVERLAY ═══ */

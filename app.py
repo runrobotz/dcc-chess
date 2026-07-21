@@ -220,6 +220,98 @@ def get_all_player_pieces(game_state, color):
     return pieces
 
 
+def _piece_label(piece):
+    return piece.pawn_name if (piece.is_pawn and piece.pawn_name) else piece.piece_type.value
+
+
+def _roster_color_for(pawn_name, game_data):
+    if pawn_name in game_data.get("white_pawns", []):
+        return Color.WHITE
+    if pawn_name in game_data.get("black_pawns", []):
+        return Color.BLACK
+    return None
+
+
+def get_status_effects_summary(gs, game_data):
+    """Summarize all currently active status effects, grouped by side, for the sidebar panel."""
+    board = gs.board
+    result = {"white": [], "black": []}
+
+    def add(color, piece_name, effect_name, turns):
+        if color is None:
+            return
+        result[color.value].append({"piece": piece_name, "effect": effect_name, "turns": turns})
+
+    for pos in gs.frozen_pieces:
+        piece = board.get(*pos)
+        if piece:
+            add(piece.color, _piece_label(piece), "Frozen", 1)
+
+    for pos in gs.suppressed_pieces:
+        piece = board.get(*pos)
+        if piece:
+            add(piece.color, _piece_label(piece), "Suppressed", 1)
+
+    for pos in gs.restrained_pieces:
+        piece = board.get(*pos)
+        if piece:
+            add(piece.color, _piece_label(piece), "Restrained", 1)
+
+    for pos in gs.she_tank_targets:
+        piece = board.get(*pos)
+        if piece:
+            add(piece.color, _piece_label(piece), "She Tank", 1)
+
+    for pos, turns in gs.iron_wall_pieces.items():
+        if turns <= 0:
+            continue
+        piece = board.get(*pos)
+        if piece and piece.is_pawn and piece.pawn_name == "Sledge":
+            add(piece.color, "Sledge", "Body Guard", turns)
+
+    for color, turns in gs.plot_armor_active.items():
+        if turns > 0:
+            add(color, "Carl", "Plot Armor", turns)
+
+    for entry in gs.mordecai_respawn_pending:
+        add(entry["color"], "Mordecai", "Ghost Zone (awaiting respawn)", entry["turns_left"])
+
+    if gs.air_strike_zones:
+        owner = _roster_color_for("Louie", game_data)
+        add(owner, "Louie", "Air Strike Zone", max(gs.air_strike_zones.values()))
+
+    if gs.lava_zones:
+        chris_color = _roster_color_for("Chris", game_data) if gs.chris_stuck else None
+        if chris_color is not None:
+            add(chris_color, "Chris", "Lava Surge", max(gs.lava_zones.values()))
+        else:
+            owner = _roster_color_for("Bad Llama", game_data)
+            add(owner, "Bad Llama", "Lava Zone", max(gs.lava_zones.values()))
+
+    for color, active in gs.zev_buff_active.items():
+        if active:
+            add(color, "Zev", "Biggest Fan (buff)", None)
+
+    for color, active in gs.group_climax_active.items():
+        if active:
+            add(color, "Raul the Crab", "Group Climax (buff)", None)
+
+    return result
+
+
+def serialize_captured(board):
+    """Serialize each side's captured pieces for the sidebar panel."""
+    def entry(p):
+        return {
+            "name": _piece_label(p),
+            "permanently_dead": bool(p.is_pawn and p.pawn_name == "Orthrus"),
+        }
+    return {
+        "white": [entry(p) for p in board.captured[Color.WHITE]],
+        "black": [entry(p) for p in board.captured[Color.BLACK]],
+    }
+
+
 def build_game_state_response():
     """Build the full game state JSON response."""
     gs = game_data.get("game_state")
@@ -267,6 +359,8 @@ def build_game_state_response():
         "plot_armor_active": {color.value: turns for color, turns in gs.plot_armor_active.items() if turns > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
         "carl_in_check": is_in_check(board, gs.current_player),
+        "status_effects": get_status_effects_summary(gs, game_data),
+        "captured_pieces": serialize_captured(board),
     }
     return resp
 
