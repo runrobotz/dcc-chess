@@ -239,7 +239,7 @@ const Game = {
             this.renderDicePanel();
         }
         if (this.state.game_over) {
-            this.showGameOver();
+            this.checkGameOver();
         }
         this.checkForAutoAbilityEvents();
         this.checkGameOver();

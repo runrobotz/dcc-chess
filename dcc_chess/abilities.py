@@ -533,7 +533,10 @@ class GameState:
         # Juice Box Shapeshift (Chunk 2)
         if attacker.is_pawn and attacker.pawn_name == "Juice Box":
             if captured_piece.is_pawn:
-                self.process_juice_box_capture(attacker_pos, captured_piece, capture_pos)
+                # Juice Box always ends the capture standing on capture_pos (she moves
+                # onto the captured piece's square), so that's her key into
+                # juice_box_captured — not attacker_pos, her square before the move.
+                self.process_juice_box_capture(capture_pos, captured_piece, capture_pos)
 
     # ── Major Piece Abilities ─────────────────────────────────────
 
