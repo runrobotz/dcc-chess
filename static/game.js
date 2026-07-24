@@ -664,9 +664,11 @@ const Game = {
         const diceDisplay = document.getElementById('dice-display');
         const abilityBtns = document.getElementById('placement-pieces');
         const endTurnBtn = document.getElementById('end-turn-btn');
+        const undoBtn = document.getElementById('undo-move-btn');
 
         endTurnBtn.classList.add('hidden');
-        
+        if (undoBtn) undoBtn.classList.add('hidden');
+
         const placementPlayer = this.state.placement_player;
         const piecesKey = `${placementPlayer}_pieces_to_place`;
         const piecesToPlace = this.state[piecesKey];
@@ -723,6 +725,7 @@ const Game = {
         const panel = document.getElementById('dice-panel');
         const diceDisplay = document.getElementById('dice-display');
         const endTurnBtn = document.getElementById('end-turn-btn');
+        const undoBtn = document.getElementById('undo-move-btn');
 
         // Show panel for ability phase only
         if (this.state.phase !== 'ability') {
@@ -730,6 +733,16 @@ const Game = {
             return;
         }
         panel.classList.remove('hidden');
+
+        // Undo Last Move — Dev Game mode only
+        if (undoBtn) {
+            if (this.state.mode === 'dev') {
+                undoBtn.classList.remove('hidden');
+                undoBtn.disabled = !this.state.can_undo;
+            } else {
+                undoBtn.classList.add('hidden');
+            }
+        }
 
         // Render dice (2 dice system)
         const dice = this.state.dice;
@@ -1509,11 +1522,96 @@ const Game = {
             this.state = data;
             this.selectedSquare = null;
             this.legalMoves = [];
+
+            if (data.pending_elle_decision) {
+                // Capture is paused -- Elle's owner must decide whether to spend
+                // her once-per-game Frozen Immunity before the move completes.
+                this._pendingElleMove = { fromRow, fromCol, toRow, toCol };
+                this.render();
+                this.showElleDecisionPrompt();
+                return;
+            }
+
             this.lastMoveFrom = [fromRow, fromCol];
             this.lastMoveTo = [toRow, toCol];
             this.render();
         } catch (e) {
             this.showToast('Move failed', 'fail');
+        }
+    },
+
+    showElleDecisionPrompt() {
+        const existing = document.getElementById('elle-decision-prompt');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'elle-decision-prompt';
+        overlay.className = 'overlay';
+
+        const content = document.createElement('div');
+        content.className = 'overlay-content';
+
+        const title = document.createElement('h2');
+        title.textContent = '⚡ Elle McGib — Frozen Immunity';
+
+        const msg = document.createElement('p');
+        msg.textContent = 'Automatically prevent this capture attempt?';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; gap: 12px; justify-content: center;';
+
+        const yesBtn = document.createElement('button');
+        yesBtn.className = 'btn btn-primary';
+        yesBtn.textContent = 'YES';
+        yesBtn.addEventListener('click', () => this.resolveElleDecision(true));
+
+        const noBtn = document.createElement('button');
+        noBtn.className = 'btn btn-secondary';
+        noBtn.textContent = 'NO';
+        noBtn.addEventListener('click', () => this.resolveElleDecision(false));
+
+        btnRow.appendChild(yesBtn);
+        btnRow.appendChild(noBtn);
+
+        content.appendChild(title);
+        content.appendChild(msg);
+        content.appendChild(btnRow);
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+    },
+
+    async resolveElleDecision(useImmunity) {
+        const prompt = document.getElementById('elle-decision-prompt');
+        if (prompt) prompt.remove();
+
+        const pendingMove = this._pendingElleMove;
+        this._pendingElleMove = null;
+
+        try {
+            const resp = await fetch('/resolve_elle_decision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ use_immunity: useImmunity }),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.selectedSquare = null;
+            this.legalMoves = [];
+            if (pendingMove) {
+                this.lastMoveFrom = [pendingMove.fromRow, pendingMove.fromCol];
+                this.lastMoveTo = [pendingMove.toRow, pendingMove.toCol];
+            }
+            this.render();
+            this.showToast(
+                useImmunity ? "Frozen Immunity negated the capture!" : 'Capture proceeds — immunity held in reserve',
+                useImmunity ? 'success' : ''
+            );
+        } catch (e) {
+            this.showToast('Failed to resolve decision', 'fail');
         }
     },
 
@@ -2023,6 +2121,29 @@ const Game = {
         }
     },
 
+    async undoMove() {
+        try {
+            const resp = await fetch('/undo_move', { method: 'POST' });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.selectedSquare = null;
+            this.legalMoves = [];
+            this.lastMoveFrom = null;
+            this.lastMoveTo = null;
+            this._pendingElleMove = null;
+            const ellePrompt = document.getElementById('elle-decision-prompt');
+            if (ellePrompt) ellePrompt.remove();
+            this.render();
+            this.showToast('Move undone', 'success');
+        } catch (e) {
+            this.showToast('Undo failed', 'fail');
+        }
+    },
+
     // ═══ NAVIGATION ═══
 
     backToStart() {
@@ -2252,6 +2373,19 @@ const Game = {
                     const pawnRow = color === 'white' ? 1 : 9;
                     const pawnData = this.roster.find(p => p.name === pawnName);
                     const short = pawnData ? pawnData.short : pawnName.substring(0, 5).toUpperCase();
+
+                    if (pawnName === 'Orthrus') {
+                        const spot = this.findOrthrusPlacement(color, pawnRow);
+                        if (spot) {
+                            const [br, bc] = spot;
+                            const cells = this.makeOrthrusCells(color, br, bc, short);
+                            this.devStagingGrid[cells.buttRow][cells.buttCol] = cells.buttCell;
+                            this.devStagingGrid[cells.headRow][cells.headCol] = cells.headCell;
+                        }
+                        this.renderDevSettings();
+                        return;
+                    }
+
                     const newCell = { type: 'Pawn', color, name: pawnName, is_pawn: true, short };
                     // Place in first open slot in the pawn row (cols 1–8)
                     let placed = false;
@@ -2278,6 +2412,48 @@ const Game = {
         }
 
         this.renderDevSettings();
+    },
+
+    // Orthrus is a 1×2 piece: his head sits one square from his butt, in the
+    // direction his side normally faces (matching Board.place_orthrus_body).
+    ORTHRUS_HEAD_DELTA: { white: [1, 0], black: [-1, 0] },
+
+    findOrthrusPlacement(color, preferRow) {
+        const [dr, dc] = this.ORTHRUS_HEAD_DELTA[color];
+        const tryRow = (r, cols) => {
+            for (const c of cols) {
+                const hr = r + dr, hc = c + dc;
+                if (hr < 0 || hr > 10 || hc < 0 || hc > 10) continue;
+                if (!this.devStagingGrid[r][c] && !this.devStagingGrid[hr][hc]) {
+                    return [r, c];
+                }
+            }
+            return null;
+        };
+        const preferredCols = Array.from({ length: 8 }, (_, i) => i + 1);
+        let spot = tryRow(preferRow, preferredCols);
+        if (spot) return spot;
+        const allCols = Array.from({ length: 11 }, (_, i) => i);
+        for (let r = 0; r < 11; r++) {
+            spot = tryRow(r, allCols);
+            if (spot) return spot;
+        }
+        return null;
+    },
+
+    makeOrthrusCells(color, buttRow, buttCol, short) {
+        const [dr, dc] = this.ORTHRUS_HEAD_DELTA[color];
+        const headRow = buttRow + dr, headCol = buttCol + dc;
+        const direction = color === 'white' ? 'up' : 'down';
+        const buttCell = {
+            type: 'Pawn', color, name: 'Orthrus', is_pawn: true, short,
+            is_orthrus_head: false, orthrus_direction: null, orthrus_head_pos: [headRow, headCol],
+        };
+        const headCell = {
+            type: 'Pawn', color, name: 'Orthrus', is_pawn: true, short,
+            is_orthrus_head: true, orthrus_direction: direction, orthrus_head_pos: [headRow, headCol],
+        };
+        return { buttRow, buttCol, headRow, headCol, buttCell, headCell };
     },
 
     saveDevSettings() {
@@ -2383,7 +2559,7 @@ const Game = {
                 if (piece) {
                     const pieceEl = document.createElement('div');
                     pieceEl.className = `dev-piece dev-piece-${piece.color}`;
-                    pieceEl.textContent = piece.short;
+                    pieceEl.textContent = this.pieceLabel(piece);
                     sq.appendChild(pieceEl);
                 }
 
@@ -2402,20 +2578,58 @@ const Game = {
                 // Click same square: deselect
                 this.devStagingSelected = null;
             } else {
-                // Swap selected piece with target square (so no piece is lost)
                 const selPiece = this.devStagingGrid[selRow][selCol];
-                const targetPiece = this.devStagingGrid[row][col];
-                this.devStagingGrid[row][col] = selPiece;
-                this.devStagingGrid[selRow][selCol] = targetPiece;
+                if (selPiece && selPiece.is_pawn && selPiece.name === 'Orthrus') {
+                    // Move his whole 1×2 body together so his head stays attached
+                    this.moveOrthrusInStaging(selRow, selCol, row, col);
+                } else {
+                    const targetPiece = this.devStagingGrid[row][col];
+                    // Don't drop a different piece onto one of Orthrus's squares --
+                    // that would split his body without moving the other half.
+                    if (!targetPiece || targetPiece.name !== 'Orthrus' || !targetPiece.is_pawn) {
+                        this.devStagingGrid[row][col] = selPiece;
+                        this.devStagingGrid[selRow][selCol] = targetPiece;
+                    }
+                }
                 this.devStagingSelected = null;
             }
             this.renderDevStagingBoard();
         } else {
-            if (this.devStagingGrid[row][col]) {
-                this.devStagingSelected = [row, col];
+            const piece = this.devStagingGrid[row][col];
+            if (piece) {
+                // Either half of Orthrus always selects/anchors on his butt square
+                let selRow = row, selCol = col;
+                if (piece.is_pawn && piece.name === 'Orthrus' && piece.is_orthrus_head) {
+                    const [dr, dc] = this.ORTHRUS_HEAD_DELTA[piece.color];
+                    selRow = row - dr;
+                    selCol = col - dc;
+                }
+                this.devStagingSelected = [selRow, selCol];
                 this.renderDevStagingBoard();
             }
         }
+    },
+
+    moveOrthrusInStaging(buttRow, buttCol, destRow, destCol) {
+        const buttCell = this.devStagingGrid[buttRow][buttCol];
+        const [dr, dc] = this.ORTHRUS_HEAD_DELTA[buttCell.color];
+        const oldHeadRow = buttRow + dr, oldHeadCol = buttCol + dc;
+        const newHeadRow = destRow + dr, newHeadCol = destCol + dc;
+
+        if (newHeadRow < 0 || newHeadRow > 10 || newHeadCol < 0 || newHeadCol > 10) return;
+
+        // Only move if both destination squares are empty (or are his own
+        // current squares) -- keeps his 2-square body from overlapping others.
+        const isOwnSquare = (r, c) => (r === buttRow && c === buttCol) || (r === oldHeadRow && c === oldHeadCol);
+        const destButtFree = !this.devStagingGrid[destRow][destCol] || isOwnSquare(destRow, destCol);
+        const destHeadFree = !this.devStagingGrid[newHeadRow][newHeadCol] || isOwnSquare(newHeadRow, newHeadCol);
+        if (!destButtFree || !destHeadFree) return;
+
+        const cells = this.makeOrthrusCells(buttCell.color, destRow, destCol, buttCell.short);
+        this.devStagingGrid[buttRow][buttCol] = null;
+        this.devStagingGrid[oldHeadRow][oldHeadCol] = null;
+        this.devStagingGrid[cells.buttRow][cells.buttCol] = cells.buttCell;
+        this.devStagingGrid[cells.headRow][cells.headCol] = cells.headCell;
     },
 
     saveDevBoardLayout() {

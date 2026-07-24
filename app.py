@@ -1,5 +1,6 @@
 """Flask server for DCC Chess browser game."""
 
+import copy
 import json
 import random
 from flask import Flask, render_template, jsonify, request
@@ -16,6 +17,21 @@ app = Flask(__name__)
 
 # ── In-memory game store (single game at a time) ─────────────────
 game_data = {}
+
+# ── Dev Game "Undo Last Move" history (Dev Game mode only) ───────
+# Each entry is a deep copy of game_data taken just before a move-completing
+# action mutates the board/dice/turn state, so undo can restore it wholesale.
+move_history = []
+MAX_UNDO_HISTORY = 50  # cap to bound memory in long dev sessions
+
+
+def _snapshot_for_undo():
+    """Push a deep copy of the current game_data onto the undo history stack."""
+    if game_data.get("mode") != "dev":
+        return
+    move_history.append(copy.deepcopy(game_data))
+    if len(move_history) > MAX_UNDO_HISTORY:
+        move_history.pop(0)
 
 
 # ── Short display names for pieces ───────────────────────────────
@@ -363,8 +379,30 @@ def build_game_state_response():
         "carl_in_check": is_in_check(board, gs.current_player),
         "status_effects": get_status_effects_summary(gs, game_data),
         "captured_pieces": serialize_captured(board),
+        "can_undo": game_data.get("mode") == "dev" and len(move_history) > 0,
     }
     return resp
+
+
+def _end_game_if_no_legal_moves(gs) -> bool:
+    """Check whether the player about to move has any legal move available.
+
+    If not, end the game immediately as checkmate (if they're in check) or
+    stalemate, mirroring the check already done for the AI's turn. Returns
+    True if the game was ended, False if the player has at least one legal
+    move and can proceed normally (e.g. roll dice).
+    """
+    if gs.get_legal_moves_with_status(gs.current_player):
+        return False
+    if is_in_check(gs.board, gs.current_player):
+        game_data["winner"] = gs.current_player.opponent.value
+        game_data["result_reason"] = "checkmate"
+    else:
+        game_data["winner"] = None
+        game_data["result_reason"] = "stalemate"
+    game_data["game_over"] = True
+    game_data["phase"] = "game_over"
+    return True
 
 
 # ── Routes ────────────────────────────────────────────────────────
@@ -428,6 +466,7 @@ def new_game():
     ]
     
     game_data.clear()
+    move_history.clear()
     game_data.update({
         "game_state": gs,
         "dice": dice,
@@ -459,11 +498,13 @@ def new_game():
                         if cell.get("is_pawn"):
                             piece = Piece(PieceType.PAWN, color, pawn_name=cell["name"])
                             if cell["name"] == "Orthrus":
-                                # Staging board only knows single squares -- treat the
-                                # clicked cell as his anchor/butt and auto-place his head.
+                                # The staging board sends both his squares (butt and head,
+                                # distinguished by is_orthrus_head) so it can render his 1×2
+                                # body -- only place him once, anchored at the butt cell.
                                 # If his head square collides with another staged piece,
                                 # he's silently skipped (dev-tool limitation).
-                                board.place_orthrus_body(piece, r, c)
+                                if not cell.get("is_orthrus_head"):
+                                    board.place_orthrus_body(piece, r, c)
                                 continue
                         else:
                             piece = Piece(PieceType(cell["type"]), color)
@@ -496,9 +537,10 @@ def new_game():
         gs.current_player = Color.WHITE
         gs.start_turn()
         gs.update_katia_threats()
-        dice.roll()
-        gs.log_event("dice_roll", values=dice.dice[:])
-        game_data["phase"] = "ability"
+        if not _end_game_if_no_legal_moves(gs):
+            dice.roll()
+            gs.log_event("dice_roll", values=dice.dice[:])
+            game_data["phase"] = "ability"
 
     return jsonify(build_game_state_response())
 
@@ -617,7 +659,10 @@ def start_turn_route():
     # Start turn
     gs.start_turn()
     gs.update_katia_threats()
-    
+
+    if _end_game_if_no_legal_moves(gs):
+        return jsonify(build_game_state_response())
+
     # Roll dice - only 1 die if current player has banked die, otherwise 2 dice
     dice = game_data["dice"]
     player = gs.current_player.value
@@ -671,6 +716,72 @@ def legal_moves():
     return jsonify({"moves": piece_moves})
 
 
+def _resolve_capture_result(gs, cap_result, from_pos, to_pos):
+    """Execute the outcome of an attempt_capture() call for a human-initiated move.
+
+    Returns the captured Piece (or None).
+    """
+    captured = None
+    if cap_result == "captured":
+        captured = gs.board.make_move(from_pos, to_pos)
+        if captured:
+            attacker = gs.board.get(*to_pos)
+            gs.process_post_capture(captured, to_pos, attacker, from_pos)
+    elif cap_result == "defended_elle":
+        gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
+    elif cap_result == "defended_orthrus":
+        gs.log_event("move_blocked", reason="Orthrus can only be captured by major pieces")
+    elif cap_result == "defended_quasar":
+        attacker = gs.board.get(*from_pos)
+        gs.board.set(from_pos[0], from_pos[1], None)
+        if attacker:
+            gs.board.captured[attacker.color].append(attacker)
+            gs.log_event("mediation_capture", captured=repr(attacker))
+    else:
+        captured = gs.board.make_move(from_pos, to_pos)
+    return captured
+
+
+def _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured):
+    """Shared tail of move resolution: log the move, check for game end, end the turn."""
+    moved_piece = gs.board.get(*to_pos)
+    gs.log_event("move", piece=repr(moved_piece) if moved_piece else "?",
+                 from_pos=from_pos, to_pos=to_pos,
+                 captured=repr(captured) if captured else None)
+
+    game_data["moved_from"] = from_pos
+    game_data["moved_to"] = to_pos
+
+    opponent = color.opponent
+    if is_checkmate(gs.board, opponent):
+        game_data["game_over"] = True
+        game_data["winner"] = color.value
+        game_data["result_reason"] = "checkmate"
+        game_data["phase"] = "game_over"
+        gs.end_turn()
+        return
+
+    if is_stalemate(gs.board, opponent):
+        game_data["game_over"] = True
+        game_data["winner"] = None
+        game_data["result_reason"] = "stalemate"
+        game_data["phase"] = "game_over"
+        gs.end_turn()
+        return
+
+    if gs.board.find_king(opponent) is None:
+        game_data["game_over"] = True
+        game_data["winner"] = color.value
+        game_data["result_reason"] = "king_captured"
+        game_data["phase"] = "game_over"
+        gs.end_turn()
+        return
+
+    # Move complete - automatically end turn
+    gs.end_turn()
+    game_data["phase"] = "move"
+
+
 @app.route("/move", methods=["POST"])
 def make_move():
     """Execute a move.
@@ -685,6 +796,8 @@ def make_move():
         return jsonify({"error": "Game is over"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Not in ability phase - must roll dice first"}), 400
+    if game_data.get("pending_elle_decision"):
+        return jsonify({"error": "Resolve the Elle McGib Frozen Immunity decision first"}), 400
 
     data = request.get_json(force=True)
     fr = data.get("from_row")
@@ -716,74 +829,87 @@ def make_move():
         and from_pos == piece_at_from.orthrus_head_pos
     )
 
+    if (not is_orthrus_move and target is not None and target.is_pawn
+            and target.pawn_name == "Elle McGib" and gs.elle_immunity_available(to_pos)):
+        # Pause and let Elle's owner decide whether to spend her once-per-game
+        # immunity, instead of it auto-triggering at the first opportunity.
+        # Nothing has mutated yet, so no undo snapshot is taken here.
+        game_data["pending_elle_decision"] = {"from_pos": list(from_pos), "to_pos": list(to_pos)}
+        resp = build_game_state_response()
+        resp["pending_elle_decision"] = game_data["pending_elle_decision"]
+        return jsonify(resp)
+
     if is_orthrus_move:
         # Orthrus never captures -- his own moves (forward or rotate) always
         # land on an empty square, and shift/pivot his 2-square body.
         action = resolve_orthrus_action(piece_at_from, to_pos)
         if action is None:
             return jsonify({"error": "Illegal Orthrus move"}), 400
+        _snapshot_for_undo()
         new_head, new_butt, new_direction = action
         gs.board.move_orthrus_body(piece_at_from, new_head, new_butt, new_direction)
     elif target is not None:
+        _snapshot_for_undo()
         cap_result = gs.attempt_capture(from_pos, to_pos)
-        if cap_result == "captured":
-            captured = gs.board.make_move(from_pos, to_pos)
-            if captured:
-                attacker = gs.board.get(*to_pos)
-                gs.process_post_capture(captured, to_pos, attacker, from_pos)
-        elif cap_result == "defended_elle":
-            gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
-        elif cap_result == "defended_orthrus":
-            gs.log_event("move_blocked", reason="Orthrus can only be captured by major pieces")
-        elif cap_result == "defended_quasar":
-            attacker = gs.board.get(*from_pos)
-            gs.board.set(from_pos[0], from_pos[1], None)
-            if attacker:
-                gs.board.captured[attacker.color].append(attacker)
-                gs.log_event("mediation_capture", captured=repr(attacker))
-        else:
-            captured = gs.board.make_move(from_pos, to_pos)
+        captured = _resolve_capture_result(gs, cap_result, from_pos, to_pos)
     else:
+        _snapshot_for_undo()
         captured = gs.board.make_move(from_pos, to_pos)
 
-    moved_piece = gs.board.get(*to_pos)
-    gs.log_event("move", piece=repr(moved_piece) if moved_piece else "?",
-                 from_pos=from_pos, to_pos=to_pos,
-                 captured=repr(captured) if captured else None)
+    _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured)
+    return jsonify(build_game_state_response())
 
-    game_data["moved_from"] = from_pos
-    game_data["moved_to"] = to_pos
 
-    # Check game end after move
-    opponent = color.opponent
-    if is_checkmate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = color.value
-        game_data["result_reason"] = "checkmate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
+@app.route("/resolve_elle_decision", methods=["POST"])
+def resolve_elle_decision():
+    """Resolve a paused Elle McGib Frozen Immunity decision.
 
-    if is_stalemate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = None
-        game_data["result_reason"] = "stalemate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
+    Body: {use_immunity: bool}
+    """
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    pending = game_data.get("pending_elle_decision")
+    if not pending:
+        return jsonify({"error": "No pending Elle McGib decision"}), 400
 
-    if gs.board.find_king(opponent) is None:
-        game_data["game_over"] = True
-        game_data["winner"] = color.value
-        game_data["result_reason"] = "king_captured"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
+    data = request.get_json(force=True)
+    use_immunity = bool(data.get("use_immunity"))
 
-    # Move complete - automatically end turn
-    gs.end_turn()
-    game_data["phase"] = "move"
-    
+    from_pos = tuple(pending["from_pos"])
+    to_pos = tuple(pending["to_pos"])
+    _snapshot_for_undo()
+    game_data["pending_elle_decision"] = None
+    color = gs.current_player
+
+    if use_immunity:
+        gs.consume_elle_immunity(to_pos)
+        gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
+        captured = None
+    else:
+        # Player declined -- let this one capture attempt through without
+        # re-triggering the immunity, but leave it available for next time.
+        defender = gs.board.get(*to_pos)
+        key = f"{defender.color.value}_{to_pos[0]}_{to_pos[1]}"
+        gs.elle_immunity_skip_once.add(key)
+        cap_result = gs.attempt_capture(from_pos, to_pos)
+        captured = _resolve_capture_result(gs, cap_result, from_pos, to_pos)
+
+    _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured)
+    return jsonify(build_game_state_response())
+
+
+@app.route("/undo_move", methods=["POST"])
+def undo_move():
+    """Revert to the state just before the last completed move. Dev Game mode only."""
+    if game_data.get("mode") != "dev":
+        return jsonify({"error": "Undo is only available in Dev Game mode"}), 400
+    if not move_history:
+        return jsonify({"error": "Nothing to undo"}), 400
+
+    snapshot = move_history.pop()
+    game_data.clear()
+    game_data.update(snapshot)
     return jsonify(build_game_state_response())
 
 

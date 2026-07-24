@@ -152,6 +152,11 @@ body {
 .btn-end-turn:hover:not(:disabled) {
     background: #d04848;
 }
+.btn-undo {
+    margin-top: 8px;
+    width: 100%;
+    border: 1px solid var(--accent-gold);
+}
 
 /* ═══ DRAFT SCREEN ═══ */
 #draft-screen {
@@ -906,11 +911,12 @@ body {
     border-radius: 6px;
     padding: 12px;
     overflow-y: auto;
-}
-.sidebar-section:first-child {
     flex: 1;
 }
-.sidebar-section:not(:first-child) {
+/* The player-panel-header ("WHITE"/"BLACK" title) sits before these sections,
+   so :first-child never matches a .sidebar-section — use the general sibling
+   combinator to target every section after the first one instead. */
+.sidebar-section ~ .sidebar-section {
     flex: 0 0 auto;
     max-height: 220px;
 }

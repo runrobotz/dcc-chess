@@ -163,6 +163,10 @@ class GameState:
 
         # Elle McGib — Frozen Immunity one-time-use tracking (attempt_capture reads this)
         self.elle_immunity_used: Dict[str, bool] = {}
+        # Keys the player has explicitly declined to auto-trigger for the capture
+        # currently being resolved (set by /resolve_elle_decision, consumed by the
+        # very next attempt_capture call so it doesn't loop back and re-trigger).
+        self.elle_immunity_skip_once: Set[str] = set()
 
         # Captured pieces (ability methods use self.captured_pieces in addition to board.captured)
         self.captured_pieces: Dict[Color, List] = {Color.WHITE: [], Color.BLACK: []}
@@ -442,6 +446,37 @@ class GameState:
 
     # ── Capture Interception ──────────────────────────────────────
 
+    def elle_immunity_available(self, defender_pos: Tuple[int, int]) -> bool:
+        """Check (without consuming) whether the Elle McGib at defender_pos can
+        still use her once-per-game Frozen Immunity. Used to decide whether to
+        pause and prompt her owner before resolving a capture against her.
+        """
+        dr, dc = defender_pos
+        defender = self.board.get(dr, dc)
+        if not (defender and defender.is_pawn and defender.pawn_name == "Elle McGib"):
+            return False
+        key = f"{defender.color.value}_{dr}_{dc}"
+        if key in self.elle_immunity_used:
+            return False
+        pawn_key = f"{defender.color.value}_Elle McGib"
+        uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
+        return uses > 0
+
+    def consume_elle_immunity(self, defender_pos: Tuple[int, int]):
+        """Mark Elle McGib's Frozen Immunity as used for the rest of the game."""
+        dr, dc = defender_pos
+        defender = self.board.get(dr, dc)
+        if defender is None:
+            return
+        key = f"{defender.color.value}_{dr}_{dc}"
+        pawn_key = f"{defender.color.value}_Elle McGib"
+        uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
+        self.elle_immunity_used[key] = True
+        if pawn_key in self.pawn_ability_uses:
+            self.pawn_ability_uses[pawn_key]["Frozen Immunity"] = uses - 1
+        self.log_event("ability_auto", piece="Elle McGib", ability="Frozen Immunity",
+                       result="success", detail="Capture negated")
+
     def attempt_capture(
         self, attacker_pos: Tuple[int, int], defender_pos: Tuple[int, int]
     ) -> str:
@@ -471,19 +506,19 @@ class GameState:
                                result="success", detail="Cannot be captured by non-major pieces")
                 return "defended_orthrus"
 
-        # Check Elle McGib's Frozen Immunity (auto-trigger)
+        # Check Elle McGib's Frozen Immunity (auto-trigger, unless the player
+        # already decided against it for this specific capture attempt via
+        # /resolve_elle_decision)
         if defender.is_pawn and defender.pawn_name == "Elle McGib":
             key = f"{defender.color.value}_{dr}_{dc}"
-            char = PAWN_CHARACTERS.get("Elle McGib")
-            pawn_key = f"{defender.color.value}_Elle McGib"
-            uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
-            if uses > 0 and key not in self.elle_immunity_used:
-                self.elle_immunity_used[key] = True
-                if pawn_key in self.pawn_ability_uses:
-                    self.pawn_ability_uses[pawn_key]["Frozen Immunity"] = uses - 1
-                self.log_event("ability_auto", piece="Elle McGib", ability="Frozen Immunity",
-                               result="success", detail="Capture negated")
-                return "defended_elle"
+            if key in self.elle_immunity_skip_once:
+                self.elle_immunity_skip_once.discard(key)
+            else:
+                pawn_key = f"{defender.color.value}_Elle McGib"
+                uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
+                if uses > 0 and key not in self.elle_immunity_used:
+                    self.consume_elle_immunity(defender_pos)
+                    return "defended_elle"
 
         # Check Carl's Narrator's Favor
         if defender.is_king and defender.color in self.narrators_favor_used:
