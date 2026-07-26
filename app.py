@@ -71,8 +71,8 @@ MAJOR_SHORT_NAMES = {
 # ── Major piece ability definitions (for sidebar display) ────────
 MAJOR_ABILITIES = {
     "Carl": [
-        {"name": "Leader", "floor": 5, "description": "Carl moves 2 squares this turn instead of 1 in any direction a King normally moves."},
-        {"name": "Plot Armor", "floor": 6, "description": "Carl becomes invulnerable for 3 full turns and cannot be captured. Can be activated using a banked die as a reaction on the opponent's turn or using a normal die on Carl's own turn.", "uses_per_game": 1, "is_reaction": True},
+        {"name": "Leader", "floor": 0, "description": "Combine all available dice this turn (both rolled dice, or your banked die plus your rolled die) into a pull distance. Choose one friendly back line major piece (Donut, Katia, or Samantha) and pull it toward Carl by up to that many squares, along that piece's own normal movement path. Carl still makes his normal move this turn.", "uses_per_game": 2, "requires_combined": True},
+        {"name": "Plot Armor", "floor": 8, "description": "Carl moves up to 3 squares in any direction a King can normally move (player chooses 1, 2, or 3 squares). Cannot pass through occupied squares, but can capture the piece he lands on. The destination must not leave Carl in check.", "uses_per_game": 1, "requires_combined": True},
         {"name": "Jug-o-Boom", "floor": 4, "description": "Carl tosses a bomb up to 3 squares in any direction to attack a summoned boss.", "is_boss_only": True},
     ],
     "Donut": [
@@ -190,6 +190,8 @@ def get_piece_abilities(piece, game_state, row, col):
                 # Track uses for new abilities
                 if type_name == "Carl" and mab["name"] == "Plot Armor":
                     uses_left = 0 if game_state.plot_armor_used.get(color, False) else 1
+                elif type_name == "Carl" and mab["name"] == "Leader":
+                    uses_left = game_state.leader_uses.get(color, 2)
                 elif type_name == "Donut" and mab["name"] == "Cockroach":
                     uses_left = 0 if game_state.cockroach_used.get(color, False) else 1
                 elif type_name == "Mongo" and mab["name"] == "Rampage":
@@ -285,10 +287,6 @@ def get_status_effects_summary(gs, game_data):
         if piece and piece.is_pawn and piece.pawn_name == "Sledge":
             add(piece.color, "Sledge", "Body Guard", turns)
 
-    for color, turns in gs.plot_armor_active.items():
-        if turns > 0:
-            add(color, "Carl", "Plot Armor", turns)
-
     for entry in gs.mordecai_respawn_pending:
         add(entry["color"], "Mordecai", "Ghost Zone (awaiting respawn)", entry["turns_left"])
 
@@ -374,7 +372,6 @@ def build_game_state_response():
         "restrained_pieces": [[r, c] for r, c in gs.restrained_pieces],
         "she_tank_targets": [[r, c] for r, c in gs.she_tank_targets],
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
-        "plot_armor_active": {color.value: turns for color, turns in gs.plot_armor_active.items() if turns > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
         "carl_in_check": is_in_check(board, gs.current_player),
         "status_effects": get_status_effects_summary(gs, game_data),
@@ -947,6 +944,7 @@ def get_ability_targets():
     valid_targets = []
     message = f"Select a target for {ability_name}"
     direction_options = None
+    combined_total = None
 
     # For non-combined abilities paid via combined dice, compute the effective die value
     def effective_die_value(idx):
@@ -978,18 +976,30 @@ def get_ability_targets():
         # Movement abilities — compute destinations WITHOUT spending the die.
         # The die is only spent when the player confirms a target at /ability.
         elif ability_name == "Leader":
-            if effective_die_value(die_index) >= 5:
-                r, c = piece_row, piece_col
-                for dr in range(-2, 3):
-                    for dc in range(-2, 3):
-                        if dr == 0 and dc == 0:
-                            continue
-                        nr, nc = r + dr, c + dc
-                        if gs.board.in_bounds(nr, nc) and not gs.is_square_blocked(nr, nc):
-                            t = gs.board.get(nr, nc)
-                            if t is None or t.color != piece.color:
-                                valid_targets.append([nr, nc])
-            message = "Select destination (2 squares in king directions)"
+            player = piece.color.value
+            combined_total = gs.leader_available_total(dice, player)
+            pulled_piece = data.get("pulled_piece")
+            if combined_total <= 0:
+                message = "Not enough dice available for Leader"
+            elif pulled_piece:
+                pr, pc = pulled_piece
+                valid_targets = [
+                    list(pos) for pos in
+                    gs.leader_pull_destinations((pr, pc), (piece_row, piece_col), combined_total)
+                ]
+                message = f"Select destination (up to {combined_total} squares)"
+            else:
+                eligible = gs.leader_eligible_pieces(piece.color)
+                valid_targets = [
+                    [r, c] for (r, c) in eligible
+                    if gs.leader_pull_destinations((r, c), (piece_row, piece_col), combined_total)
+                ]
+                message = f"Combined total: {combined_total}. Select a friendly piece to pull (Donut, Katia, or Samantha)"
+
+        elif ability_name == "Plot Armor" and piece.piece_type == PieceType.CARL:
+            if dice.can_combine_for_cost(8):
+                valid_targets = [list(pos) for pos in gs.plot_armor_destinations((piece_row, piece_col))]
+            message = "Select destination (up to 3 squares, any King direction)"
 
         elif ability_name == "Puddle Jump":
             if effective_die_value(die_index) >= 5:
@@ -1148,6 +1158,8 @@ def get_ability_targets():
         }
         if direction_options is not None:
             resp_data["direction_options"] = direction_options
+        if combined_total is not None:
+            resp_data["combined_total"] = combined_total
         return jsonify(resp_data)
 
     except Exception as e:
@@ -1231,11 +1243,7 @@ def use_ability():
     try:
         # Carl abilities
         if ability_name == "Plot Armor" and piece.piece_type == PieceType.CARL:
-            success = gs.try_plot_armor((piece_row, piece_col), dice, is_reaction=False)
-            result_msg = "Plot armor activated!" if success else "Failed"
-
-        elif ability_name == "Leader" and piece.piece_type == PieceType.CARL:
-            result = gs.try_leader((piece_row, piece_col), dice, die_index)
+            result = gs.try_plot_armor((piece_row, piece_col), dice)
             success = result is not None
             if success and result:
                 if target_pos and target_pos in result:
@@ -1243,8 +1251,36 @@ def use_ability():
                 else:
                     dest = random.choice(result) if result else None
                 if dest:
-                    gs.board.set(piece_row, piece_col, None)
-                    gs.board.set(dest[0], dest[1], piece)
+                    captured = gs.board.make_move((piece_row, piece_col), dest)
+                    if captured:
+                        gs.process_post_capture(captured, dest, piece, (piece_row, piece_col))
+                else:
+                    success = False
+            result_msg = "Plot Armor activated!" if success else "Failed"
+
+        elif ability_name == "Leader" and piece.piece_type == PieceType.CARL:
+            pulled_piece = data.get("pulled_piece")
+            if not pulled_piece:
+                return jsonify({"error": "Missing pulled_piece for Leader"}), 400
+            pr, pc = pulled_piece
+            pulled = gs.board.get(pr, pc)
+            if (pulled is None or pulled.color != color
+                    or pulled.piece_type not in (PieceType.DONUT, PieceType.KATIA, PieceType.SAMANTHA)):
+                return jsonify({"error": "Invalid Leader target piece"}), 400
+
+            total = gs.try_leader((piece_row, piece_col), dice, color.value)
+            success = total is not None
+            if success:
+                destinations = gs.leader_pull_destinations((pr, pc), (piece_row, piece_col), total)
+                if target_pos and target_pos in destinations:
+                    dest = target_pos
+                else:
+                    dest = random.choice(destinations) if destinations else None
+                if dest:
+                    gs.board.set(pr, pc, None)
+                    gs.board.set(dest[0], dest[1], pulled)
+                else:
+                    success = False
             result_msg = "Leader activated!" if success else "Failed"
 
         elif ability_name == "Bulldozer" and piece.piece_type == PieceType.CARL:

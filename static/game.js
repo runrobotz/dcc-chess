@@ -320,7 +320,6 @@ const Game = {
         const restrainedSet = new Set((this.state.restrained_pieces || []).map(z => `${z[0]},${z[1]}`));
         const sheTankSet = new Set((this.state.she_tank_targets || []).map(z => `${z[0]},${z[1]}`));
         const ironWallMap = this.state.iron_wall_pieces || {};
-        const plotArmorMap = this.state.plot_armor_active || {};
         const ghostMap = this.state.ghost_tokens || {};
         const ghostSet = new Set(Object.keys(ghostMap));
 
@@ -498,19 +497,13 @@ const Game = {
                     tooltipLines.push(`Ghost Zone — ${gTurns} turn${gTurns !== 1 ? 's' : ''} remaining`);
                 }
 
-                // Square-level persistent effects: Iron Wall (gold border) and Plot Armor (white glow)
+                // Square-level persistent effects: Iron Wall (gold border)
                 if (piece) {
                     const iwTurns = ironWallMap[sqKey];
                     if (iwTurns > 0) {
                         const ironShadow = 'inset 0 0 0 3px rgba(201,168,76,0.95)';
                         sq.style.boxShadow = sq.style.boxShadow ? `${sq.style.boxShadow}, ${ironShadow}` : ironShadow;
                         tooltipLines.push(`Iron Wall — ${iwTurns} turn${iwTurns !== 1 ? 's' : ''} remaining`);
-                    }
-                    const paTurns = plotArmorMap[piece.color];
-                    if (piece.type === 'Carl' && paTurns > 0) {
-                        const armorShadow = '0 0 12px 5px rgba(255,255,255,0.55), inset 0 0 0 2px rgba(255,255,255,0.5)';
-                        sq.style.boxShadow = sq.style.boxShadow ? `${sq.style.boxShadow}, ${armorShadow}` : armorShadow;
-                        tooltipLines.push(`Plot Armor — ${paTurns} turn${paTurns !== 1 ? 's' : ''} remaining`);
                     }
                 }
 
@@ -959,6 +952,12 @@ const Game = {
                     .filter(ab => ab.trigger === 'floor_roll')
                     .map(ab => ab.name);
                 for (const abName of abilityNames) {
+                    if (name === 'Carl' && abName === 'Leader') {
+                        // Leader can combine a banked die with the rolled die, which the
+                        // generic combined-dice card logic below doesn't account for.
+                        this.appendLeaderCard(container, instances, color);
+                        continue;
+                    }
                     const perInst = instances
                         .map(inst => ({ row: inst.row, col: inst.col, suppressed: inst.suppressed, ab: inst.abilities.find(a => a.name === abName) }))
                         .filter(x => x.ab);
@@ -1002,6 +1001,53 @@ const Game = {
             msg.textContent = 'No pieces available';
             container.appendChild(msg);
         }
+    },
+
+    // Leader's cost isn't a fixed floor -- it's whatever dice are available
+    // this turn (both rolled dice, or the banked die plus the rolled die), so
+    // it needs its own eligibility check instead of the generic combined-dice path.
+    appendLeaderCard(container, carlInstances, color) {
+        const inst = carlInstances[0];
+        const leaderAb = inst.abilities.find(ab => ab.name === 'Leader');
+        if (!leaderAb) return;
+
+        const dice = this.state.dice;
+        const isActingColor = this.state.current_player === color && this.state.phase === 'ability';
+        let combinedTotal = 0;
+        if (isActingColor && dice && dice.values) {
+            const bankedVal = dice.banked_die ? dice.banked_die[color] : null;
+            const availIdx = [];
+            for (let i = 0; i < dice.values.length; i++) {
+                if (!dice.used[i]) availIdx.push(i);
+            }
+            const rolledSum = availIdx.reduce((s, i) => s + dice.values[i], 0);
+            if (bankedVal !== null) {
+                if (availIdx.length >= 1) combinedTotal = bankedVal + rolledSum;
+            } else if (availIdx.length >= 2) {
+                combinedTotal = rolledSum;
+            }
+        }
+
+        const usesLeft = leaderAb.uses_left;
+        const hasUses = usesLeft === null || usesLeft === undefined || usesLeft > 0;
+        const eligible = !inst.suppressed && hasUses;
+        const clickable = isActingColor && eligible && combinedTotal > 0;
+
+        const card = document.createElement('div');
+        card.className = `ability-card status-${clickable ? 'green' : (eligible ? 'red' : 'grey')}`;
+        card.innerHTML = `
+            <span class="ac-piece-name">Carl</span>
+            <span class="ac-ability-name">${leaderAb.name}</span>
+            <span class="ac-mana">${combinedTotal > 0 ? `⚄+⚄ Pull ${combinedTotal}` : '⚄+⚄ Combine dice'}</span>
+        `;
+
+        if (clickable) {
+            card.addEventListener('click', () => this.useAbility(inst.row, inst.col, 'Leader', 0, true));
+        }
+        card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, leaderAb, 'Carl'));
+        card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+
+        container.appendChild(card);
     },
 
     appendAbilityCard(container, { pieceLabel, allInstances, ab, availableDice }) {
@@ -1406,6 +1452,8 @@ const Game = {
                 await this.handleZoneClick(row, col);
             } else if (abilityName === 'Lava Surge') {
                 // Direction is chosen via the Horizontal/Vertical panel buttons, not board clicks
+            } else if (abilityName === 'Leader') {
+                await this.handleLeaderClick(row, col);
             } else {
                 await this.handleTargetSelection(row, col);
             }
@@ -1660,7 +1708,7 @@ const Game = {
             'Air Strike': 'zone',
             'Lava Spit': 'zone',
             // Movement abilities
-            'Leader': 'movement',
+            'Plot Armor': 'movement',
             'Puddle Jump': 'movement',
             'Blitzed': 'target_piece',
             'She Tank': 'target_piece',
@@ -1675,12 +1723,16 @@ const Game = {
             'Frozen': 'target_piece',
             // Direction-toggle abilities
             'Lava Surge': 'direction',
+            // Two-stage pull ability (select piece, then destination)
+            'Leader': 'leader_pull',
         };
 
         const targetingType = targetingAbilities[abilityName];
 
         if (targetingType === 'direction') {
             await this.enterDirectionTargeting(pieceRow, pieceCol, abilityName, dieIndex, useCombined);
+        } else if (targetingType === 'leader_pull') {
+            await this.enterLeaderTargeting(pieceRow, pieceCol, dieIndex, useCombined);
         } else if (targetingType) {
             // Enter targeting mode - fetch valid targets from backend
             await this.enterTargetingMode(pieceRow, pieceCol, abilityName, dieIndex, targetingType, useCombined);
@@ -1823,6 +1875,135 @@ const Game = {
         if (!ta || !ta.selectedDirection) return [];
         const opt = ta.directionOptions && ta.directionOptions[ta.selectedDirection];
         return opt ? opt.squares : [];
+    },
+
+    // ═══ LEADER (two-stage: pick piece to pull, then destination) ═══
+
+    async enterLeaderTargeting(carlRow, carlCol, dieIndex, useCombined) {
+        try {
+            const resp = await fetch('/ability/get_targets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    piece_row: carlRow,
+                    piece_col: carlCol,
+                    ability_name: 'Leader',
+                    die_index: dieIndex,
+                    use_combined: useCombined,
+                }),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            if (!data.valid_targets || data.valid_targets.length === 0) {
+                this.showToast('No eligible piece can be pulled right now', 'fail');
+                return;
+            }
+
+            this.targetingMode = true;
+            this.targetingAbility = {
+                pieceRow: carlRow,
+                pieceCol: carlCol,
+                abilityName: 'Leader',
+                dieIndex,
+                useCombined,
+                targetingType: 'leader_pull',
+                stage: 'piece',
+                pulledPiece: null,
+                combinedTotal: data.combined_total,
+            };
+            this.validTargets = data.valid_targets;
+            this.targetingMessage = data.message || `Combined total: ${data.combined_total}. Select a friendly piece to pull.`;
+
+            this.showTargetingUI();
+            this.renderBoard();
+        } catch (e) {
+            console.error('Failed to enter Leader targeting:', e);
+            this.showToast('Failed to get Leader targets', 'fail');
+        }
+    },
+
+    async handleLeaderClick(row, col) {
+        const ta = this.targetingAbility;
+        const isValid = this.validTargets.some(t => t[0] === row && t[1] === col);
+        if (!isValid) {
+            this.showToast('Invalid target - click a highlighted square', 'fail');
+            return;
+        }
+
+        if (ta.stage === 'piece') {
+            try {
+                const resp = await fetch('/ability/get_targets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        piece_row: ta.pieceRow,
+                        piece_col: ta.pieceCol,
+                        ability_name: 'Leader',
+                        die_index: ta.dieIndex,
+                        use_combined: ta.useCombined,
+                        pulled_piece: [row, col],
+                    }),
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    this.showToast(data.error, 'fail');
+                    return;
+                }
+                if (!data.valid_targets || data.valid_targets.length === 0) {
+                    this.showToast('That piece has no valid path toward Carl', 'fail');
+                    return;
+                }
+                ta.stage = 'destination';
+                ta.pulledPiece = [row, col];
+                this.validTargets = data.valid_targets;
+                this.targetingMessage = data.message || 'Select destination';
+                this.showTargetingUI();
+                this.renderBoard();
+            } catch (e) {
+                this.showToast('Failed to get Leader destinations', 'fail');
+            }
+            return;
+        }
+
+        // stage === 'destination'
+        await this.executeLeaderAbility(row, col);
+        this.exitTargetingMode();
+    },
+
+    async executeLeaderAbility(destRow, destCol) {
+        const ta = this.targetingAbility;
+        try {
+            const resp = await fetch('/ability', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    piece_row: ta.pieceRow,
+                    piece_col: ta.pieceCol,
+                    ability_name: 'Leader',
+                    die_index: ta.dieIndex,
+                    use_combined: ta.useCombined,
+                    pulled_piece: ta.pulledPiece,
+                    target_row: destRow,
+                    target_col: destCol,
+                }),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            const result = data.ability_result;
+            if (result) {
+                this.showToast(`Leader: ${result.message}`, result.success ? 'success' : 'fail');
+            }
+            this.render();
+        } catch (e) {
+            this.showToast('Leader ability failed', 'fail');
+        }
     },
 
     async enterTargetingMode(pieceRow, pieceCol, abilityName, dieIndex, targetingType, useCombined = false) {

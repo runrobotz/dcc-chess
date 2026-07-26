@@ -61,9 +61,9 @@ class GameState:
 
         # ── Major Piece Abilities (New) ──────────────────────────
         # Carl
-        self.plot_armor_active: Dict[Color, int] = {Color.WHITE: 0, Color.BLACK: 0}  # turns remaining
-        self.plot_armor_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
-        
+        self.plot_armor_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}  # once per game
+        self.leader_uses: Dict[Color, int] = {Color.WHITE: 2, Color.BLACK: 2}  # twice per game
+
         # Donut
         self.cockroach_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         
@@ -83,8 +83,6 @@ class GameState:
         self.swallowed_pawns: List[Dict] = []  # [{piece: Piece, turns_left: int, sam_pos: (r,c)}]
         
         # ── Old tracking (kept for compatibility) ────────────────
-        self.carl_slowed: Dict[Color, int] = {Color.WHITE: 0, Color.BLACK: 0}  # turns remaining
-        self.carl_slowed_can_move: Dict[Color, bool] = {Color.WHITE: True, Color.BLACK: True}
         self.narrators_favor_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         self.resurrection_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         self.rampaging_charge_used: Dict[Tuple[Color, int], bool] = {}
@@ -286,19 +284,6 @@ class GameState:
             for zone in self.lava_spit_zones if zone["turns"] - 1 > 0
         ]
 
-        # Carl slowed
-        for color in [Color.WHITE, Color.BLACK]:
-            if self.carl_slowed[color] > 0:
-                self.carl_slowed[color] -= 1
-                self.carl_slowed_can_move[color] = not self.carl_slowed_can_move[color]
-                if self.carl_slowed[color] == 0:
-                    self.carl_slowed_can_move[color] = True
-        
-        # Plot Armor
-        for color in [Color.WHITE, Color.BLACK]:
-            if self.plot_armor_active[color] > 0:
-                self.plot_armor_active[color] -= 1
-        
         # Swallowed pawns (Slut Shame)
         respawned = []
         for i, swallowed in enumerate(self.swallowed_pawns):
@@ -381,9 +366,6 @@ class GameState:
             return False
         if (row, col) in self.restrained_pieces:
             return False
-        if piece.is_king and piece.color == self.current_player:
-            if self.carl_slowed[piece.color] > 0 and not self.carl_slowed_can_move[piece.color]:
-                return False
         return True
 
     def is_piece_invulnerable(self, row: int, col: int) -> bool:
@@ -393,9 +375,6 @@ class GameState:
         # Garret is indestructible — cannot be captured by normal means
         piece = self.board.get(row, col)
         if piece and piece.is_pawn and piece.pawn_name == "Garret":
-            return True
-        # Carl with Plot Armor active
-        if piece and piece.is_king and self.plot_armor_active[piece.color] > 0:
             return True
         return False
 
@@ -609,25 +588,6 @@ class GameState:
                                           not self.is_piece_invulnerable(nr, nc)):
                         extra_moves.append((nr, nc))
         return extra_moves
-
-    def try_narrators_favor(self, color: Color, dice: DungeonDice,
-                            die_index: int) -> bool:
-        """Carl's Narrator's Favor (Floor 6, 1/game): survive a capture.
-
-        This is called reactively when Carl would be captured. Returns True if successful.
-        """
-        if self.narrators_favor_used[color]:
-            return False
-
-        success = dice.spend_die(die_index, 6)
-        self.narrators_favor_used[color] = True
-        self.log_event("ability_roll", piece="Carl", ability="Narrator's Favor",
-                       die_value=dice.dice[die_index], floor=6, result="success" if success else "fail")
-        if success:
-            self.carl_slowed[color] = 3
-            self.carl_slowed_can_move[color] = True  # Can move this turn, not next
-            return True
-        return False
 
     def try_divas_entrance(self, donut_pos: Tuple[int, int], dice: DungeonDice,
                            die_index: int, target_square: Tuple[int, int]) -> bool:
@@ -1996,37 +1956,113 @@ class GameState:
 
     # ── Chunk 2 Abilities: Priority Group 5 (Complex Major Piece Abilities) ──
 
+    # Major piece types Leader can pull toward Carl. Mongo is excluded --
+    # his Knight movement has no "straight line toward Carl" concept, unlike
+    # Donut (queen), Katia (bishop), and Samantha (rook).
+    LEADER_ELIGIBLE_TYPES = {PieceType.DONUT, PieceType.KATIA, PieceType.SAMANTHA}
+
+    def leader_available_total(self, dice: DungeonDice, player: str) -> int:
+        """Non-destructive preview of the combined dice total available for Leader
+        this turn: both rolled dice if no banked die exists, or the banked die
+        plus whatever single die was rolled this turn if one does. Returns 0 if
+        the requirement isn't met (doesn't spend anything).
+        """
+        available_indices = [i for i in range(len(dice.dice)) if not dice.used[i]]
+        rolled_sum = sum(dice.dice[i] for i in available_indices)
+        banked = dice.banked_die.get(player)
+        if banked is not None:
+            if len(available_indices) < 1:
+                return 0
+            return banked + rolled_sum
+        if len(available_indices) < 2:
+            return 0
+        return rolled_sum
+
+    def leader_eligible_pieces(self, color: Color) -> List[Tuple[int, int]]:
+        """Friendly Donut/Katia/Samantha positions Leader could target."""
+        return [
+            (r, c) for r, c, p in self.board.all_pieces(color)
+            if p.piece_type in self.LEADER_ELIGIBLE_TYPES
+        ]
+
+    def leader_pull_destinations(self, piece_pos: Tuple[int, int], carl_pos: Tuple[int, int],
+                                  max_distance: int) -> List[Tuple[int, int]]:
+        """Valid destinations for pulling the piece at `piece_pos` toward `carl_pos`,
+        up to `max_distance` squares, respecting that piece's own movement rules
+        (diagonal only for Katia, orthogonal only for Samantha, either for Donut)
+        and board obstruction. The piece can never land on or pass through any
+        occupied square, and can never land on Carl's own square.
+        """
+        piece = self.board.get(*piece_pos)
+        if piece is None or max_distance <= 0:
+            return []
+
+        pr, pc = piece_pos
+        cr, cc = carl_pos
+        dr, dc = cr - pr, cc - pc
+        if dr == 0 and dc == 0:
+            return []
+
+        is_diagonal = dr != 0 and dc != 0 and abs(dr) == abs(dc)
+        is_orthogonal = (dr == 0) != (dc == 0)
+
+        if piece.piece_type == PieceType.DONUT:
+            allowed = is_diagonal or is_orthogonal
+        elif piece.piece_type == PieceType.KATIA:
+            allowed = is_diagonal
+        elif piece.piece_type == PieceType.SAMANTHA:
+            allowed = is_orthogonal
+        else:
+            allowed = False
+        if not allowed:
+            return []
+
+        step_r = (dr > 0) - (dr < 0)
+        step_c = (dc > 0) - (dc < 0)
+        distance_to_carl = max(abs(dr), abs(dc))
+
+        destinations = []
+        for dist in range(1, min(max_distance, distance_to_carl - 1) + 1):
+            nr, nc = pr + step_r * dist, pc + step_c * dist
+            if not self.board.in_bounds(nr, nc):
+                break
+            if self.is_square_blocked(nr, nc):
+                break
+            if self.board.get(nr, nc) is not None:
+                break
+            destinations.append((nr, nc))
+        return destinations
+
     def try_leader(self, carl_pos: Tuple[int, int], dice: DungeonDice,
-                   die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Carl's Leader (Floor 5): Move 2 squares instead of 1 in any King direction."""
+                   player: str) -> Optional[int]:
+        """Carl's Leader (no fixed cost, twice per game): combine all available
+        dice (both rolled dice, or the banked die plus the rolled die) into a
+        pull distance for one friendly back-line major piece. Consumes all
+        available dice (and the bank, if used) as part of activation. Returns
+        the combined total on success, or None if unavailable.
+        """
         piece = self.board.get(*carl_pos)
         if piece is None or piece.piece_type != PieceType.CARL:
             return None
         if self.is_piece_suppressed(*carl_pos):
             return None
-
-        success = dice.spend_die(die_index, 5)
-        self.log_event("ability_roll", piece="Carl", ability="Leader",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if not success:
+        if self.leader_uses.get(piece.color, 2) <= 0:
             return None
 
-        r, c = carl_pos
-        moves = []
-        # King moves in 8 directions, but 2 squares instead of 1
-        for dr in [-2, -1, 0, 1, 2]:
-            for dc in [-2, -1, 0, 1, 2]:
-                if dr == 0 and dc == 0:
-                    continue
-                # Only allow moves that are in King directions (max 2 squares)
-                if abs(dr) <= 2 and abs(dc) <= 2:
-                    nr, nc = r + dr, c + dc
-                    if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                        target = self.board.get(nr, nc)
-                        if target is None or target.color != piece.color:
-                            moves.append((nr, nc))
-        
-        return moves if moves else None
+        total = self.leader_available_total(dice, player)
+        if total <= 0:
+            return None
+
+        available_indices = [i for i in range(len(dice.dice)) if not dice.used[i]]
+        if dice.banked_die.get(player) is not None:
+            dice.banked_die[player] = None
+        for i in available_indices:
+            dice.used[i] = True
+
+        self.leader_uses[piece.color] = self.leader_uses.get(piece.color, 2) - 1
+        self.log_event("ability_roll", piece="Carl", ability="Leader",
+                       detail=f"Combined total {total}", result="success")
+        return total
 
     def try_puddle_jump(self, donut_pos: Tuple[int, int], dice: DungeonDice,
                         die_index: int) -> Optional[List[Tuple[int, int]]]:
@@ -2323,56 +2359,66 @@ class GameState:
                       detail="Target cannot move next turn", is_reaction=is_reaction)
         return True
 
-    def try_plot_armor(self, carl_pos: Tuple[int, int], dice: DungeonDice,
-                       is_reaction: bool = False) -> bool:
-        """Carl's Plot Armor (Floor 6, once per game, reaction):
-        Carl becomes invulnerable for 3 full turns.
-        Can be used as reaction with banked die or on own turn.
+    def plot_armor_destinations(self, carl_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Pure computation of Carl's legal Plot Armor destinations (no dice or
+        uses are spent). Up to 3 squares in any King direction; cannot pass
+        through occupied squares; can capture on landing (except the enemy
+        King, which -- as in standard chess -- is never a valid capture
+        target); the destination must not leave Carl in check.
         """
         piece = self.board.get(*carl_pos)
         if piece is None or piece.piece_type != PieceType.CARL:
-            return False
-        if self.is_piece_suppressed(*carl_pos):
-            return False
-        
-        # Check if already used
-        if self.plot_armor_used.get(piece.color, False):
-            return False
-        
-        if is_reaction:
-            # Using banked die as reaction
-            if not dice.has_banked_die():
-                return False
-            pulled_value = dice.pull_from_bank()
-            if pulled_value < 6:
-                return False
-            self.log_event("ability_reaction", piece="Carl", ability="Plot Armor",
-                          banked_die_value=pulled_value)
-        else:
-            # Normal use on own turn
-            die_index = -1
-            for i in range(len(dice.dice)):
-                if not dice.used[i] and dice.dice[i] >= 6:
-                    die_index = i
+            return []
+
+        r, c = carl_pos
+        directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+        destinations = []
+        for dr, dc in directions:
+            for dist in range(1, 4):
+                nr, nc = r + dr * dist, c + dc * dist
+                if not self.board.in_bounds(nr, nc):
                     break
-            if die_index == -1:
-                return False
-            
-            success = dice.spend_die(die_index, 6)
-            if not success:
-                return False
-            
-            self.log_event("ability_roll", piece="Carl", ability="Plot Armor",
-                          die_value=dice.dice[die_index], floor=6, result="success")
-        
-        # Mark as used
+                if self.is_square_blocked(nr, nc):
+                    break
+                target = self.board.get(nr, nc)
+                if target is not None and (target.color == piece.color or target.is_king):
+                    break  # friendly pieces and the enemy King both fully block
+
+                old_en_passant = self.board.en_passant_target
+                old_has_moved = piece.has_moved
+                captured = self.board.make_move(carl_pos, (nr, nc))
+                still_in_check = is_in_check(self.board, piece.color)
+                self.board.undo_move(carl_pos, (nr, nc), captured, False,
+                                      old_en_passant, old_has_moved, False, None)
+                if not still_in_check:
+                    destinations.append((nr, nc))
+
+                if target is not None:
+                    break  # captured an enemy piece here -- can't travel further
+        return destinations
+
+    def try_plot_armor(self, carl_pos: Tuple[int, int], dice: DungeonDice) -> Optional[List[Tuple[int, int]]]:
+        """Carl's Plot Armor (Cost 8, requires combined dice, once per game):
+        an emergency escape move up to 3 squares in any King direction. Returns
+        the list of legal destinations on success, or None if unavailable.
+        """
+        piece = self.board.get(*carl_pos)
+        if piece is None or piece.piece_type != PieceType.CARL:
+            return None
+        if self.is_piece_suppressed(*carl_pos):
+            return None
+        if self.plot_armor_used.get(piece.color, False):
+            return None
+        if not dice.can_combine_for_cost(8):
+            return None
+
+        dice.spend_combined(8)
         self.plot_armor_used[piece.color] = True
-        
-        # Activate for 3 turns
-        self.plot_armor_active[piece.color] = 3
-        
-        self.log_event("plot_armor", detail="Carl invulnerable for 3 turns", is_reaction=is_reaction)
-        return True
+        self.log_event("ability_roll", piece="Carl", ability="Plot Armor",
+                       detail="Combined dice for cost 8", result="success")
+
+        destinations = self.plot_armor_destinations(carl_pos)
+        return destinations if destinations else None
 
     # ── Chunk 2 Abilities: Priority Group 7 (Combined Dice Abilities) ──
 
