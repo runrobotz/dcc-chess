@@ -215,7 +215,7 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
     if name == "Juice Box":
         if pos in gs.juice_box_used_this_turn:
             return
-        captured_list = gs.juice_box_captured.get(pos, [])
+        captured_list = gs.juice_box_captured.get(gs.juice_box_key(pos), [])
         options = [n for n in captured_list
                    if PAWN_CHARACTERS.get(n) and PAWN_CHARACTERS[n].ability.trigger == AbilityTrigger.FLOOR_ROLL]
         if not options or random.random() > 0.5:
@@ -506,7 +506,7 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
     if name == "Juice Box":
         if (row, col) in gs.juice_box_used_this_turn:
             return
-        for captured_name in gs.juice_box_captured.get((row, col), []):
+        for captured_name in gs.juice_box_captured.get(gs.juice_box_key((row, col)), []):
             cchar = PAWN_CHARACTERS.get(captured_name)
             if cchar and cchar.ability.trigger == AbilityTrigger.FLOOR_ROLL:
                 offensive.append((f"juice_box:{cchar.ability.name}", (row, col), piece,

@@ -148,7 +148,7 @@ def get_piece_abilities(piece, game_state, row, col):
     if piece.is_pawn and piece.pawn_name == "Juice Box":
         # Juice Box has no ability of her own — she shows one entry per pawn
         # ability she has captured (instead of a generic Shapeshift button).
-        captured_list = game_state.juice_box_captured.get((row, col), [])
+        captured_list = game_state.juice_box_captured.get(game_state.juice_box_key((row, col)), [])
         for captured_name in captured_list:
             cchar = PAWN_CHARACTERS.get(captured_name)
             if not cchar:
@@ -1573,7 +1573,9 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         success = False
         msg = "Select a captured ability to use instead of Shapeshift"
     elif name == "Juice Box":
-        success = gs.try_juice_box_use_captured_ability(pos, ability_name, dice, die_index, use_combined=use_combined)
+        success = gs.try_juice_box_use_captured_ability(
+            pos, ability_name, dice, die_index, use_combined=use_combined,
+            target_pos=target_pos, direction=direction)
         msg = f"Used {ability_name}!" if success else "Failed"
     elif name == "Florin" and ability_name == "Suppressing Fire":
         success = gs.try_suppressing_fire(pos, dice, die_index)

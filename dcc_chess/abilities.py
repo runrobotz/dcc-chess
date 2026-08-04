@@ -126,8 +126,10 @@ class GameState:
         self.lava_zones: Dict[Tuple[int, int], int] = {}  # pos -> turns remaining
         self.chris_stuck: Set[Tuple[int, int]] = set()  # Chris positions stuck by lava
         
-        # Juice Box — Shapeshift: captured pawn abilities
-        self.juice_box_captured: Dict[Tuple[int, int], List[str]] = {}  # juice_box_pos -> [pawn_names]
+        # Juice Box — Shapeshift: captured pawn abilities. Keyed by (color, id(piece))
+        # rather than board position -- she keeps every captured ability as she
+        # moves and captures again, not just whatever she captured most recently.
+        self.juice_box_captured: Dict[Tuple[Color, int], List[str]] = {}
         self.juice_box_used_this_turn: Set[Tuple[int, int]] = set()  # can't use ability same turn as capture
         
         # Florin — Suppressing Fire: push pieces away
@@ -506,9 +508,15 @@ class GameState:
                 # This is handled in the ability phase, not auto. Skip here.
                 pass
 
-        # Check Quasar's Mediation (defensive, auto-trigger)
+        # Check Quasar's Mediation (defensive, auto-trigger). Also applies if
+        # the defender is Juice Box and has personally captured Mediation --
+        # Shapeshift makes it her own passive defense, not just Quasar's.
         quasar_alive = self._find_pawn(defender.color, "Quasar")
-        if quasar_alive and self.quasar_uses[defender.color] < 2:
+        juice_box_has_mediation = (
+            defender.is_pawn and defender.pawn_name == "Juice Box"
+            and "Mediation" in self.juice_box_captured.get(self.juice_box_key(defender), [])
+        )
+        if (quasar_alive or juice_box_has_mediation) and self.quasar_uses[defender.color] < 2:
             # Don't use on Narrator's Favor situations
             if not (defender.is_king and not self.narrators_favor_used.get(defender.color, True)):
                 attacker_roll = random.randint(1, 6)
@@ -1375,7 +1383,7 @@ class GameState:
                    die_index: int) -> bool:
         """Lucia Mar's Sic Em (Floor 3): Restrain 1 enemy piece anywhere on the board."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Lucia Mar":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Lucia Mar", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1410,7 +1418,7 @@ class GameState:
                    die_index: int, target_pos: Tuple[int, int] = None) -> bool:
         """Elle McGib's Frozen (Floor 5): Freeze enemy piece within 5 squares."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Elle McGib":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Elle McGib", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1452,7 +1460,7 @@ class GameState:
                      die_index: int) -> bool:
         """Imani's Suppress (Floor 4): Enemy piece within 2 squares loses abilities."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Imani":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Imani", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1489,7 +1497,7 @@ class GameState:
                        die_index: int) -> bool:
         """Sledge's Body Guard (Floor 4): Become immovable and invulnerable for 2 turns."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Sledge":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Sledge", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1511,7 +1519,7 @@ class GameState:
                         die_index: int) -> bool:
         """Zev's Biggest Fan (Floor 3): All friendly pieces get +1 to dice next turn."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Zev":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Zev", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1531,7 +1539,7 @@ class GameState:
                         die_index: int) -> Optional[List[Tuple[int, int]]]:
         """Prepotente's Special Boy (Floor 4): Move 2 squares forward."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Prepotente":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Prepotente", "Juice Box"):
             return None
         if self.is_piece_suppressed(*pawn_pos):
             return None
@@ -1585,7 +1593,7 @@ class GameState:
                              die_index: int) -> bool:
         """Florin's Suppressing Fire (Floor 6): Push enemy piece 2 squares away."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Florin":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Florin", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1690,7 +1698,7 @@ class GameState:
         3 squares must be completely empty. `direction` is 'horizontal' or 'vertical'.
         """
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Chris":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Chris", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1724,10 +1732,14 @@ class GameState:
     # ── Chunk 2 Abilities: Priority Group 3 (Zone Blocking) ──
 
     def try_air_strike(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                       die_index: int) -> bool:
-        """Louie's Air Strike (Floor 6, requires combined): Create 2x2 blocked zone."""
+                       die_index: int, target_pos: Optional[Tuple[int, int]] = None) -> bool:
+        """Louie's Air Strike (Floor 6, requires combined): Create 2x2 blocked zone.
+
+        `target_pos` is the top-left corner of the 2x2 zone, if the player chose
+        one. All 4 squares must be completely empty.
+        """
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Louie":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Louie", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1735,35 +1747,53 @@ class GameState:
         # Requires combined dice (total >= 6)
         if not dice.can_combine_for_cost(6):
             return False
-        
+
         dice.spend_combined(6)
         self.log_event("ability_roll", piece="Louie", ability="Air Strike",
                        detail="Combined dice for cost 6", result="success")
 
+        def zone_is_empty(zone_r, zone_c):
+            for dr in range(2):
+                for dc in range(2):
+                    nr, nc = zone_r + dr, zone_c + dc
+                    if not self.board.in_bounds(nr, nc) or self.board.get(nr, nc) is not None:
+                        return False
+            return True
+
         r, c = pawn_pos
-        # Find valid 2x2 zones within 4 squares
+        # Find valid, fully-empty 2x2 zones within 4 squares
         valid_zones = []
         for dr in range(-4, 5):
             for dc in range(-4, 5):
                 zone_r, zone_c = r + dr, c + dc
-                # Check if 2x2 zone is valid (top-left corner must be in bounds and bottom-right too)
-                if self.board.in_bounds(zone_r, zone_c) and self.board.in_bounds(zone_r+1, zone_c+1):
+                if zone_is_empty(zone_r, zone_c):
                     valid_zones.append((zone_r, zone_c))
-        
-        if valid_zones:
+
+        if target_pos is not None and zone_is_empty(target_pos[0], target_pos[1]):
+            zone_pos = tuple(target_pos)
+        elif valid_zones:
             zone_pos = random.choice(valid_zones)
-            self.smoke_zones.append({"pos": zone_pos, "turns": 2})
-            self.louie_cant_move.add(pawn_pos)
-            self.log_event("air_strike", zone_pos=zone_pos, detail="2x2 blocked for 2 turns")
-            return True
-        
-        return False
+        else:
+            return False
+
+        self.air_strike_zones.clear()  # Only one active zone at a time
+        for dr in range(2):
+            for dc in range(2):
+                nr, nc = zone_pos[0] + dr, zone_pos[1] + dc
+                if self.board.in_bounds(nr, nc):
+                    self.air_strike_zones[(nr, nc)] = 2
+        self.louie_cant_move = set(self.air_strike_zones.keys())
+        self.log_event("air_strike", zone_pos=zone_pos, detail="2x2 blocked for 2 turns")
+        return True
 
     def try_lava_spit_chunk2(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                             die_index: int) -> bool:
-        """Bad Llama's Lava Spit (Floor 4): Create 2x2 zone that forces movement."""
+                             die_index: int, target_pos: Optional[Tuple[int, int]] = None) -> bool:
+        """Bad Llama's Lava Spit (Floor 4): Create 2x2 zone that forces movement.
+
+        `target_pos`, if given, is the top-left corner of the 2x2 zone.
+        """
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Bad Llama":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Bad Llama", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
@@ -1774,23 +1804,28 @@ class GameState:
         if not success:
             return False
 
+        def zone_valid(zone_r, zone_c):
+            return self.board.in_bounds(zone_r, zone_c) and self.board.in_bounds(zone_r + 1, zone_c + 1)
+
         r, c = pawn_pos
         # Find valid 2x2 zones within 4 squares
         valid_zones = []
         for dr in range(-4, 5):
             for dc in range(-4, 5):
                 zone_r, zone_c = r + dr, c + dc
-                # Check if 2x2 zone is valid
-                if self.board.in_bounds(zone_r, zone_c) and self.board.in_bounds(zone_r+1, zone_c+1):
+                if zone_valid(zone_r, zone_c):
                     valid_zones.append((zone_r, zone_c))
-        
-        if valid_zones:
+
+        if target_pos is not None and zone_valid(target_pos[0], target_pos[1]):
+            zone_pos = tuple(target_pos)
+        elif valid_zones:
             zone_pos = random.choice(valid_zones)
-            self.lava_spit_zones.append({"pos": zone_pos, "turns": 1})
-            self.log_event("lava_spit_chunk2", zone_pos=zone_pos, detail="2x2 zone forces movement")
-            return True
-        
-        return False
+        else:
+            return False
+
+        self.lava_spit_zones.append({"pos": zone_pos, "turns": 1})
+        self.log_event("lava_spit_chunk2", zone_pos=zone_pos, detail="2x2 zone forces movement")
+        return True
 
     # ── Chunk 2 Abilities: Priority Group 4 (Auto Triggers) ──
 
@@ -1876,31 +1911,47 @@ class GameState:
         self.log_event("orthrus_permanent_death", pos=capture_pos, other_pos=other_pos,
                        detail="Orthrus permanently removed")
 
-    def process_juice_box_capture(self, juice_box_pos: Tuple[int, int], 
+    def juice_box_key(self, juice_box_pos_or_piece):
+        """Stable identity key for a specific Juice Box piece instance.
+
+        Accepts either her current board position or the Piece object itself.
+        Keyed by (color, id(piece)) rather than position -- her captured
+        abilities travel with her as she moves and captures again, rather
+        than resetting every time she relocates onto a new square.
+        """
+        piece = (juice_box_pos_or_piece if isinstance(juice_box_pos_or_piece, Piece)
+                 else self.board.get(*juice_box_pos_or_piece))
+        if piece is None:
+            return None
+        return (piece.color, id(piece))
+
+    def process_juice_box_capture(self, juice_box_pos: Tuple[int, int],
                                    captured_pawn: Piece, captured_pos: Tuple[int, int]):
         """Juice Box Shapeshift: Auto-trigger when Juice Box captures a pawn.
         Juice Box gains the ability to use the captured pawn's ability.
         """
         if not captured_pawn.is_pawn or not captured_pawn.pawn_name:
             return
-        
+
+        key = self.juice_box_key(juice_box_pos)
+
         # Add captured pawn to Juice Box's list
-        if juice_box_pos not in self.juice_box_captured:
-            self.juice_box_captured[juice_box_pos] = []
-        
-        if captured_pawn.pawn_name not in self.juice_box_captured[juice_box_pos]:
-            self.juice_box_captured[juice_box_pos].append(captured_pawn.pawn_name)
-        
+        if key not in self.juice_box_captured:
+            self.juice_box_captured[key] = []
+
+        if captured_pawn.pawn_name not in self.juice_box_captured[key]:
+            self.juice_box_captured[key].append(captured_pawn.pawn_name)
+
         # Mark that Juice Box can't use ability this turn
         self.juice_box_used_this_turn.add(juice_box_pos)
-        
-        self.log_event("juice_box_shapeshift", pos=juice_box_pos, 
+
+        self.log_event("juice_box_shapeshift", pos=juice_box_pos,
                        captured=captured_pawn.pawn_name,
                        detail="Gained ability, cannot use this turn")
 
     def find_captured_ability(self, juice_box_pos: Tuple[int, int], ability_name: str):
         """Look up the PawnCharacter behind one of Juice Box's currently-acquired abilities."""
-        captured_list = self.juice_box_captured.get(juice_box_pos, [])
+        captured_list = self.juice_box_captured.get(self.juice_box_key(juice_box_pos), [])
         for pawn_name in captured_list:
             char = PAWN_CHARACTERS.get(pawn_name)
             if char and char.ability.name == ability_name:
@@ -1913,17 +1964,22 @@ class GameState:
         Called whenever a pawn is resurrected — per her Shapeshift rule, if the
         opponent brings the captured pawn back, Juice Box loses that ability.
         """
-        for jb_pos, names in self.juice_box_captured.items():
+        for jb_key, names in self.juice_box_captured.items():
             if pawn_name in names:
                 names.remove(pawn_name)
-                self.log_event("juice_box_lost_ability", pos=jb_pos, pawn=pawn_name,
+                self.log_event("juice_box_lost_ability", pawn=pawn_name,
                                detail="Captured pawn was resurrected")
 
     def try_juice_box_use_captured_ability(self, juice_box_pos: Tuple[int, int],
                                            ability_name: str, dice: DungeonDice,
-                                           die_index: int, use_combined: bool = False) -> bool:
-        """Juice Box uses a captured pawn's ability.
-        Player selects which captured ability to use, at that ability's real cost.
+                                           die_index: int, use_combined: bool = False,
+                                           target_pos: Optional[Tuple[int, int]] = None,
+                                           direction: Optional[str] = None) -> bool:
+        """Juice Box uses a captured pawn's ability, routed to that pawn's real
+        implementation. Juice Box's own position stands in for the original
+        pawn's position -- the effect originates from wherever she is standing.
+        Dice cost/combining is handled by the underlying try_* method itself,
+        exactly as it would be for the original pawn.
         """
         piece = self.board.get(*juice_box_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Juice Box":
@@ -1939,20 +1995,61 @@ class GameState:
         if pawn_char is None:
             return False
 
-        floor = pawn_char.ability.floor_number
-        if pawn_char.ability.requires_combined or use_combined:
-            if not dice.can_combine_for_cost(floor):
-                return False
-            dice.spend_combined(floor)
-        else:
-            if not dice.spend_die(die_index, floor):
-                return False
+        name = pawn_char.name
+        success = False
 
-        # Use the captured ability (delegate to the appropriate handler)
-        # This is a simplified version - full implementation would call the actual ability
-        self.log_event("juice_box_use_ability", pos=juice_box_pos,
-                       ability=ability_name, pawn=pawn_char.name, floor=floor)
-        return True
+        if name == "Zev":
+            success = self.try_biggest_fan(juice_box_pos, dice, die_index)
+        elif name == "Elle McGib":
+            success = self.try_frozen(juice_box_pos, dice, die_index, target_pos=target_pos)
+        elif name == "Imani":
+            success = self.try_suppress(juice_box_pos, dice, die_index)
+        elif name == "Slugalo":
+            success = self.try_one_of_us(juice_box_pos, dice, target_pos=target_pos)
+        elif name == "Louie":
+            success = self.try_air_strike(juice_box_pos, dice, die_index, target_pos=target_pos)
+        elif name == "Sledge":
+            success = self.try_body_guard(juice_box_pos, dice, die_index)
+        elif name == "Stripper Anaconda":
+            success = self.try_gun_show(juice_box_pos, dice, die_index)
+        elif name == "Quasar":
+            # Mediation is a passive defense (see attempt_capture) that triggers
+            # automatically when Juice Box herself is about to be captured --
+            # it has no manual, die-spend trigger to fire here.
+            success = False
+        elif name == "Lucia Mar":
+            success = self.try_sic_em(juice_box_pos, dice, die_index)
+        elif name == "Chris":
+            success = self.try_lava_surge_chunk2(juice_box_pos, dice, die_index, direction=direction)
+        elif name == "Florin":
+            success = self.try_suppressing_fire(juice_box_pos, dice, die_index)
+        elif name == "Signet":
+            success = self.try_succubus(juice_box_pos, dice, die_index)
+        elif name == "Miriam Dom":
+            success = self.try_blood_magic(juice_box_pos, dice, target_pos=target_pos)
+        elif name == "Raul the Crab":
+            success = self.try_group_climax(juice_box_pos, dice)
+        elif name == "Bad Llama":
+            success = self.try_lava_spit_chunk2(juice_box_pos, dice, die_index, target_pos=target_pos)
+        elif name == "Prepotente":
+            result = self.try_special_boy(juice_box_pos, dice, die_index)
+            if result:
+                if target_pos is not None and tuple(target_pos) in result:
+                    dest = tuple(target_pos)
+                else:
+                    dest = random.choice(result)
+                self.board.set(juice_box_pos[0], juice_box_pos[1], None)
+                self.board.set(dest[0], dest[1], piece)
+                piece.has_moved = True
+                success = True
+        elif name == "Garret":
+            # Indestructible is passive and has no active effect to fire.
+            success = False
+
+        if success:
+            self.log_event("juice_box_use_ability", pos=juice_box_pos,
+                           ability=ability_name, pawn=name)
+        return success
 
     # ── Chunk 2 Abilities: Priority Group 5 (Complex Major Piece Abilities) ──
 
@@ -2606,12 +2703,13 @@ class GameState:
                        detail="Will respawn within 1 square of Samantha in 5 turns")
         return True
 
-    def try_one_of_us(self, slugalo_pos: Tuple[int, int], dice: DungeonDice) -> bool:
+    def try_one_of_us(self, slugalo_pos: Tuple[int, int], dice: DungeonDice,
+                      target_pos: Optional[Tuple[int, int]] = None) -> bool:
         """Slugalo's One Of Us (Floor 10, requires combined):
         Convert enemy pawn within 2 squares to friendly side.
         """
         piece = self.board.get(*slugalo_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Slugalo":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Slugalo", "Juice Box"):
             return False
         if self.is_piece_suppressed(*slugalo_pos):
             return False
@@ -2623,7 +2721,7 @@ class GameState:
         dice.spend_combined(10)
         self.log_event("ability_roll", piece="Slugalo", ability="One Of Us",
                        detail="Combined dice for cost 10", result="success")
-        
+
         # Find enemy pawns within 2 squares
         r, c = slugalo_pos
         enemy_pawns = []
@@ -2636,12 +2734,15 @@ class GameState:
                     target = self.board.get(nr, nc)
                     if target and target.is_pawn and target.color != piece.color:
                         enemy_pawns.append((nr, nc))
-        
+
         if not enemy_pawns:
             return False
-        
-        # Pick random enemy pawn to convert
-        target_pos = random.choice(enemy_pawns)
+
+        # Use the requested target if valid, otherwise pick randomly
+        if target_pos is not None and tuple(target_pos) in enemy_pawns:
+            target_pos = tuple(target_pos)
+        else:
+            target_pos = random.choice(enemy_pawns)
         converted_pawn = self.board.get(*target_pos)
         
         # Change color to friendly
@@ -2652,24 +2753,27 @@ class GameState:
                        detail="Enemy pawn converted to friendly")
         return True
 
-    def try_blood_magic(self, miriam_pos: Tuple[int, int], dice: DungeonDice) -> bool:
+    def try_blood_magic(self, miriam_pos: Tuple[int, int], dice: DungeonDice,
+                        target_pos: Optional[Tuple[int, int]] = None) -> bool:
         """Miriam Dom's Blood Magic (Floor 8, requires combined):
         Sacrifice one adjacent friendly pawn, then resurrect any previously captured friendly pawn on back rank.
+
+        `target_pos`, if given, is the adjacent friendly pawn to sacrifice.
         """
         piece = self.board.get(*miriam_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Miriam Dom":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Miriam Dom", "Juice Box"):
             return False
         if self.is_piece_suppressed(*miriam_pos):
             return False
-        
+
         # Requires combined dice (total >= 8)
         if not dice.can_combine_for_cost(8):
             return False
-        
+
         dice.spend_combined(8)
         self.log_event("ability_roll", piece="Miriam Dom", ability="Blood Magic",
                        detail="Combined dice for cost 8", result="success")
-        
+
         # Find adjacent friendly pawns to sacrifice (only adjacent, not within 2 squares)
         r, c = miriam_pos
         adjacent_pawns = []
@@ -2682,7 +2786,7 @@ class GameState:
                     target = self.board.get(nr, nc)
                     if target and target.is_pawn and target.color == piece.color:
                         adjacent_pawns.append((nr, nc))
-        
+
         # Check for captured friendly pieces to resurrect (Orthrus can never be resurrected)
         source = self.captured_pieces.get(piece.color, [])
         captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
@@ -2690,8 +2794,11 @@ class GameState:
         if not adjacent_pawns or not captured:
             return False
 
-        # Pick random adjacent pawn to sacrifice (player will target this later)
-        sacrifice_pos = random.choice(adjacent_pawns)
+        # Use the requested sacrifice if valid, otherwise pick randomly
+        if target_pos is not None and tuple(target_pos) in adjacent_pawns:
+            sacrifice_pos = tuple(target_pos)
+        else:
+            sacrifice_pos = random.choice(adjacent_pawns)
         sacrificed = self.board.get(*sacrifice_pos)
 
         # Remove sacrificed pawn without triggering on-capture effects
@@ -2731,7 +2838,7 @@ class GameState:
         All friendly pieces get -2 to ability costs next turn.
         """
         piece = self.board.get(*raul_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Raul the Crab":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Raul the Crab", "Juice Box"):
             return False
         if self.is_piece_suppressed(*raul_pos):
             return False
@@ -2802,7 +2909,7 @@ class GameState:
         All friendly male pieces get +2 to dice rolls for 2 turns.
         """
         piece = self.board.get(*anaconda_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Stripper Anaconda":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Stripper Anaconda", "Juice Box"):
             return False
         if self.is_piece_suppressed(*anaconda_pos):
             return False
@@ -2825,7 +2932,7 @@ class GameState:
         All enemy male pieces within 3 squares cannot move next turn.
         """
         piece = self.board.get(*signet_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Signet":
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Signet", "Juice Box"):
             return False
         if self.is_piece_suppressed(*signet_pos):
             return False
