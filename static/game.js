@@ -407,6 +407,20 @@ const Game = {
                         if (directionPreviewSet.has(`${row},${col}`)) {
                             sq.style.boxShadow = 'inset 0 0 0 2px rgba(255,120,40,0.95), inset 0 0 0 999px rgba(255,90,0,0.35)';
                         }
+                    } else if (this.targetingAbility && this.targetingAbility.abilityName === 'Plot Armor') {
+                        // Plot Armor is a movement ability -- its destinations should look
+                        // exactly like normal legal-move squares (green dot / red capture
+                        // outline), not the generic gold "valid-target" tint used by
+                        // non-movement targeting abilities (Blitzed, She Tank, etc).
+                        const isValidTarget = this.validTargets.some(t => t[0] === row && t[1] === col);
+                        if (isValidTarget) {
+                            const target = grid[row][col];
+                            if (target && target.color !== this.state.current_player) {
+                                sq.classList.add('legal-capture');
+                            } else {
+                                sq.classList.add('legal-move');
+                            }
+                        }
                     } else {
                         const isValidTarget = this.validTargets.some(t => t[0] === row && t[1] === col);
                         if (isValidTarget) {
@@ -720,22 +734,38 @@ const Game = {
         const endTurnBtn = document.getElementById('end-turn-btn');
         const undoBtn = document.getElementById('undo-move-btn');
 
-        // Show panel for ability phase only
-        if (this.state.phase !== 'ability') {
-            panel.classList.add('hidden');
-            return;
-        }
-        panel.classList.remove('hidden');
+        const isDevMode = this.state.mode === 'dev';
 
-        // Undo Last Move — Dev Game mode only
+        // Undo Last Move — Dev Game mode only. Updated regardless of phase so
+        // it's still available right after a move completes (phase becomes
+        // 'move' until Start Turn is clicked), not just during the ability phase.
         if (undoBtn) {
-            if (this.state.mode === 'dev') {
+            if (isDevMode) {
                 undoBtn.classList.remove('hidden');
                 undoBtn.disabled = !this.state.can_undo;
             } else {
                 undoBtn.classList.add('hidden');
             }
         }
+
+        // The panel is shown for the ability phase (dice + end turn), or --
+        // in Dev Game mode -- whenever there's a move to undo, so Undo isn't
+        // hidden along with the rest of the panel between turns.
+        const keepPanelForUndo = isDevMode && this.state.can_undo;
+        if (this.state.phase !== 'ability' && !keepPanelForUndo) {
+            panel.classList.add('hidden');
+            return;
+        }
+        panel.classList.remove('hidden');
+
+        if (this.state.phase !== 'ability') {
+            // Nothing but Undo belongs on screen right now -- no dice rolled,
+            // no turn to end.
+            diceDisplay.innerHTML = '';
+            endTurnBtn.classList.add('hidden');
+            return;
+        }
+        endTurnBtn.classList.remove('hidden');
 
         // Render dice (2 dice system)
         const dice = this.state.dice;
@@ -810,6 +840,15 @@ const Game = {
     },
 
     MAJOR_CARD_ORDER: ['Carl', 'Donut', 'Mongo', 'Katia', 'Samantha'],
+
+    // Traditional chess piece names, shown in parentheses next to these three
+    // majors wherever their name appears in the sidebars (display only).
+    TRADITIONAL_MAJOR_NAMES: { Mongo: 'Knight', Katia: 'Bishop', Samantha: 'Rook' },
+
+    majorDisplayName(name) {
+        const traditional = this.TRADITIONAL_MAJOR_NAMES[name];
+        return traditional ? `${name} (${traditional})` : name;
+    },
 
     squareLabel(row, col) {
         return `${String.fromCharCode(65 + col)}${row + 1}`;
@@ -963,7 +1002,7 @@ const Game = {
                         .filter(x => x.ab);
                     if (perInst.length === 0) continue;
                     this.appendAbilityCard(container, {
-                        pieceLabel: name,
+                        pieceLabel: this.majorDisplayName(name),
                         allInstances: perInst,
                         ab: perInst[0].ab,
                         availableDice,
@@ -1350,7 +1389,7 @@ const Game = {
             const x2Badge = pc._copyCount > 1 ? '<span class="pc-x2-badge">x2</span>' : '';
             card.innerHTML = `
                 <div class="pc-header">
-                    <span class="pc-name">${pc.name}${x2Badge}</span>
+                    <span class="pc-name">${this.majorDisplayName(pc.name)}${x2Badge}</span>
                     <span class="pc-type">${pc.type}${pc.suppressed ? ' (Suppressed)' : ''}</span>
                 </div>
                 ${abHtml}
@@ -1387,7 +1426,7 @@ const Game = {
                     ? ''
                     : `${eff.turns} turn${eff.turns !== 1 ? 's' : ''} left`;
                 row.innerHTML = `
-                    <span class="se-label"><span class="se-piece">${eff.piece}</span> — ${eff.effect}</span>
+                    <span class="se-label"><span class="se-piece">${this.majorDisplayName(eff.piece)}</span> — ${eff.effect}</span>
                     <span class="se-turns">${turnsText}</span>
                 `;
                 container.appendChild(row);
@@ -1414,7 +1453,8 @@ const Game = {
             for (const piece of entries) {
                 const tag = document.createElement('span');
                 tag.className = 'captured-tag' + (piece.permanently_dead ? ' permanently-dead' : '');
-                tag.textContent = piece.permanently_dead ? `${piece.name} ☠` : piece.name;
+                const label = this.majorDisplayName(piece.name);
+                tag.textContent = piece.permanently_dead ? `${label} ☠` : label;
                 tagsDiv.appendChild(tag);
             }
             container.appendChild(tagsDiv);
@@ -2458,7 +2498,7 @@ const Game = {
         const modal = document.getElementById('dev-settings-modal');
         modal.classList.remove('hidden');
         this.devStagingGrid = (this.devSettings && this.devSettings.boardLayout)
-            ? this.devSettings.boardLayout
+            ? this.normalizeOrthrusInGrid(this.devSettings.boardLayout)
             : this.getDefaultDevLayout();
         this.devStagingSelected = null;
         this.renderDevSettings();
@@ -2637,6 +2677,39 @@ const Game = {
         return { buttRow, buttCol, headRow, headCol, buttCell, headCell };
     },
 
+    // Repair any Orthrus cell saved before the 2-cell head/butt staging format
+    // existed (a lone flat pawn with no orthrus_head_pos) into a proper 1x2
+    // body. Without this, a board layout saved by an older version of this
+    // page stays a permanent 1x1 Orthrus forever, since openDevSettings()
+    // otherwise loads a saved layout as-is.
+    normalizeOrthrusInGrid(grid) {
+        if (!grid) return grid;
+        for (let r = 0; r < 11; r++) {
+            for (let c = 0; c < 11; c++) {
+                const cell = grid[r][c];
+                if (!(cell && cell.is_pawn && cell.name === 'Orthrus' && !cell.orthrus_head_pos)) continue;
+
+                const [dr, dc] = this.ORTHRUS_HEAD_DELTA[cell.color];
+                const hr = r + dr, hc = c + dc;
+                let buttRow = r, buttCol = c;
+                if (hr < 0 || hr > 10 || hc < 0 || hc > 10 || grid[hr][hc]) {
+                    // No room for his head next to the saved square -- search for any valid spot.
+                    grid[r][c] = null;
+                    const savedGrid = this.devStagingGrid;
+                    this.devStagingGrid = grid;
+                    const spot = this.findOrthrusPlacement(cell.color, r);
+                    this.devStagingGrid = savedGrid;
+                    if (!spot) continue; // nowhere to place him -- leave as-is (rare edge case)
+                    [buttRow, buttCol] = spot;
+                }
+                const cells = this.makeOrthrusCells(cell.color, buttRow, buttCol, cell.short || 'ORTH');
+                grid[cells.buttRow][cells.buttCol] = cells.buttCell;
+                grid[cells.headRow][cells.headCol] = cells.headCell;
+            }
+        }
+        return grid;
+    },
+
     saveDevSettings() {
         if (!this.devSettings) {
             this.showToast('No settings to save', 'fail');
@@ -2670,6 +2743,9 @@ const Game = {
         if (saved) {
             try {
                 this.devSettings = JSON.parse(saved);
+                if (this.devSettings && this.devSettings.boardLayout) {
+                    this.normalizeOrthrusInGrid(this.devSettings.boardLayout);
+                }
             } catch (e) {
                 console.error('Failed to load dev settings:', e);
                 this.devSettings = null;
