@@ -77,7 +77,9 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/ai.py'\\).read\\(\\)\\); print\\('OK syntax'\\)\")",
       "Bash(cd \"/Users/joey/CascadeProjects/WS - DCC Chess\" && ~/Library/Python/3.14/bin/pytest tests/ -q 2>&1 | grep FAILED > /tmp/after.txt *)",
       "Bash(~/Library/Python/3.14/bin/pytest tests/test_abilities.py::test_dice_reroll -q)",
-      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/ai_cards.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/dice.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

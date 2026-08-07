@@ -12,7 +12,7 @@ const Game = {
     legalMoves: [],       // Array of [row, col] legal destinations
     lastMoveFrom: null,
     lastMoveTo: null,
-    lastEventCount: 0,    // Track events to detect new auto-ability triggers
+    lastEventSeq: 0,      // Highest event `seq` already shown, to detect new auto-ability triggers
     
     // Targeting system
     targetingMode: false,      // Whether we're in targeting mode
@@ -557,11 +557,17 @@ const Game = {
 
     checkForAutoAbilityEvents() {
         if (!this.state || !this.state.events) return;
-        
+
+        // The backend only ever returns the last 20 events, so a plain
+        // length-based cursor breaks (permanently pins to 20) once the log
+        // fills up. `seq` is a stable, ever-increasing id per event, so it
+        // survives the array being truncated on the server.
         const events = this.state.events;
-        const newEvents = events.slice(this.lastEventCount);
-        this.lastEventCount = events.length;
-        
+        const newEvents = events.filter(e => (e.seq || 0) > this.lastEventSeq);
+        for (const e of events) {
+            if ((e.seq || 0) > this.lastEventSeq) this.lastEventSeq = e.seq;
+        }
+
         // Check for auto-ability events
         for (const event of newEvents) {
             if (event.type === 'ability_auto') {
@@ -577,6 +583,13 @@ const Game = {
                         detail: 'Capture negated'
                     });
                 }
+            } else if (event.type === 'ai_card_resolved') {
+                // Stage B testing hook -- Stage C replaces this with the full-screen
+                // card-draw overlay. For now: console log + existing toast system.
+                console.log(`[AI Card] ${event.card} (${event.player}): ${event.outcome}`);
+                this.showToast(`🎴 ${event.card}: ${event.outcome}`, '');
+            } else if (event.type === 'ai_card_deck_empty') {
+                console.log(`[AI Card] Summon triggered but the deck is empty (${event.player})`);
             }
         }
     },

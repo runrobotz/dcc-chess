@@ -539,7 +539,7 @@ def new_game():
         if not _end_game_if_no_legal_moves(gs):
             dice.roll()
             gs.log_event("dice_roll", values=dice.dice[:])
-            gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
+            gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
             game_data["phase"] = "ability"
 
     return jsonify(build_game_state_response())
@@ -670,6 +670,7 @@ def start_turn_route():
         # Player has a banked die, only roll 1 die
         dice.dice = [random.randint(1, 6)]
         dice.used = [False]
+        dice.floor_modifier = 0
     else:
         # No banked die, roll 2 dice normally
         dice.roll()
@@ -678,7 +679,7 @@ def start_turn_route():
 
     # Check for AI summon trigger
     if len(dice.dice) == 2:
-        gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
+        gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
 
     game_data["phase"] = "ability"
     return jsonify(build_game_state_response())
@@ -1721,7 +1722,7 @@ def ai_turn():
     gs.log_event("ai_dice_roll", values=dice.dice[:])
 
     # Check for AI summon trigger
-    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
+    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
 
     # Use abilities if beneficial (using smart_abilities from ai.py)
     try:
@@ -1929,7 +1930,7 @@ def _play_ai_turn():
     # Roll dice and use abilities
     dice.roll()
     gs.log_event("dice_roll", values=dice.dice[:])
-    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color)
+    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color, dice=dice)
     smart_abilities(gs, dice, color)
 
     # End AI turn

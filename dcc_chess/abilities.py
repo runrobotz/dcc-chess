@@ -202,6 +202,7 @@ class GameState:
 
         # Event log for this game
         self.events: List[Dict] = []
+        self._event_seq: int = 0
 
     def init_pawn_ability_tracking(self):
         """Initialize per-pawn ability use counters based on drafted pawns."""
@@ -217,11 +218,13 @@ class GameState:
 
     def log_event(self, event_type: str, **kwargs):
         """Log a game event."""
+        self._event_seq += 1
         self.events.append({
             "turn": self.turn_number,
             "player": self.current_player.value,
             "type": event_type,
             **kwargs,
+            "seq": self._event_seq,
         })
 
     @property
@@ -229,11 +232,15 @@ class GameState:
         """Cards left in the AI Card deck, for the frontend deck-count indicator."""
         return len(self.ai_card_deck)
 
-    def draw_ai_card_if_triggered(self, d1: int, d2: int, triggering_color: Color) -> Optional[str]:
+    def draw_ai_card_if_triggered(self, d1: int, d2: int, triggering_color: Color,
+                                   dice: Optional[DungeonDice] = None) -> Optional[str]:
         """Check a pair of d6 values for the AI summon pattern and draw a card if so.
-        Returns the drawn card's name, or None if it didn't trigger (or the deck was empty).
+
+        `dice` is the live DungeonDice for this turn's roll, when there is one
+        (some card effects need to modify it directly). Returns the drawn
+        card's name, or None if it didn't trigger (or the deck was empty).
         """
-        return ai_cards.maybe_trigger_ai_card(self, d1, d2, triggering_color)
+        return ai_cards.maybe_trigger_ai_card(self, d1, d2, triggering_color, dice=dice)
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
@@ -2395,7 +2402,7 @@ class GameState:
         self.log_event("ability_reaction", piece="Quasar", ability="Mediation",
                        defender_roll=defender_roll, attacker_roll=attacker_roll,
                        banked_die_value=pulled_value)
-        self.draw_ai_card_if_triggered(attacker_roll, defender_roll, piece.color)
+        self.draw_ai_card_if_triggered(attacker_roll, defender_roll, piece.color, dice=dice)
 
         if defender_roll > attacker_roll:
             # Defender wins - both pieces return to original positions
@@ -2411,7 +2418,7 @@ class GameState:
             attacker_roll2 = random.randint(1, 6)
             self.log_event("mediation_tie_reroll",
                           defender_roll=defender_roll2, attacker_roll=attacker_roll2)
-            self.draw_ai_card_if_triggered(attacker_roll2, defender_roll2, piece.color)
+            self.draw_ai_card_if_triggered(attacker_roll2, defender_roll2, piece.color, dice=dice)
             if defender_roll2 >= attacker_roll2:
                 return "defender_wins"
             else:

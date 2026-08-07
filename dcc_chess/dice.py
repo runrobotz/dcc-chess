@@ -18,13 +18,22 @@ class DungeonDice:
         self.used: List[bool] = []  # Track which dice have been spent
         self.banked_die: dict = {"white": None, "black": None}  # Banked die per player
         self.pulled_from_bank: bool = False  # Whether player pulled from bank this turn
+        # AI's Pet (-1) / Dirty Tootsies (+1) card effects: added to every floor
+        # number checked this turn, for whoever's turn is currently active.
+        # Reset at the start of every turn.
+        self.floor_modifier: int = 0
 
     def roll(self) -> List[int]:
         """Roll 2d6 for this turn."""
         self.dice = [random.randint(1, 6) for _ in range(2)]
         self.used = [False, False]
         self.pulled_from_bank = False
+        self.floor_modifier = 0
         return self.dice[:]
+
+    def _effective_floor(self, floor_number: int) -> int:
+        """Apply this turn's AI Card floor modifier (AI's Pet / Dirty Tootsies), clamped at 0."""
+        return max(0, floor_number + self.floor_modifier)
 
     @property
     def available_dice(self) -> List[int]:
@@ -53,7 +62,7 @@ class DungeonDice:
             raise ValueError(f"Die {die_index} already spent")
 
         self.used[die_index] = True
-        return self.dice[die_index] >= floor_number
+        return self.dice[die_index] >= self._effective_floor(floor_number)
 
     def bank_die(self, die_index: int, player: str) -> bool:
         """Bank a die to save it for later. Returns True if successful.
@@ -121,7 +130,7 @@ class DungeonDice:
         total = self.dice[0] + self.dice[1]
         self.used[0] = True
         self.used[1] = True
-        return total >= floor_number
+        return total >= self._effective_floor(floor_number)
 
     def can_combine_for_cost(self, floor_number: int) -> bool:
         """Check if both dice are available and their combined sum meets floor.
@@ -129,7 +138,7 @@ class DungeonDice:
         """
         if len(self.available_dice) < 2:
             return False
-        return self.dice[0] + self.dice[1] >= floor_number
+        return self.dice[0] + self.dice[1] >= self._effective_floor(floor_number)
 
     def spend_combined(self, floor_number: int) -> bool:
         """Spend both dice for a combined-cost ability.
@@ -141,7 +150,7 @@ class DungeonDice:
         total = self.dice[0] + self.dice[1]
         self.used[0] = True
         self.used[1] = True
-        return total >= floor_number
+        return total >= self._effective_floor(floor_number)
     
     def check_ai_summon_trigger(self) -> bool:
         """Check if the rolled dice trigger AI summon.
