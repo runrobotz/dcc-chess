@@ -196,6 +196,13 @@ class GameState:
         self.ai_cards_drawn: List[str] = []
         self.ai_card_active: Optional[Dict] = None  # currently-resolving/last-drawn card, or None
 
+        # System Reset -- no abilities activatable by anyone, for the rest of this turn
+        self.system_reset_active: bool = False
+        # Main Character Syndrome -- no pawns can move, for the rest of this turn
+        self.main_character_syndrome_active: bool = False
+        # What a Bitch -- one-shot Insta-Kill Boss Card, usable during a boss battle (Part 3)
+        self.insta_kill_card: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -270,6 +277,10 @@ class GameState:
 
     def end_turn(self):
         """Called at end of turn. Tick down durations, swap player."""
+        # AI Card effects scoped to "this turn only"
+        self.system_reset_active = False
+        self.main_character_syndrome_active = False
+
         # Tick ghost tokens
         expired_ghosts = []
         for pos, turns in self.ghost_tokens.items():
@@ -375,6 +386,10 @@ class GameState:
 
     def is_piece_movable(self, row: int, col: int, piece: Piece) -> bool:
         """Check if a piece can move (not stuck, not iron-walled, not Carl-slowed, not frozen, etc.)."""
+        # Main Character Syndrome (AI Card): pawns can't move this turn, no exceptions.
+        # Major pieces are unaffected.
+        if self.main_character_syndrome_active and piece.is_pawn:
+            return False
         # Blitzed pieces can skip movement requirement
         if (row, col) in self.blitzed_pieces:
             return True

@@ -379,6 +379,9 @@ def build_game_state_response():
         "can_undo": game_data.get("mode") == "dev" and len(move_history) > 0,
         "ai_card_active": gs.ai_card_active,
         "ai_deck_remaining": gs.ai_deck_remaining,
+        "system_reset_active": gs.system_reset_active,
+        "main_character_syndrome_active": gs.main_character_syndrome_active,
+        "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
     }
     return resp
 
@@ -1183,6 +1186,8 @@ def use_ability():
         return jsonify({"error": "No game in progress"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Not in ability phase"}), 400
+    if gs.system_reset_active:
+        return jsonify({"error": "System Reset is active -- no abilities can be used this turn"}), 400
 
     data = request.get_json(force=True)
     piece_row = data.get("piece_row")

@@ -170,8 +170,35 @@ def _resolve_mana_toast(gs: "GameState", color: "Color", dice: Optional["Dungeon
     _set_outcome(gs, "Mana Toast", color, f"Rerolled {old_values} -> {dice.dice}.")
 
 
+# ── Card 4: System Reset ─────────────────────────────────────────────
+
+def _resolve_system_reset(gs: "GameState", color: "Color", dice: Optional["DungeonDice"]) -> None:
+    gs.system_reset_active = True
+    _set_outcome(gs, "System Reset", color, "No abilities can be activated by either player this turn.")
+
+
+# ── Card 5: Main Character Syndrome ─────────────────────────────────
+
+def _resolve_main_character_syndrome(gs: "GameState", color: "Color", dice: Optional["DungeonDice"]) -> None:
+    gs.main_character_syndrome_active = True
+    _set_outcome(gs, "Main Character Syndrome", color, "No pawns can move this turn for either player.")
+
+
+# ── Card 6: What a Bitch ─────────────────────────────────────────────
+
+def _resolve_what_a_bitch(gs: "GameState", color: "Color", dice: Optional["DungeonDice"]) -> None:
+    if gs.insta_kill_card.get(color, False):
+        _set_outcome(gs, "What a Bitch", color, f"{color.value.title()} already holds an Insta-Kill Boss Card -- nothing happens.")
+        return
+    gs.insta_kill_card[color] = True
+    _set_outcome(gs, "What a Bitch", color, f"{color.value.title()} receives an Insta-Kill Boss Card.")
+
+
 _CARD_HANDLERS = {
     "AI's Pet": _resolve_ai_s_pet,
     "Dirty Tootsies": _resolve_dirty_tootsies,
     "Mana Toast": _resolve_mana_toast,
+    "System Reset": _resolve_system_reset,
+    "Main Character Syndrome": _resolve_main_character_syndrome,
+    "What a Bitch": _resolve_what_a_bitch,
 }

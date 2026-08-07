@@ -227,6 +227,7 @@ const Game = {
         this.renderHeader();
         this.renderCheckBanner();
         this.updateActivePanelHighlight();
+        this.renderInstaKillBadges();
         for (const color of ['white', 'black']) {
             this.renderSidebar(color);
             this.renderStatusEffectsForColor(color);
@@ -293,6 +294,26 @@ const Game = {
             startBtn.style.cssText = 'margin-left: 12px; padding: 8px 16px; font-size: 0.9rem;';
             startBtn.addEventListener('click', () => this.startTurn());
             phase.parentElement.appendChild(startBtn);
+        }
+    },
+
+    renderInstaKillBadges() {
+        const card = this.state.insta_kill_card || {};
+        for (const color of ['white', 'black']) {
+            const header = document.querySelector(`.${color}-panel-header`);
+            if (!header) continue;
+            let badge = header.querySelector('.insta-kill-badge');
+            if (card[color]) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'insta-kill-badge';
+                    badge.title = 'Holds an Insta-Kill Boss Card';
+                    badge.textContent = ' 💀';
+                    header.appendChild(badge);
+                }
+            } else if (badge) {
+                badge.remove();
+            }
         }
     },
 
@@ -1082,7 +1103,7 @@ const Game = {
 
         const usesLeft = leaderAb.uses_left;
         const hasUses = usesLeft === null || usesLeft === undefined || usesLeft > 0;
-        const eligible = !inst.suppressed && hasUses;
+        const eligible = !inst.suppressed && hasUses && !this.state.system_reset_active;
         const clickable = isActingColor && eligible && combinedTotal > 0;
 
         const card = document.createElement('div');
@@ -1090,7 +1111,7 @@ const Game = {
         card.innerHTML = `
             <span class="ac-piece-name">Carl</span>
             <span class="ac-ability-name">${leaderAb.name}</span>
-            <span class="ac-mana">${combinedTotal > 0 ? `⚄+⚄ Pull ${combinedTotal}` : '⚄+⚄ Combine dice'}</span>
+            <span class="ac-mana">${this.state.system_reset_active ? '🔒 System Reset' : (combinedTotal > 0 ? `⚄+⚄ Pull ${combinedTotal}` : '⚄+⚄ Combine dice')}</span>
         `;
 
         if (clickable) {
@@ -1108,7 +1129,9 @@ const Game = {
         let bestDie = null;
         let useCombined = false;
 
-        if (ab.is_boss_only && !this.state.boss_active) {
+        if (this.state.system_reset_active) {
+            status = 'grey';
+        } else if (ab.is_boss_only && !this.state.boss_active) {
             status = 'purple';
         } else {
             const eligible = allInstances.filter(inst =>
@@ -1140,9 +1163,11 @@ const Game = {
         card.className = `ability-card status-${status}`;
 
         const abLabel = ab.juice_box_source_pawn ? `${ab.name} (${ab.juice_box_source_pawn})` : ab.name;
-        const manaLabel = (ab.is_boss_only && !this.state.boss_active)
-            ? '🔒 Boss Event Only'
-            : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${ab.floor} Mana`;
+        const manaLabel = this.state.system_reset_active
+            ? '🔒 System Reset'
+            : (ab.is_boss_only && !this.state.boss_active)
+                ? '🔒 Boss Event Only'
+                : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${ab.floor} Mana`;
 
         card.innerHTML = `
             <span class="ac-piece-name">${pieceLabel}</span>
@@ -1268,7 +1293,7 @@ const Game = {
                 let status = 'grey';
                 let bestDie = null;
                 let useCombined = false;
-                if (!pc.suppressed && availableDice.length > 0) {
+                if (!this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
                     const single = this.findBestDie(availableDice, ab.floor);
                     if (single !== null && single.value >= ab.floor) {
                         status = 'green'; bestDie = single;
@@ -1286,7 +1311,7 @@ const Game = {
 
                 entry.innerHTML = `
                     <span>${ab.juice_box_source_pawn} — ${ab.name}</span>
-                    <span>${ab.floor} Mana</span>
+                    <span>${this.state.system_reset_active ? '🔒 System Reset' : `${ab.floor} Mana`}</span>
                 `;
                 entry.style.borderLeft = `3px solid var(--${status === 'green' ? 'success' : status === 'red' ? 'danger' : 'text-dim'})`;
 
