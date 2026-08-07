@@ -377,6 +377,8 @@ def build_game_state_response():
         "status_effects": get_status_effects_summary(gs, game_data),
         "captured_pieces": serialize_captured(board),
         "can_undo": game_data.get("mode") == "dev" and len(move_history) > 0,
+        "ai_card_active": gs.ai_card_active,
+        "ai_deck_remaining": gs.ai_deck_remaining,
     }
     return resp
 
@@ -537,6 +539,7 @@ def new_game():
         if not _end_game_if_no_legal_moves(gs):
             dice.roll()
             gs.log_event("dice_roll", values=dice.dice[:])
+            gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
             game_data["phase"] = "ability"
 
     return jsonify(build_game_state_response())
@@ -672,12 +675,11 @@ def start_turn_route():
         dice.roll()
     
     gs.log_event("dice_roll", values=dice.dice[:])
-    
+
     # Check for AI summon trigger
-    if dice.check_ai_summon_trigger():
-        gs.log_event("ai_summon_trigger", dice_values=dice.dice[:])
-        print(f"🎲 AI SUMMON TRIGGER! Rolled: {dice.dice}")  # Console log for now
-    
+    if len(dice.dice) == 2:
+        gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
+
     game_data["phase"] = "ability"
     return jsonify(build_game_state_response())
 
@@ -1717,12 +1719,10 @@ def ai_turn():
     dice = game_data["dice"]
     dice.roll()
     gs.log_event("ai_dice_roll", values=dice.dice[:])
-    
+
     # Check for AI summon trigger
-    if dice.check_ai_summon_trigger():
-        gs.log_event("ai_summon_trigger", dice_values=dice.dice[:])
-        print(f"🎲 AI SUMMON TRIGGER! Rolled: {dice.dice}")
-    
+    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player)
+
     # Use abilities if beneficial (using smart_abilities from ai.py)
     try:
         from dcc_chess.ai import smart_abilities
@@ -1929,6 +1929,7 @@ def _play_ai_turn():
     # Roll dice and use abilities
     dice.roll()
     gs.log_event("dice_roll", values=dice.dice[:])
+    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color)
     smart_abilities(gs, dice, color)
 
     # End AI turn

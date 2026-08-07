@@ -145,25 +145,14 @@ class DungeonDice:
     
     def check_ai_summon_trigger(self) -> bool:
         """Check if the rolled dice trigger AI summon.
-        
+
         Triggers on: double 1s, double 3s, or one 6 and one 2 (any order).
         Returns True if triggered.
         """
         if len(self.dice) != 2:
             return False
-        
-        d1, d2 = self.dice[0], self.dice[1]
-        
-        # Double 1s or double 3s
-        if (d1 == 1 and d2 == 1) or (d1 == 3 and d2 == 3):
-            return True
-        
-        # One 6 and one 2 (any order)
-        if (d1 == 6 and d2 == 2) or (d1 == 2 and d2 == 6):
-            return True
-        
-        return False
-    
+        return is_ai_summon_roll(self.dice[0], self.dice[1])
+
     def get_best_die_for_floor(self, floor_number: int) -> Optional[int]:
         """Find the best available die to attempt a given floor number.
 
@@ -207,3 +196,17 @@ class DungeonDice:
         if die_index < 0 or die_index >= 2:
             return
         self.dice[die_index] = max(1, min(6, self.dice[die_index] + modifier))
+
+
+def is_ai_summon_roll(d1: int, d2: int) -> bool:
+    """Check whether a pair of d6 values triggers the AI Card summon.
+
+    Triggers on: double 1s, double 3s, or one 6 and one 2 (any order).
+    Shared by DungeonDice.check_ai_summon_trigger and any other roll of two
+    dice that should be able to trigger it (e.g. a Mediation roll-off).
+    """
+    if (d1 == 1 and d2 == 1) or (d1 == 3 and d2 == 3):
+        return True
+    if (d1 == 6 and d2 == 2) or (d1 == 2 and d2 == 6):
+        return True
+    return False

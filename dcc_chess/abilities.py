@@ -19,6 +19,7 @@ from .movement import (
     is_in_check, is_square_attacked, all_legal_moves,
     resolve_orthrus_action,
 )
+from . import ai_cards
 
 
 # ── Status Effect Types ───────────────────────────────────────────
@@ -190,6 +191,11 @@ class GameState:
         # Piece gender overrides (for gender-based abilities: Gun Show, Succubus, Signet)
         self.piece_genders: Dict[tuple, str] = {}
 
+        # ── AI Card System (Chunk 3) ─────────────────────────────
+        self.ai_card_deck: List[str] = ai_cards.build_ai_deck()
+        self.ai_cards_drawn: List[str] = []
+        self.ai_card_active: Optional[Dict] = None  # currently-resolving/last-drawn card, or None
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -217,6 +223,17 @@ class GameState:
             "type": event_type,
             **kwargs,
         })
+
+    @property
+    def ai_deck_remaining(self) -> int:
+        """Cards left in the AI Card deck, for the frontend deck-count indicator."""
+        return len(self.ai_card_deck)
+
+    def draw_ai_card_if_triggered(self, d1: int, d2: int, triggering_color: Color) -> Optional[str]:
+        """Check a pair of d6 values for the AI summon pattern and draw a card if so.
+        Returns the drawn card's name, or None if it didn't trigger (or the deck was empty).
+        """
+        return ai_cards.maybe_trigger_ai_card(self, d1, d2, triggering_color)
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
@@ -524,6 +541,7 @@ class GameState:
                 self.quasar_uses[defender.color] += 1
                 self.log_event("ability_auto", piece="Quasar", ability="Mediation",
                                attacker_roll=attacker_roll, defender_roll=defender_roll)
+                self.draw_ai_card_if_triggered(attacker_roll, defender_roll, attacker.color)
                 if defender_roll > attacker_roll:
                     # Defender wins! Attacker is captured instead.
                     self.log_event("mediation_reversal",
@@ -2377,7 +2395,8 @@ class GameState:
         self.log_event("ability_reaction", piece="Quasar", ability="Mediation",
                        defender_roll=defender_roll, attacker_roll=attacker_roll,
                        banked_die_value=pulled_value)
-        
+        self.draw_ai_card_if_triggered(attacker_roll, defender_roll, piece.color)
+
         if defender_roll > attacker_roll:
             # Defender wins - both pieces return to original positions
             self.log_event("mediation_success", detail=f"Defender {defender_roll} > Attacker {attacker_roll}")
@@ -2390,8 +2409,9 @@ class GameState:
             # Tie - reroll (simplified: just roll again once)
             defender_roll2 = random.randint(1, 6)
             attacker_roll2 = random.randint(1, 6)
-            self.log_event("mediation_tie_reroll", 
+            self.log_event("mediation_tie_reroll",
                           defender_roll=defender_roll2, attacker_roll=attacker_roll2)
+            self.draw_ai_card_if_triggered(attacker_roll2, defender_roll2, piece.color)
             if defender_roll2 >= attacker_roll2:
                 return "defender_wins"
             else:
