@@ -244,6 +244,136 @@ const Game = {
         }
         this.checkForAutoAbilityEvents();
         this.checkGameOver();
+        this.handlePendingAiCardDecision();
+    },
+
+    handlePendingAiCardDecision() {
+        const pending = this.state.pending_ai_card_decision;
+        const existing = document.getElementById('ai-card-decision-prompt');
+        if (!pending) {
+            if (existing) existing.remove();
+            this._shownPendingDecisionKey = null;
+            return;
+        }
+        const key = JSON.stringify(pending);
+        if (existing && this._shownPendingDecisionKey === key) return; // already showing this exact decision
+        if (existing) existing.remove();
+        this._shownPendingDecisionKey = key;
+        if (pending.type === 'custard') {
+            this.showCustardPrompt(pending);
+        } else if (pending.type === 'too_boring') {
+            this.showTooBoringPrompt(pending);
+        }
+    },
+
+    showCustardPrompt(pending) {
+        const overlay = document.createElement('div');
+        overlay.id = 'ai-card-decision-prompt';
+        overlay.className = 'overlay';
+
+        const content = document.createElement('div');
+        content.className = 'overlay-content';
+
+        const title = document.createElement('h2');
+        title.textContent = '🍮 Lottery Ticket — Custard';
+
+        const msg = document.createElement('p');
+        const colorLabel = pending.color === 'white' ? 'White' : 'Black';
+        msg.textContent = `${colorLabel}, choose one spent ability to reset:`;
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-top: 12px;';
+        for (const opt of pending.options) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-secondary';
+            btn.textContent = opt.label;
+            btn.addEventListener('click', () => this.resolveCustardChoice(opt.index));
+            list.appendChild(btn);
+        }
+
+        content.appendChild(title);
+        content.appendChild(msg);
+        content.appendChild(list);
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+    },
+
+    async resolveCustardChoice(index) {
+        try {
+            const resp = await fetch('/ai_card/custard_choice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ index }),
+            });
+            const data = await resp.json();
+            const overlay = document.getElementById('ai-card-decision-prompt');
+            if (overlay) overlay.remove();
+            this._shownPendingDecisionKey = null;
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();
+        } catch (e) {
+            this.showToast('Failed to resolve Custard choice', 'fail');
+        }
+    },
+
+    showTooBoringPrompt(pending) {
+        const overlay = document.createElement('div');
+        overlay.id = 'ai-card-decision-prompt';
+        overlay.className = 'overlay';
+
+        const content = document.createElement('div');
+        content.className = 'overlay-content';
+
+        const title = document.createElement('h2');
+        title.textContent = '😴 Too Boring';
+
+        const chooserLabel = pending.chooser_color === 'white' ? 'White' : 'Black';
+        const eliminateLabel = pending.eliminate_color === 'white' ? "White's" : "Black's";
+        const msg = document.createElement('p');
+        msg.textContent = `${chooserLabel}, choose one of ${eliminateLabel} pawns to permanently eliminate.`;
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: 300px; overflow-y: auto;';
+        for (const [r, c] of pending.valid_targets) {
+            const piece = this.state.board[r][c];
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-secondary';
+            btn.textContent = piece ? `${piece.name} (${this.squareLabel(r, c)})` : this.squareLabel(r, c);
+            btn.addEventListener('click', () => this.resolveTooBoringChoice(r, c));
+            list.appendChild(btn);
+        }
+
+        content.appendChild(title);
+        content.appendChild(msg);
+        content.appendChild(list);
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+    },
+
+    async resolveTooBoringChoice(row, col) {
+        try {
+            const resp = await fetch('/ai_card/too_boring_choice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ row, col }),
+            });
+            const data = await resp.json();
+            const overlay = document.getElementById('ai-card-decision-prompt');
+            if (overlay) overlay.remove();
+            this._shownPendingDecisionKey = null;
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();
+        } catch (e) {
+            this.showToast('Failed to resolve Too Boring choice', 'fail');
+        }
     },
 
     updateActivePanelHighlight() {

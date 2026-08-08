@@ -7,11 +7,14 @@ once the deck is empty, the trigger still fires but nothing happens.
 """
 
 import random
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+
+from .pieces import Color, PieceType
+from .board import BOARD_SIZE
+from .pawns import PAWN_CHARACTERS
 
 if TYPE_CHECKING:
     from .abilities import GameState
-    from .pieces import Color
     from .dice import DungeonDice
 
 
@@ -194,6 +197,293 @@ def _resolve_what_a_bitch(gs: "GameState", color: "Color", dice: Optional["Dunge
     _set_outcome(gs, "What a Bitch", color, f"{color.value.title()} receives an Insta-Kill Boss Card.")
 
 
+# ── Card 7: You a Bitch ──────────────────────────────────────────────
+
+def _resolve_you_a_bitch(gs: "GameState", color: Color, dice: Optional["DungeonDice"]) -> None:
+    opponent = color.opponent
+    my_count = len(gs.board.all_pieces(color))
+    opp_count = len(gs.board.all_pieces(opponent))
+    if my_count >= opp_count:
+        _set_outcome(gs, "You a Bitch", color,
+                     "No effect -- you have equal or more pieces than your opponent.")
+        return
+
+    roll_map = {1: None, 2: PieceType.DONUT, 3: PieceType.MONGO,
+                4: PieceType.KATIA, 5: PieceType.SAMANTHA, 6: None}
+
+    def candidates_for(roll):
+        ptype = roll_map[roll]
+        if ptype is None:
+            return ptype, []
+        return ptype, [p for p in gs.board.captured[color]
+                       if p.piece_type == ptype and not p.permanently_dead]
+
+    roll1 = random.randint(1, 6)
+    ptype, candidates = candidates_for(roll1)
+    rolls = [roll1]
+    if not candidates:
+        roll2 = random.randint(1, 6)
+        rolls.append(roll2)
+        ptype, candidates = candidates_for(roll2)
+
+    gs.log_event("you_a_bitch_roll", rolls=rolls, result=(ptype.value if ptype else None))
+
+    if not candidates:
+        _set_outcome(gs, "You a Bitch", color, f"Rolled {rolls} -- no eligible piece to resurrect.")
+        return
+
+    revived = random.choice(candidates)
+    gs.board.captured[color].remove(revived)
+
+    back_rank = 0 if color == Color.WHITE else BOARD_SIZE - 1
+    open_cols = [c for c in range(BOARD_SIZE) if gs.board.get(back_rank, c) is None]
+    if not open_cols:
+        gs.board.captured[color].append(revived)  # put it back
+        _set_outcome(gs, "You a Bitch", color,
+                     f"Rolled {ptype.value} but there's no open square on your back rank.")
+        return
+
+    spawn_col = random.choice(open_cols)
+    gs.board.set(back_rank, spawn_col, revived)
+    revived.has_moved = True
+    gs.log_event("you_a_bitch_resurrect", piece=repr(revived), pos=[back_rank, spawn_col])
+    _set_outcome(gs, "You a Bitch", color, f"Resurrected {ptype.value} on the back rank.")
+
+
+# ── Card 8: Lottery Ticket ───────────────────────────────────────────
+
+def _resolve_lottery_ticket(gs: "GameState", color: Color, dice: Optional["DungeonDice"]) -> None:
+    roll = random.randint(1, 6)
+    gs.log_event("lottery_ticket_roll", roll=roll)
+    if roll <= 3:
+        _resolve_custard(gs, color)
+    else:
+        _resolve_fireball(gs, color)
+
+
+def _resolve_custard(gs: "GameState", color: Color) -> None:
+    options = _find_spent_limited_abilities(gs, color)
+    if not options:
+        _set_outcome(gs, "Lottery Ticket", color, "Custard: No spent abilities to reset.")
+        return
+    gs.pending_ai_card_decision = {
+        "type": "custard",
+        "card": "Lottery Ticket",
+        "color": color.value,
+        "options": options,
+    }
+    # Resolution pauses here -- ai_card_active stays populated (outcome still None)
+    # until /ai_card/custard_choice picks one of `options` by index.
+
+
+def _find_spent_limited_abilities(gs: "GameState", color: Color) -> List[Dict]:
+    """Every limited-use ability belonging to `color` that is currently fully spent,
+    as a list of {label, reset} the player can choose from.
+
+    Only covers trackers an ability's own try_* method actually reads. Several
+    similarly-named GameState fields (group_climax_active, cockroach_used,
+    rampage_used) are dead/unused -- see KNOWN_BUGS.md -- and are deliberately
+    excluded here so "resetting" one always does something real.
+    """
+    options: List[Dict] = []
+
+    for pawn_key, ability_map in gs.pawn_ability_uses.items():
+        if not pawn_key.startswith(f"{color.value}_"):
+            continue
+        pawn_name = pawn_key.split("_", 1)[1]
+        if pawn_name == "Quasar":
+            continue  # Quasar's Mediation uses its own counter, handled below
+        for ability_name, uses_left in ability_map.items():
+            if uses_left <= 0:
+                options.append({
+                    "label": f"{pawn_name} — {ability_name}",
+                    "reset": {"type": "pawn_ability", "pawn_key": pawn_key, "color": color.value,
+                              "ability_name": ability_name, "pawn_name": pawn_name},
+                })
+
+    if gs.plot_armor_used.get(color, False):
+        options.append({"label": "Carl — Plot Armor", "reset": {"type": "plot_armor", "color": color.value}})
+    if gs.leader_uses.get(color, 2) <= 0:
+        options.append({"label": "Carl — Leader", "reset": {"type": "leader", "color": color.value}})
+
+    if gs.resurrection_used.get(color, False):
+        options.append({"label": "Donut — Resurrection", "reset": {"type": "resurrection", "color": color.value}})
+
+    for (c, piece_id), used in gs.rampaging_charge_used.items():
+        if c == color and used:
+            options.append({"label": "Mongo — Rampaging Charge",
+                             "reset": {"type": "rampaging_charge", "color": color.value, "piece_id": piece_id}})
+
+    if gs.she_tank_uses.get(color, 2) <= 0:
+        options.append({"label": "Katia — She Tank", "reset": {"type": "she_tank", "color": color.value}})
+
+    for (c, piece_id), used in gs.portal_spike_used.items():
+        if c == color and used:
+            options.append({"label": "Samantha — Portal Spike",
+                             "reset": {"type": "portal_spike", "color": color.value, "piece_id": piece_id}})
+    for (c, piece_id), used in gs.slut_shame_used.items():
+        if c == color and used:
+            options.append({"label": "Samantha — Slut Shame",
+                             "reset": {"type": "slut_shame", "color": color.value, "piece_id": piece_id}})
+
+    if gs.quasar_uses.get(color, 0) >= 2:
+        options.append({"label": "Quasar — Mediation", "reset": {"type": "quasar_mediation", "color": color.value}})
+
+    for i, opt in enumerate(options):
+        opt["index"] = i
+    return options
+
+
+def _apply_custard_reset(gs: "GameState", reset: Dict) -> None:
+    t = reset["type"]
+    color = Color(reset["color"])
+    if t == "pawn_ability":
+        char = PAWN_CHARACTERS.get(reset["pawn_name"])
+        max_uses = char.ability.uses_per_game if char and char.ability.uses_per_game else 1
+        gs.pawn_ability_uses.setdefault(reset["pawn_key"], {})[reset["ability_name"]] = max_uses
+    elif t == "plot_armor":
+        gs.plot_armor_used[color] = False
+    elif t == "leader":
+        gs.leader_uses[color] = 2
+    elif t == "resurrection":
+        gs.resurrection_used[color] = False
+    elif t == "rampaging_charge":
+        gs.rampaging_charge_used[(color, reset["piece_id"])] = False
+    elif t == "she_tank":
+        gs.she_tank_uses[color] = 2
+    elif t == "portal_spike":
+        gs.portal_spike_used[(color, reset["piece_id"])] = False
+    elif t == "slut_shame":
+        gs.slut_shame_used[(color, reset["piece_id"])] = False
+    elif t == "quasar_mediation":
+        gs.quasar_uses[color] = 0
+
+
+def resolve_custard_choice(gs: "GameState", index) -> Tuple[bool, str]:
+    """Resolve a pending Custard decision by option index. Returns (ok, message)."""
+    pending = gs.pending_ai_card_decision
+    if not pending or pending.get("type") != "custard":
+        return False, "No pending Custard decision"
+    options = pending.get("options", [])
+    if not isinstance(index, int) or index < 0 or index >= len(options):
+        return False, "Invalid option index"
+
+    chosen = options[index]
+    _apply_custard_reset(gs, chosen["reset"])
+    color = Color(pending["color"])
+    gs.pending_ai_card_decision = None
+    gs.log_event("custard_reset", choice=chosen["label"], player=color.value)
+    _set_outcome(gs, "Lottery Ticket", color, f"Custard: reset {chosen['label']}.")
+    return True, "ok"
+
+
+def _scale_1_to_9(roll: int) -> int:
+    """Map a 1-6 die roll onto the 1-9 range (avoids the board's outer edge columns/rows)."""
+    return 1 + round((roll - 1) * 8 / 5)
+
+
+def _resolve_fireball(gs: "GameState", color: Color) -> None:
+    col_roll = random.randint(1, 6)
+    row_roll = random.randint(1, 6)
+    col = _scale_1_to_9(col_roll)
+    row = _scale_1_to_9(row_roll)
+    gs.log_event("fireball_target", col_roll=col_roll, row_roll=row_roll, row=row, col=col)
+
+    target = gs.board.get(row, col)
+    if target is None:
+        _set_outcome(gs, "Lottery Ticket", color,
+                     f"Fireball: Lucky -- the targeted square ({row}, {col}) was empty.")
+        return
+
+    gs.board.set(row, col, None)
+    target.permanently_dead = True
+    gs.board.captured[target.color].append(target)
+    gs.log_event("fireball_kill", target=repr(target), pos=[row, col])
+    _set_outcome(gs, "Lottery Ticket", color,
+                 f"Fireball struck ({row}, {col}) -- {target!r} was permanently killed.")
+
+
+# ── Card 9: Too Boring ───────────────────────────────────────────────
+
+def _resolve_too_boring(gs: "GameState", color: Color, dice: Optional["DungeonDice"]) -> None:
+    skipped: List[str] = []
+    pending = _too_boring_build_step(gs, color, 1, skipped)
+    if pending is None:
+        pending = _too_boring_build_step(gs, color, 2, skipped)
+    if pending is None:
+        _finish_too_boring(gs, color, skipped)
+        return
+    pending["_skipped_so_far"] = skipped
+    gs.pending_ai_card_decision = pending
+
+
+def _too_boring_build_step(gs: "GameState", triggering_color: Color, step_num: int,
+                            skipped: List[str]) -> Optional[Dict]:
+    opponent = triggering_color.opponent
+    if step_num == 1:
+        chooser, eliminate_color = opponent, triggering_color
+    else:
+        chooser, eliminate_color = triggering_color, opponent
+
+    targets = [[r, c] for r, c, p in gs.board.all_pieces(eliminate_color) if p.is_pawn]
+    if not targets:
+        skipped.append(eliminate_color.value)
+        gs.log_event("too_boring_skip", color=eliminate_color.value, detail="No pawns to eliminate")
+        return None
+
+    return {
+        "type": "too_boring",
+        "card": "Too Boring",
+        "step": step_num,
+        "triggering_color": triggering_color.value,
+        "chooser_color": chooser.value,
+        "eliminate_color": eliminate_color.value,
+        "valid_targets": targets,
+    }
+
+
+def _finish_too_boring(gs: "GameState", triggering_color: Color, skipped: List[str]) -> None:
+    if skipped:
+        msg = f"Both eliminations resolved ({', '.join(skipped)} had no pawns to eliminate)."
+    else:
+        msg = "Both players lost a pawn."
+    _set_outcome(gs, "Too Boring", triggering_color, msg)
+
+
+def resolve_too_boring_choice(gs: "GameState", row, col) -> Tuple[bool, str]:
+    """Resolve one step of a pending Too Boring decision. Returns (ok, message)."""
+    pending = gs.pending_ai_card_decision
+    if not pending or pending.get("type") != "too_boring":
+        return False, "No pending Too Boring decision"
+    if not isinstance(row, int) or not isinstance(col, int) or [row, col] not in pending.get("valid_targets", []):
+        return False, "Invalid target -- must select one of the highlighted pawns"
+
+    eliminate_color = Color(pending["eliminate_color"])
+    triggering_color = Color(pending["triggering_color"])
+    step = pending["step"]
+    skipped = pending.get("_skipped_so_far", [])
+
+    piece = gs.board.get(row, col)
+    if piece is None or not piece.is_pawn or piece.color != eliminate_color:
+        return False, "Target is no longer valid"
+
+    gs.board.set(row, col, None)
+    piece.permanently_dead = True
+    gs.board.captured[eliminate_color].append(piece)
+    gs.log_event("too_boring_eliminate", piece=repr(piece), pos=[row, col], color=eliminate_color.value)
+
+    gs.pending_ai_card_decision = None
+
+    if step == 1:
+        pending2 = _too_boring_build_step(gs, triggering_color, 2, skipped)
+        if pending2 is not None:
+            pending2["_skipped_so_far"] = skipped
+            gs.pending_ai_card_decision = pending2
+            return True, "ok"
+    _finish_too_boring(gs, triggering_color, skipped)
+    return True, "ok"
+
+
 _CARD_HANDLERS = {
     "AI's Pet": _resolve_ai_s_pet,
     "Dirty Tootsies": _resolve_dirty_tootsies,
@@ -201,4 +491,7 @@ _CARD_HANDLERS = {
     "System Reset": _resolve_system_reset,
     "Main Character Syndrome": _resolve_main_character_syndrome,
     "What a Bitch": _resolve_what_a_bitch,
+    "You a Bitch": _resolve_you_a_bitch,
+    "Lottery Ticket": _resolve_lottery_ticket,
+    "Too Boring": _resolve_too_boring,
 }

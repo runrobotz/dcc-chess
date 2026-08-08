@@ -12,6 +12,7 @@ from dcc_chess.abilities import GameState
 from dcc_chess.movement import all_legal_moves, is_checkmate, is_stalemate, is_in_check, resolve_orthrus_action
 from dcc_chess.pawns import PAWN_CHARACTERS, AbilityTrigger
 from dcc_chess.ai import smart_move, smart_abilities, random_draft, random_back_rank
+from dcc_chess.ai_cards import resolve_custard_choice, resolve_too_boring_choice
 
 app = Flask(__name__)
 
@@ -318,7 +319,7 @@ def serialize_captured(board):
     def entry(p):
         return {
             "name": _piece_label(p),
-            "permanently_dead": bool(p.is_pawn and p.pawn_name == "Orthrus"),
+            "permanently_dead": bool(p.permanently_dead or (p.is_pawn and p.pawn_name == "Orthrus")),
         }
     return {
         "white": [entry(p) for p in board.captured[Color.WHITE]],
@@ -382,6 +383,7 @@ def build_game_state_response():
         "system_reset_active": gs.system_reset_active,
         "main_character_syndrome_active": gs.main_character_syndrome_active,
         "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
+        "pending_ai_card_decision": gs.pending_ai_card_decision,
     }
     return resp
 
@@ -654,11 +656,13 @@ def start_turn_route():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if game_data.get("game_over"):
         return jsonify({"error": "Game is over"}), 400
     if game_data.get("phase") != "move":
         return jsonify({"error": "Not in move phase"}), 400
-    
+
     # Start turn
     gs.start_turn()
     gs.update_katia_threats()
@@ -795,6 +799,8 @@ def make_move():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if game_data.get("game_over"):
         return jsonify({"error": "Game is over"}), 400
     if game_data.get("phase") != "ability":
@@ -902,6 +908,45 @@ def resolve_elle_decision():
     return jsonify(build_game_state_response())
 
 
+@app.route("/ai_card/custard_choice", methods=["POST"])
+def ai_card_custard_choice():
+    """Resolve a pending Lottery Ticket (Custard) decision.
+
+    Body: {index}  -- index into pending_ai_card_decision["options"]
+    """
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+
+    data = request.get_json(force=True)
+    index = data.get("index")
+
+    ok, message = resolve_custard_choice(gs, index)
+    if not ok:
+        return jsonify({"error": message}), 400
+    return jsonify(build_game_state_response())
+
+
+@app.route("/ai_card/too_boring_choice", methods=["POST"])
+def ai_card_too_boring_choice():
+    """Resolve one step of a pending Too Boring decision.
+
+    Body: {row, col} -- position of the pawn to eliminate
+    """
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+
+    data = request.get_json(force=True)
+    row = data.get("row")
+    col = data.get("col")
+
+    ok, message = resolve_too_boring_choice(gs, row, col)
+    if not ok:
+        return jsonify({"error": message}), 400
+    return jsonify(build_game_state_response())
+
+
 @app.route("/undo_move", methods=["POST"])
 def undo_move():
     """Revert to the state just before the last completed move. Dev Game mode only."""
@@ -926,6 +971,8 @@ def get_ability_targets():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Not in ability phase"}), 400
 
@@ -1184,6 +1231,8 @@ def use_ability():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Not in ability phase"}), 400
     if gs.system_reset_active:
@@ -1603,7 +1652,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                     gs.board.set(target_pos[0], target_pos[1], None)
                     # Resurrect captured pawn on back rank (Orthrus can never be resurrected)
                     source = gs.captured_pieces.get(piece.color, [])
-                    captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
+                    captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
                     if captured:
                         resurrected = random.choice(captured)
                         source.remove(resurrected)
@@ -1670,6 +1719,8 @@ def bank_die():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Can only bank during ability phase"}), 400
     
@@ -1813,6 +1864,8 @@ def end_turn():
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
 
     # End turn (ticks durations, swaps player)
     gs.end_turn()

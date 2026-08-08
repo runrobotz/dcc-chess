@@ -54,6 +54,11 @@ class Piece:
         self.color = color
         self.pawn_name = pawn_name  # e.g. "Zev", "Mordecai", etc. Only for pawns.
         self.has_moved = False
+        # Set when a piece is killed by an effect that explicitly forbids
+        # resurrection (AI Cards: Lottery Ticket's Fireball, Too Boring).
+        # Resurrection-candidate filters must exclude pieces with this set,
+        # the same way they already exclude Orthrus.
+        self.permanently_dead = False
 
         # Orthrus is a 1x2 piece: the same Piece instance occupies both his
         # head and butt squares on the board. orthrus_head_pos is the head's

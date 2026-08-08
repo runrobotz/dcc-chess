@@ -203,6 +203,12 @@ class GameState:
         # What a Bitch -- one-shot Insta-Kill Boss Card, usable during a boss battle (Part 3)
         self.insta_kill_card: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
 
+        # Lottery Ticket (Custard) / Too Boring -- a card that needs the player to pick a
+        # target pauses here instead of resolving immediately. Mirrors the pending_elle_decision
+        # pattern: normal gameplay is blocked (see route guards in app.py) until it's resolved
+        # via /ai_card/custard_choice or /ai_card/too_boring_choice.
+        self.pending_ai_card_decision: Optional[Dict] = None
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -672,14 +678,16 @@ class GameState:
         if not success:
             return None
 
-        # Find captured pieces
-        captured = self.board.captured[color]
-        if not captured:
+        # Find captured pieces (Orthrus and permanently-dead pieces can never be resurrected)
+        source = self.board.captured[color]
+        candidates = [p for p in source
+                      if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
+        if not candidates:
             return None
 
         # Pick a random captured piece to resurrect
-        revived = random.choice(captured)
-        captured.remove(revived)
+        revived = random.choice(candidates)
+        source.remove(revived)
 
         # Find empty square adjacent to Donut
         dr, dc = donut_pos
@@ -694,7 +702,7 @@ class GameState:
                     adj_squares.append((nr, nc))
 
         if not adj_squares:
-            captured.append(revived)  # Put it back
+            source.append(revived)  # Put it back
             return None
 
         place_pos = random.choice(adj_squares)
@@ -2588,7 +2596,7 @@ class GameState:
         
         # Find captured pieces for this color (Orthrus can never be resurrected)
         source = self.captured_pieces.get(piece.color, [])
-        captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
+        captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
         if not captured:
             return None
 
@@ -2831,7 +2839,7 @@ class GameState:
 
         # Check for captured friendly pieces to resurrect (Orthrus can never be resurrected)
         source = self.captured_pieces.get(piece.color, [])
-        captured = [p for p in source if not (p.is_pawn and p.pawn_name == "Orthrus")]
+        captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
 
         if not adjacent_pawns or not captured:
             return False
