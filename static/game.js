@@ -40,6 +40,180 @@ const Game = {
         return piece.short;
     },
 
+    // ═══ AI CARD SYSTEM (Stage C display) ═══
+
+    AI_CARD_ICONS: {
+        "Lottery Ticket": '🎫',
+        "You a Bitch": '😤',
+        "AI's Pet": '🐕',
+        "Dirty Tootsies": '🦶',
+        "System Reset": '⚡',
+        "Too Boring": '😴',
+        "Main Character Syndrome": '🎭',
+        "Matt's Drunk Again": '🍺',
+        "Mana Toast": '🍞',
+        "What a Bitch": '💀',
+        "Summon Rage Elemental": '🔥',
+        "Summon Feral Goose": '🦢',
+        "Summon Emberus": '🌋',
+        "Summon Goblin Murder Dozer": '🚜',
+    },
+
+    // Buff/debuff/chaos/summon per the card's overall flavor. "Lottery Ticket" isn't
+    // listed here -- its Custard (buff) vs Fireball (debuff) split isn't known until
+    // resolution, so aiCardTypeFor() below resolves it dynamically from the
+    // `lottery_ticket_roll` event logged in the same batch as the draw.
+    AI_CARD_TYPES: {
+        "AI's Pet": 'buff',
+        "What a Bitch": 'buff',
+        "You a Bitch": 'buff',
+        "Mana Toast": 'buff',
+        "Dirty Tootsies": 'debuff',
+        "System Reset": 'debuff',
+        "Too Boring": 'debuff',
+        "Main Character Syndrome": 'debuff',
+        "Matt's Drunk Again": 'chaos',
+        "Summon Rage Elemental": 'summon',
+        "Summon Feral Goose": 'summon',
+        "Summon Emberus": 'summon',
+        "Summon Goblin Murder Dozer": 'summon',
+    },
+
+    aiCardTypeFor(cardName, batchEvents) {
+        if (cardName === 'Lottery Ticket') {
+            const rollEvent = (batchEvents || []).find(e => e.type === 'lottery_ticket_roll');
+            if (rollEvent) return rollEvent.roll <= 3 ? 'buff' : 'debuff';
+            return 'buff';
+        }
+        return this.AI_CARD_TYPES[cardName] || 'buff';
+    },
+
+    renderAiDeckCounter() {
+        const el = document.getElementById('ai-deck-counter');
+        if (!el || !this.state) return;
+        const remaining = this.state.ai_deck_remaining;
+        if (remaining === undefined || remaining === null) {
+            el.classList.add('hidden');
+            return;
+        }
+        el.classList.remove('hidden');
+        if (remaining <= 0) {
+            el.classList.add('empty');
+            el.innerHTML = `<span class="ai-deck-icon">🚫🎴</span> 0 left`;
+        } else {
+            el.classList.remove('empty');
+            el.innerHTML = `<span class="ai-deck-icon">🎴</span> ${remaining} left`;
+        }
+    },
+
+    // Brief border-flash on the dice panel + "THE AI HAS ARRIVED" banner text,
+    // shown the instant a roll triggers the AI summon -- before the card itself
+    // is revealed. Returns a Promise that resolves once the ~1s flash is done.
+    showAiTriggerFlash() {
+        return new Promise((resolve) => {
+            const dicePanel = document.getElementById('dice-panel');
+            if (dicePanel) {
+                dicePanel.classList.remove('ai-trigger-flash');
+                // Force reflow so re-adding the class restarts the animation.
+                void dicePanel.offsetWidth;
+                dicePanel.classList.add('ai-trigger-flash');
+            }
+
+            document.getElementById('ai-trigger-banner')?.remove();
+            const banner = document.createElement('div');
+            banner.id = 'ai-trigger-banner';
+            banner.className = 'ai-trigger-banner';
+            banner.textContent = '☠️ THE AI HAS ARRIVED ☠️';
+            document.body.appendChild(banner);
+
+            setTimeout(() => {
+                dicePanel?.classList.remove('ai-trigger-flash');
+                banner.remove();
+                resolve();
+            }, 1000);
+        });
+    },
+
+    // Full-screen dramatic card reveal: dungeon-themed card, fades/scales in, stays
+    // for 2s (or until clicked), then fades out. Returns a Promise that resolves
+    // once it's fully dismissed. `meta` optionally carries {bossName, hp, maxHp}
+    // for Summon cards' extra HP readout.
+    showAiCardOverlay(cardName, description, cardType, meta) {
+        return new Promise((resolve) => {
+            document.getElementById('ai-card-overlay')?.remove();
+
+            const backdrop = document.createElement('div');
+            backdrop.id = 'ai-card-overlay';
+            backdrop.className = 'ai-card-overlay-backdrop';
+
+            const card = document.createElement('div');
+            card.className = `ai-card ${cardType}`;
+
+            const icon = this.AI_CARD_ICONS[cardName] || '🎴';
+            let bossMetaHtml = '';
+            if (meta && meta.bossName) {
+                bossMetaHtml = `<div class="ai-card-boss-meta">👹 ${meta.bossName} — ${meta.hp} / ${meta.maxHp} HP</div>`;
+            }
+
+            card.innerHTML = `
+                <div class="ai-card-name">${cardName}</div>
+                <div class="ai-card-icon">${icon}</div>
+                <div class="ai-card-desc">${description || ''}</div>
+                ${bossMetaHtml}
+            `;
+
+            backdrop.appendChild(card);
+            document.body.appendChild(backdrop);
+
+            let dismissed = false;
+            const dismiss = () => {
+                if (dismissed) return;
+                dismissed = true;
+                clearTimeout(autoTimer);
+                backdrop.classList.add('exiting');
+                backdrop.classList.remove('visible');
+                setTimeout(() => {
+                    backdrop.remove();
+                    resolve();
+                }, 300);
+            };
+
+            backdrop.addEventListener('click', dismiss);
+
+            // Animate in shortly after insertion so the initial (pre-.visible) styles
+            // apply first. Deliberately setTimeout, not requestAnimationFrame -- rAF is
+            // suspended entirely in backgrounded/hidden tabs (e.g. a PvP player alt-tabbed
+            // away when their opponent's roll triggers a card), which would otherwise leave
+            // the overlay stuck invisible until they tab back in.
+            setTimeout(() => backdrop.classList.add('visible'), 20);
+
+            const autoTimer = setTimeout(dismiss, 2000);
+        });
+    },
+
+    // Boss-encounter-style announcement over the board itself: a red flash sweeps
+    // the board while the boss's name appears huge and centered, then fades. Used
+    // only for Summon cards, right after their card overlay dismisses.
+    showBossSummonAnnouncement(bossName) {
+        return new Promise((resolve) => {
+            const overlay = document.getElementById('boss-announcement-overlay');
+            if (!overlay) { resolve(); return; }
+
+            overlay.innerHTML = `<div class="boss-announcement-text">${bossName}<br>HAS ARRIVED</div>`;
+            overlay.classList.remove('hidden');
+            overlay.classList.remove('flashing');
+            void overlay.offsetWidth;
+            overlay.classList.add('flashing');
+
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flashing');
+                overlay.innerHTML = '';
+                resolve();
+            }, 1800);
+        });
+    },
+
     // The color whose pieces the current player may click/move right now -- equal to
     // current_player normally, flipped to the opponent's color during a Matt's Drunk
     // Again control swap. Board-level piece.color is always the TRUE color, so any
@@ -240,6 +414,7 @@ const Game = {
         this.renderCheckBanner();
         this.renderSwapBanner();
         this.renderBossHealthBar();
+        this.renderAiDeckCounter();
         this.updateActivePanelHighlight();
         this.renderInstaKillBadges();
         for (const color of ['white', 'black']) {
@@ -782,14 +957,47 @@ const Game = {
                         detail: 'Capture negated'
                     });
                 }
+            } else if (event.type === 'ai_summon_trigger') {
+                // Kick off the full dramatic sequence (trigger flash -> card reveal ->
+                // boss announcement if applicable). Fire-and-forget: render() isn't
+                // async, and this shouldn't block subsequent renders.
+                this.runAiCardSequence(newEvents);
             } else if (event.type === 'ai_card_resolved') {
-                // Stage B testing hook -- Stage C replaces this with the full-screen
-                // card-draw overlay. For now: console log + existing toast system.
                 console.log(`[AI Card] ${event.card} (${event.player}): ${event.outcome}`);
                 this.showToast(`🎴 ${event.card}: ${event.outcome}`, '');
             } else if (event.type === 'ai_card_deck_empty') {
                 console.log(`[AI Card] Summon triggered but the deck is empty (${event.player})`);
             }
+        }
+    },
+
+    // Runs the full AI Card reveal sequence for one summon trigger: border flash +
+    // "THE AI HAS ARRIVED" -> full-screen card overlay -> (Summon cards that actually
+    // spawned a boss, i.e. not queued behind an already-active one) board flash with
+    // the boss's name. `batchEvents` is the set of new events from the same poll, so
+    // the drawn card, its Lottery Ticket sub-roll, and its resolution are all visible.
+    async runAiCardSequence(batchEvents) {
+        await this.showAiTriggerFlash();
+
+        const drawnEvent = batchEvents.find(e => e.type === 'ai_card_drawn');
+        if (!drawnEvent) return; // trigger fired but the deck was empty
+
+        const cardType = this.aiCardTypeFor(drawnEvent.card, batchEvents);
+        const resolvedEvent = batchEvents.find(e => e.type === 'ai_card_resolved' && e.card === drawnEvent.card);
+        const actuallySpawned = cardType === 'summon' && resolvedEvent &&
+            /has been summoned/i.test(resolvedEvent.outcome || '');
+
+        let meta = null;
+        let bossName = null;
+        if (actuallySpawned) {
+            bossName = this.state.active_boss || drawnEvent.card.replace('Summon ', '');
+            meta = { bossName, hp: this.state.boss_hp, maxHp: this.state.boss_max_hp };
+        }
+
+        await this.showAiCardOverlay(drawnEvent.card, drawnEvent.description, cardType, meta);
+
+        if (actuallySpawned) {
+            await this.showBossSummonAnnouncement(bossName);
         }
     },
 

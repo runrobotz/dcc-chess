@@ -73,11 +73,13 @@
                         <span id="turn-number" class="turn-number">Turn 0</span>
                     </div>
                     <div id="phase-label" class="phase-label">Move Phase</div>
+                    <div id="ai-deck-counter" class="ai-deck-counter" title="AI Cards remaining"></div>
                 </div>
                 <div id="check-banner" class="check-banner hidden">⚠️ CARL IS IN CHECK — You must move Carl or block the threat!</div>
                 <div id="swap-banner" class="swap-banner hidden"></div>
                 <div id="boss-health-bar" class="boss-health-bar hidden"></div>
-                <div class="board-wrapper">
+                <div class="board-wrapper" style="position: relative;">
+                    <div id="boss-announcement-overlay" class="boss-announcement-overlay hidden"></div>
                     <div class="row-labels left">
                         <span>10</span><span>9</span><span>8</span><span>7</span><span>6</span>
                         <span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>

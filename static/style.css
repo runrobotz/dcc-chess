@@ -379,6 +379,192 @@ body {
     50% { opacity: 0.75; }
 }
 
+/* AI Card deck counter */
+.ai-deck-counter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent-gold);
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+.ai-deck-counter .ai-deck-icon {
+    font-size: 1.1rem;
+}
+.ai-deck-counter.empty {
+    color: var(--text-dim);
+    border-color: var(--text-dim);
+}
+
+/* AI summon trigger flash on the dice panel */
+.dice-panel.ai-trigger-flash {
+    animation: ai-trigger-border-flash 1s ease-in-out;
+}
+@keyframes ai-trigger-border-flash {
+    0%, 100% { box-shadow: none; border-color: var(--border-color); }
+    20%, 60% { box-shadow: 0 0 24px 4px rgba(192, 64, 64, 0.85); border-color: var(--accent-red); }
+    40%, 80% { box-shadow: 0 0 24px 4px rgba(201, 168, 76, 0.85); border-color: var(--accent-gold); }
+}
+.ai-trigger-banner {
+    position: fixed;
+    top: 20%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.85);
+    z-index: 1900;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #fff;
+    text-shadow: 0 0 12px rgba(192, 64, 64, 0.9), 0 0 24px rgba(201, 168, 76, 0.6);
+    text-transform: uppercase;
+    opacity: 0;
+    pointer-events: none;
+    animation: ai-trigger-banner-anim 1s ease-in-out forwards;
+}
+@keyframes ai-trigger-banner-anim {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.75); }
+    15%, 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+}
+
+/* AI Card draw overlay */
+.ai-card-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 4, 8, 0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    cursor: pointer;
+    transition: background 0.25s ease;
+}
+.ai-card-overlay-backdrop.visible {
+    background: rgba(4, 4, 8, 0.82);
+}
+.ai-card {
+    width: 320px;
+    max-width: 86vw;
+    padding: 28px 24px;
+    border-radius: 16px;
+    text-align: center;
+    background: radial-gradient(circle at 50% 0%, var(--bg-medium), var(--bg-darkest) 80%);
+    border: 3px solid var(--accent-gold);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 20px 60px rgba(0,0,0,0.7);
+    opacity: 0;
+    transform: scale(0.75) translateY(60px);
+    transition: opacity 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2), transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+    cursor: default;
+}
+.ai-card-overlay-backdrop.visible .ai-card {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+}
+.ai-card-overlay-backdrop.exiting .ai-card {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+}
+.ai-card-name {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+}
+.ai-card-icon {
+    font-size: 4rem;
+    line-height: 1;
+    margin: 8px 0 18px;
+    filter: drop-shadow(0 0 10px rgba(0,0,0,0.6));
+}
+.ai-card-desc {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+.ai-card-boss-meta {
+    margin-top: 14px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+/* Card-type variants */
+.ai-card.buff {
+    border-color: var(--accent-gold);
+    background: radial-gradient(circle at 50% 0%, #3a2f14, var(--bg-darkest) 80%);
+}
+.ai-card.buff .ai-card-name { color: var(--accent-gold); }
+
+.ai-card.debuff {
+    border-color: var(--accent-red);
+    background: radial-gradient(circle at 50% 0%, #2e1414, var(--bg-darkest) 80%);
+}
+.ai-card.debuff .ai-card-name { color: #e06060; }
+
+.ai-card.chaos {
+    border-color: #9b5cf0;
+    background: linear-gradient(160deg, #2a1a3e, #14101f 70%);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 20px 60px rgba(155, 92, 240, 0.35);
+}
+.ai-card.chaos .ai-card-name {
+    color: #c896ff;
+    text-shadow: 0 0 10px rgba(155, 92, 240, 0.7);
+}
+
+.ai-card.summon {
+    border-color: #5a0f0f;
+    background: radial-gradient(circle at 50% 0%, #1c0505, #050202 85%);
+    box-shadow: 0 0 0 1px #000, 0 0 50px rgba(192, 20, 20, 0.55), 0 20px 60px rgba(0,0,0,0.85);
+}
+.ai-card.summon .ai-card-name {
+    color: #ff4444;
+    text-shadow: 0 0 14px rgba(255, 40, 40, 0.8);
+}
+
+/* Boss summon board announcement */
+.boss-announcement-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: rgba(140, 10, 10, 0);
+    transition: background 0.2s ease;
+}
+.boss-announcement-overlay.flashing {
+    animation: boss-board-flash 1.8s ease-out;
+}
+@keyframes boss-board-flash {
+    0% { background: rgba(140, 10, 10, 0); }
+    10% { background: rgba(140, 10, 10, 0.55); }
+    30% { background: rgba(140, 10, 10, 0.25); }
+    100% { background: rgba(140, 10, 10, 0); }
+}
+.boss-announcement-text {
+    font-size: 2.4rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 0 16px rgba(255, 30, 30, 0.9), 0 0 40px rgba(0,0,0,0.9);
+    opacity: 0;
+    animation: boss-announcement-text-anim 1.8s ease-out forwards;
+}
+@keyframes boss-announcement-text-anim {
+    0% { opacity: 0; transform: scale(0.7); }
+    15%, 70% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.08); }
+}
+
 /* Board */
 .board-wrapper {
     display: flex;

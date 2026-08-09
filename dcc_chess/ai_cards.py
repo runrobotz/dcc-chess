@@ -110,7 +110,8 @@ def draw_ai_card(gs: "GameState", triggering_color: "Color",
         "drawn_by": triggering_color.value,
         "outcome": None,
     }
-    gs.log_event("ai_card_drawn", card=card_name, player=triggering_color.value)
+    gs.log_event("ai_card_drawn", card=card_name, player=triggering_color.value,
+                 description=AI_CARD_DESCRIPTIONS.get(card_name, ""))
 
     resolve_ai_card_effect(gs, card_name, triggering_color, dice=dice)
 
