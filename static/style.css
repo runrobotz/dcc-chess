@@ -401,6 +401,40 @@ body {
     border-color: var(--text-dim);
 }
 
+/* Dev Game mode testing tools -- deliberately styled off the normal gold/red/purple
+   game palette (bright cyan, dashed borders) so they always read as "not real UI". */
+.dev-tool-btn {
+    border: 1px dashed #22d3ee !important;
+    color: #22d3ee !important;
+    background: rgba(34, 211, 238, 0.08) !important;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+.dev-tool-btn:hover:not(:disabled) {
+    background: rgba(34, 211, 238, 0.2) !important;
+}
+
+.die.die-dev-editable {
+    cursor: pointer;
+    border: 2px dashed #22d3ee;
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+}
+.die.die-dev-editable:hover {
+    background: rgba(34, 211, 238, 0.18);
+    transform: scale(1.06);
+}
+.dev-dice-label {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #22d3ee;
+    text-align: center;
+    text-transform: uppercase;
+}
+
 /* AI summon trigger flash on the dice panel */
 .dice-panel.ai-trigger-flash {
     animation: ai-trigger-border-flash 1s ease-in-out;

@@ -12,7 +12,7 @@ from dcc_chess.abilities import GameState
 from dcc_chess.movement import all_legal_moves, is_checkmate, is_stalemate, is_in_check, resolve_orthrus_action
 from dcc_chess.pawns import PAWN_CHARACTERS, AbilityTrigger
 from dcc_chess.ai import smart_move, smart_abilities, random_draft, random_back_rank
-from dcc_chess.ai_cards import resolve_custard_choice, resolve_too_boring_choice
+from dcc_chess.ai_cards import resolve_custard_choice, resolve_too_boring_choice, draw_ai_card
 
 app = Flask(__name__)
 
@@ -984,6 +984,59 @@ def undo_move():
     snapshot = move_history.pop()
     game_data.clear()
     game_data.update(snapshot)
+    return jsonify(build_game_state_response())
+
+
+@app.route("/dev/cycle_die", methods=["POST"])
+def dev_cycle_die():
+    """Cycle one of this turn's rolled dice through 1-6. Dev Game mode only.
+
+    Body: {die_index}
+    The new value is a full stand-in for a real roll: it's checked against the
+    AI summon trigger exactly like a fresh roll would be, so devs can dial in
+    double-1s/double-3s/6+2 to test that path on demand.
+    """
+    if game_data.get("mode") != "dev":
+        return jsonify({"error": "Dev tools are only available in Dev Game mode"}), 400
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
+
+    data = request.get_json(force=True)
+    die_index = data.get("die_index")
+
+    dice = game_data.get("dice")
+    if dice is None or not dice.dice:
+        return jsonify({"error": "No dice rolled this turn"}), 400
+    if not isinstance(die_index, int) or die_index < 0 or die_index >= len(dice.dice):
+        return jsonify({"error": "Invalid die index"}), 400
+    if dice.used[die_index]:
+        return jsonify({"error": "That die has already been spent"}), 400
+
+    dice.dice[die_index] = dice.dice[die_index] % 6 + 1
+    gs.log_event("dev_die_override", die_index=die_index, value=dice.dice[die_index])
+
+    if len(dice.dice) == 2:
+        gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
+
+    return jsonify(build_game_state_response())
+
+
+@app.route("/dev/draw_ai_card", methods=["POST"])
+def dev_draw_ai_card():
+    """Force-draw the top AI Card, bypassing the dice trigger entirely. Dev Game mode only."""
+    if game_data.get("mode") != "dev":
+        return jsonify({"error": "Dev tools are only available in Dev Game mode"}), 400
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
+
+    dice = game_data.get("dice")
+    draw_ai_card(gs, gs.current_player, dice=dice)
     return jsonify(build_game_state_response())
 
 

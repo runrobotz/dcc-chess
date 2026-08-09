@@ -90,7 +90,16 @@ const Game = {
 
     renderAiDeckCounter() {
         const el = document.getElementById('ai-deck-counter');
-        if (!el || !this.state) return;
+        const devBtn = document.getElementById('dev-draw-ai-card-btn');
+        if (!this.state) return;
+
+        // DEV: Draw AI Card -- Dev Game mode only, regardless of deck state (an
+        // empty-deck click is a valid thing to test: the trigger fires, nothing happens).
+        if (devBtn) {
+            devBtn.classList.toggle('hidden', this.state.mode !== 'dev');
+        }
+
+        if (!el) return;
         const remaining = this.state.ai_deck_remaining;
         if (remaining === undefined || remaining === null) {
             el.classList.add('hidden');
@@ -1236,6 +1245,18 @@ const Game = {
                     dieEl.textContent = dice.values[i];
                 }
 
+                // Dev Game mode only: click an unspent, non-reserved die to cycle its
+                // value 1->2->...->6->1. Treated by the backend exactly like a real
+                // roll (including AI summon trigger detection).
+                if (isDevMode && !isUsed && !isReserved) {
+                    dieEl.classList.add('die-dev-editable');
+                    dieEl.title = 'DEV: click to change value';
+                    dieEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.devCycleDie(i);
+                    });
+                }
+
                 // Bank button only for unused, non-reserved dice
                 const hasBank = dice.banked_die && dice.banked_die[currentPlayer] !== null;
                 if (!isUsed && !isReserved && !hasBank && this.state.phase === 'ability') {
@@ -1255,8 +1276,49 @@ const Game = {
                 }
             }
             diceDisplay.appendChild(currentDice);
+
+            if (isDevMode) {
+                const devLabel = document.createElement('div');
+                devLabel.className = 'dev-dice-label';
+                devLabel.textContent = 'DEV: Click dice to change values';
+                diceDisplay.appendChild(devLabel);
+            }
         }
 
+    },
+
+    async devCycleDie(index) {
+        try {
+            const resp = await fetch('/dev/cycle_die', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ die_index: index }),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();
+        } catch (e) {
+            this.showToast('Failed to override die', 'fail');
+        }
+    },
+
+    async devDrawAiCard() {
+        try {
+            const resp = await fetch('/dev/draw_ai_card', { method: 'POST' });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();
+        } catch (e) {
+            this.showToast('Failed to draw AI card', 'fail');
+        }
     },
 
     MAJOR_CARD_ORDER: ['Carl', 'Donut', 'Mongo', 'Katia', 'Samantha'],
