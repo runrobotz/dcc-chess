@@ -346,6 +346,12 @@ def build_game_state_response():
         winner = game_data.get("winner")
         reason = game_data.get("result_reason", "")
 
+    # Matt's Drunk Again: each side's sidebar panel shows whichever army that seat
+    # currently controls, so "White"'s panel displays Black's pieces (with Black's
+    # abilities) while the swap is active, and vice versa.
+    white_panel_color = "black" if gs.swap_active else "white"
+    black_panel_color = "white" if gs.swap_active else "black"
+
     resp = {
         "board": serialize_board(board),
         "current_player": current,
@@ -355,9 +361,9 @@ def build_game_state_response():
         "game_over": game_over,
         "winner": winner,
         "result_reason": reason,
-        "player_pieces": get_all_player_pieces(gs, current),
-        "white_player_pieces": get_all_player_pieces(gs, "white"),
-        "black_player_pieces": get_all_player_pieces(gs, "black"),
+        "player_pieces": get_all_player_pieces(gs, gs.controlled_color(gs.current_player).value),
+        "white_player_pieces": get_all_player_pieces(gs, white_panel_color),
+        "black_player_pieces": get_all_player_pieces(gs, black_panel_color),
         "mode": game_data.get("mode", "pvp"),
         "events": gs.events[-20:] if gs.events else [],  # Last 20 events
         "white_pawns": game_data.get("white_pawns", []),
@@ -365,7 +371,6 @@ def build_game_state_response():
         "placement_player": game_data.get("placement_player"),
         "white_pieces_to_place": game_data.get("white_pieces_to_place"),
         "black_pieces_to_place": game_data.get("black_pieces_to_place"),
-        "boss_active": game_data.get("boss_active", False),
         "air_strike_zones": [[r, c] for r, c in gs.air_strike_zones.keys()],
         "lava_zones": [[r, c] for r, c in gs.lava_zones.keys()],
         "frozen_pieces": [[r, c] for r, c in gs.frozen_pieces],
@@ -384,6 +389,14 @@ def build_game_state_response():
         "main_character_syndrome_active": gs.main_character_syndrome_active,
         "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
         "pending_ai_card_decision": gs.pending_ai_card_decision,
+        "swap_active": gs.swap_active,
+        "swap_turns_remaining": gs.swap_turns_remaining,
+        "boss_active": gs.boss_active,
+        "active_boss": gs.active_boss,
+        "boss_hp": gs.boss_hp,
+        "boss_max_hp": gs.boss_max_hp,
+        "boss_position": list(gs.boss_position) if gs.boss_position else None,
+        "boss_squares": [list(s) for s in gs.boss_squares],
     }
     return resp
 
@@ -395,8 +408,15 @@ def _end_game_if_no_legal_moves(gs) -> bool:
     stalemate, mirroring the check already done for the AI's turn. Returns
     True if the game was ended, False if the player has at least one legal
     move and can proceed normally (e.g. roll dice).
+
+    During a Matt's Drunk Again control swap, "has a legal move" is checked
+    against whichever army gs.current_player actually controls this turn --
+    otherwise a swap could falsely end the game while the player still has
+    moves available with the pieces they're currently allowed to use. Whether
+    it's checkmate vs. stalemate still reads gs.current_player's own true
+    king, per the original-colors rule for game-end conditions.
     """
-    if gs.get_legal_moves_with_status(gs.current_player):
+    if gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player)):
         return False
     if is_in_check(gs.board, gs.current_player):
         game_data["winner"] = gs.current_player.opponent.value
@@ -708,11 +728,11 @@ def legal_moves():
     piece = gs.board.get(row, col)
     if piece is None:
         return jsonify({"moves": []})
-    if piece.color != gs.current_player:
+    if piece.color != gs.controlled_color(gs.current_player):
         return jsonify({"moves": []})
 
     # Get status-filtered legal moves for this piece
-    all_moves = gs.get_legal_moves_with_status(gs.current_player)
+    all_moves = gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player))
     piece_moves = [list(to) for (fr, _), to in all_moves if (fr, _) == (row, col)]
     # Actually need to match from_pos properly
     piece_moves = []
@@ -759,7 +779,12 @@ def _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured):
     game_data["moved_from"] = from_pos
     game_data["moved_to"] = to_pos
 
-    opponent = color.opponent
+    # During a Matt's Drunk Again swap, `color` (the acting player) may have just
+    # moved a piece of the OPPOSITE true color -- whoever's king could have just
+    # been threatened is the opponent of the piece that actually moved, not
+    # necessarily color.opponent. `color` itself still correctly identifies who
+    # gets credit for the win.
+    opponent = moved_piece.color.opponent if moved_piece else color.opponent
     if is_checkmate(gs.board, opponent):
         game_data["game_over"] = True
         game_data["winner"] = color.value
@@ -820,8 +845,9 @@ def make_move():
     from_pos = (fr, fc)
     to_pos = (tr, tc)
 
-    # Validate move
-    all_moves = gs.get_legal_moves_with_status(gs.current_player)
+    # Validate move (Matt's Drunk Again: validate against the army gs.current_player
+    # actually controls this turn, not necessarily their own true color)
+    all_moves = gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player))
     if (from_pos, to_pos) not in all_moves:
         return jsonify({"error": "Illegal move"}), 400
 
@@ -989,6 +1015,8 @@ def get_ability_targets():
     piece = gs.board.get(piece_row, piece_col)
     if piece is None:
         return jsonify({"error": "No piece at that position"}), 400
+    if piece.color != gs.controlled_color(gs.current_player):
+        return jsonify({"error": "Not your piece to control this turn"}), 400
 
     dice = game_data["dice"]
     if die_index < 0 or die_index >= 2 or dice.used[die_index]:
@@ -1029,7 +1057,8 @@ def get_ability_targets():
         # Movement abilities — compute destinations WITHOUT spending the die.
         # The die is only spent when the player confirms a target at /ability.
         elif ability_name == "Leader":
-            player = piece.color.value
+            # Banking is tied to whichever seat is taking this turn, not to Carl's color.
+            player = gs.current_player.value
             combined_total = gs.leader_available_total(dice, player)
             pulled_piece = data.get("pulled_piece")
             if combined_total <= 0:
@@ -1252,12 +1281,14 @@ def use_ability():
         return jsonify({"error": "Missing data"}), 400
 
     # Block boss-only abilities when no boss is active
-    if ability_name in BOSS_ONLY_ABILITIES and not game_data.get("boss_active", False):
+    if ability_name in BOSS_ONLY_ABILITIES and not gs.boss_active:
         return jsonify({"error": "This ability can only be used during a Boss Event"}), 400
 
     piece = gs.board.get(piece_row, piece_col)
     if piece is None:
         return jsonify({"error": "No piece at that position"}), 400
+    if piece.color != gs.controlled_color(gs.current_player):
+        return jsonify({"error": "Not your piece to control this turn"}), 400
 
     dice = game_data["dice"]
     if die_index < 0 or die_index >= 2 or dice.used[die_index]:
@@ -1289,10 +1320,13 @@ def use_ability():
             dice.dice[die_index] = dice.dice[0] + dice.dice[1]
             dice.used[_other] = True
 
-    color = gs.current_player
+    # The piece's own true color, not gs.current_player -- during a Matt's Drunk
+    # Again swap the acting player may be using a piece of the opposite color, and
+    # per-side tracking (uses-per-game, captured lists, etc.) belongs to the piece.
+    color = piece.color
     success = False
     result_msg = ""
-    
+
     # Target position if provided
     target_pos = (target_row, target_col) if target_row is not None and target_col is not None else None
 
@@ -1325,7 +1359,9 @@ def use_ability():
                     or pulled.piece_type not in (PieceType.DONUT, PieceType.KATIA, PieceType.SAMANTHA)):
                 return jsonify({"error": "Invalid Leader target piece"}), 400
 
-            total = gs.try_leader((piece_row, piece_col), dice, color.value)
+            # Leader's combined total can include a banked die -- banking is tied to
+            # whichever seat is actually taking this turn, not to Carl's own color.
+            total = gs.try_leader((piece_row, piece_col), dice, gs.current_player.value)
             success = total is not None
             if success:
                 destinations = gs.leader_pull_destinations((pr, pc), (piece_row, piece_col), total)

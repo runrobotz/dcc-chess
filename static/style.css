@@ -308,6 +308,77 @@ body {
     letter-spacing: 0.02em;
 }
 
+/* Matt's Drunk Again swap banner */
+.swap-banner {
+    background: linear-gradient(90deg, #7c3aed, #db2777);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 8px 16px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+    animation: swap-banner-pulse 1.6s ease-in-out infinite;
+}
+@keyframes swap-banner-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.75; }
+}
+
+/* Boss health bar */
+.boss-health-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #1a1a1a;
+    border: 2px solid #b91c1c;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin-bottom: 8px;
+    color: #fff;
+}
+.boss-health-bar .boss-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+.boss-health-bar .boss-hp-track {
+    flex: 1;
+    height: 14px;
+    background: #3a1414;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1px solid #5a1f1f;
+}
+.boss-health-bar .boss-hp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #dc2626, #f87171);
+    transition: width 0.3s ease;
+}
+.boss-health-bar .boss-hp-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Boss-occupied board squares */
+.square.boss-square {
+    position: relative;
+}
+.square.boss-square::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(220, 38, 38, 0.45);
+    animation: boss-square-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes boss-square-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.75; }
+}
+
 /* Board */
 .board-wrapper {
     display: flex;

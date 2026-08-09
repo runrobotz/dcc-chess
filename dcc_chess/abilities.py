@@ -209,6 +209,27 @@ class GameState:
         # via /ai_card/custard_choice or /ai_card/too_boring_choice.
         self.pending_ai_card_decision: Optional[Dict] = None
 
+        # Matt's Drunk Again -- while active, each player controls the OTHER color's
+        # pieces. Piece.color itself is never touched (so check/checkmate/board state
+        # stay exactly as they'd be without a swap) -- only which side is allowed to
+        # move/use-ability on which pieces changes. See controlled_color().
+        self.swap_active: bool = False
+        self.swap_turns_remaining: int = 0
+        # Snapshot of every piece's true color at the moment the swap started, keyed
+        # "row,col". Colors are never actually mutated, so this is informational only.
+        self.original_colors: Dict[str, str] = {}
+
+        # Boss Event system (Chunk 3 Part 2 sets these; Part 3 implements the fight)
+        self.boss_active: bool = False
+        self.active_boss: Optional[str] = None
+        self.boss_hp: int = 0
+        self.boss_max_hp: int = 0
+        self.boss_position: Optional[Tuple[int, int]] = None
+        self.boss_squares: List[Tuple[int, int]] = []
+        # A Summon card drawn while a boss is already active queues here instead of
+        # spawning immediately; Part 3's boss-defeat logic will pop and spawn it.
+        self.pending_boss_summon: Optional[str] = None
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -254,6 +275,14 @@ class GameState:
         card's name, or None if it didn't trigger (or the deck was empty).
         """
         return ai_cards.maybe_trigger_ai_card(self, d1, d2, triggering_color, dice=dice)
+
+    def controlled_color(self, color: Optional[Color] = None) -> Color:
+        """The color whose pieces `color` (default: current_player) may move or use
+        abilities on right now. Equal to `color` normally; flipped to the opponent's
+        color while Matt's Drunk Again's control swap is active.
+        """
+        base = color if color is not None else self.current_player
+        return base.opponent if self.swap_active else base
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
@@ -369,6 +398,17 @@ class GameState:
                         self._juice_box_lose_ability(piece.pawn_name)
                     self.log_event("mordecai_respawn", piece=repr(piece), pos=(back_rank, c))
                     break
+
+        # Matt's Drunk Again -- tick down one full turn (this individual player's
+        # turn, not a full white+black round); restore normal control at zero.
+        if self.swap_active:
+            self.swap_turns_remaining -= 1
+            if self.swap_turns_remaining <= 0:
+                self.swap_active = False
+                self.swap_turns_remaining = 0
+                self.original_colors = {}
+                self.log_event("matts_drunk_again_ended",
+                               detail="Control swap ended, normal control restored")
 
         # Swap player
         self.current_player = self.current_player.opponent

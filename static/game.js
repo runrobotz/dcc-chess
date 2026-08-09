@@ -40,6 +40,18 @@ const Game = {
         return piece.short;
     },
 
+    // The color whose pieces the current player may click/move right now -- equal to
+    // current_player normally, flipped to the opponent's color during a Matt's Drunk
+    // Again control swap. Board-level piece.color is always the TRUE color, so any
+    // "is this my piece" check on raw board data must go through this, not current_player.
+    controlledColor() {
+        if (!this.state) return null;
+        if (this.state.swap_active) {
+            return this.state.current_player === 'white' ? 'black' : 'white';
+        }
+        return this.state.current_player;
+    },
+
     STAGING_MAJOR_ORDER: ['Samantha', 'Katia', 'Mongo', 'Donut', 'Carl', 'Samantha', 'Katia', 'Mongo'],
     STAGING_MAJOR_INFO: {
         'Samantha': { type: 'Samantha', short: 'SAM' },
@@ -226,6 +238,8 @@ const Game = {
         this.renderBoard();
         this.renderHeader();
         this.renderCheckBanner();
+        this.renderSwapBanner();
+        this.renderBossHealthBar();
         this.updateActivePanelHighlight();
         this.renderInstaKillBadges();
         for (const color of ['white', 'black']) {
@@ -393,6 +407,36 @@ const Game = {
         }
     },
 
+    renderSwapBanner() {
+        const banner = document.getElementById('swap-banner');
+        if (!banner) return;
+        if (this.state.swap_active && !this.state.game_over) {
+            const n = this.state.swap_turns_remaining;
+            banner.textContent = `🔄 Matt's Drunk Again — control is swapped! ${n} turn${n === 1 ? '' : 's'} remaining`;
+            banner.classList.remove('hidden');
+        } else {
+            banner.classList.add('hidden');
+        }
+    },
+
+    renderBossHealthBar() {
+        const bar = document.getElementById('boss-health-bar');
+        if (!bar) return;
+        if (!this.state.boss_active || !this.state.active_boss) {
+            bar.classList.add('hidden');
+            return;
+        }
+        bar.classList.remove('hidden');
+        const hp = this.state.boss_hp || 0;
+        const maxHp = this.state.boss_max_hp || 0;
+        const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+        bar.innerHTML = `
+            <span class="boss-name">👹 ${this.state.active_boss}</span>
+            <div class="boss-hp-track"><div class="boss-hp-fill" style="width: ${pct}%;"></div></div>
+            <span class="boss-hp-label">${hp} / ${maxHp} HP</span>
+        `;
+    },
+
     renderHeader() {
         const s = this.state;
         const label = document.getElementById('turn-label');
@@ -464,6 +508,7 @@ const Game = {
         // Persistent zone overlay sets
         const airStrikeSet = new Set((this.state.air_strike_zones || []).map(z => `${z[0]},${z[1]}`));
         const lavaZoneSet = new Set((this.state.lava_zones || []).map(z => `${z[0]},${z[1]}`));
+        const bossSquareSet = new Set((this.state.boss_squares || []).map(z => `${z[0]},${z[1]}`));
 
         // Status effect maps/sets
         const frozenSet = new Set((this.state.frozen_pieces || []).map(z => `${z[0]},${z[1]}`));
@@ -496,6 +541,9 @@ const Game = {
                 // Highlight center square (5,5) - boss spawn point
                 if (row === 5 && col === 5) {
                     sq.classList.add('center-square');
+                }
+                if (this.state.boss_active && bossSquareSet.has(`${row},${col}`)) {
+                    sq.classList.add('boss-square');
                 }
 
                 // Last move highlights
@@ -566,7 +614,7 @@ const Game = {
                         const isValidTarget = this.validTargets.some(t => t[0] === row && t[1] === col);
                         if (isValidTarget) {
                             const target = grid[row][col];
-                            if (target && target.color !== this.state.current_player) {
+                            if (target && target.color !== this.controlledColor()) {
                                 sq.classList.add('legal-capture');
                             } else {
                                 sq.classList.add('legal-move');
@@ -583,7 +631,7 @@ const Game = {
                     const isLegal = this.legalMoves.some(m => m[0] === row && m[1] === col);
                     if (isLegal) {
                         const target = grid[row][col];
-                        if (target && target.color !== this.state.current_player) {
+                        if (target && target.color !== this.controlledColor()) {
                             sq.classList.add('legal-capture');
                         } else {
                             sq.classList.add('legal-move');
@@ -1679,8 +1727,10 @@ const Game = {
 
         const piece = this.state.board[row][col];
 
-        // If clicking own piece, select it (even if another piece is already selected)
-        if (piece && piece.color === this.state.current_player) {
+        // If clicking a piece you currently control, select it (even if another
+        // piece is already selected). During a Matt's Drunk Again swap this is the
+        // OPPONENT's true color, not current_player -- see controlledColor().
+        if (piece && piece.color === this.controlledColor()) {
             // Orthrus is one logical piece across 2 squares -- clicking either
             // his head or butt square always selects him via his head, since
             // that's the only square his moves/rotations are generated from.

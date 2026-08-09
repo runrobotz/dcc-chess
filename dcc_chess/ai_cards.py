@@ -10,7 +10,7 @@ import random
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .pieces import Color, PieceType
-from .board import BOARD_SIZE
+from .board import BOARD_SIZE, CENTER_SQUARE
 from .pawns import PAWN_CHARACTERS
 
 if TYPE_CHECKING:
@@ -484,6 +484,84 @@ def resolve_too_boring_choice(gs: "GameState", row, col) -> Tuple[bool, str]:
     return True, "ok"
 
 
+# ── Card 10: Matt's Drunk Again ──────────────────────────────────────
+
+def _resolve_matts_drunk_again(gs: "GameState", color: Color, dice: Optional["DungeonDice"]) -> None:
+    roll = random.randint(1, 6)
+
+    if gs.swap_active:
+        gs.swap_turns_remaining += roll
+        gs.log_event("matts_drunk_again", roll=roll, extended=True,
+                     swap_turns_remaining=gs.swap_turns_remaining)
+        _set_outcome(gs, "Matt's Drunk Again", color,
+                     f"A swap is already active -- extended by {roll} turns "
+                     f"({gs.swap_turns_remaining} remaining).")
+        return
+
+    gs.swap_active = True
+    gs.swap_turns_remaining = roll
+    gs.original_colors = {
+        f"{r},{c}": p.color.value
+        for r, c, p in gs.board.all_pieces(Color.WHITE) + gs.board.all_pieces(Color.BLACK)
+    }
+    gs.log_event("matts_drunk_again", roll=roll, extended=False, swap_turns_remaining=roll)
+    _set_outcome(gs, "Matt's Drunk Again", color,
+                 f"Control swapped! Each player controls the other's pieces for {roll} turns.")
+
+
+# ── Cards 11-14: Summon cards ────────────────────────────────────────
+
+_BOSS_MAX_HP = {
+    "Rage Elemental": 6,
+    "Feral Goose": 0,
+    "Emberus": 8,
+    "Goblin Murder Dozer": 5,
+}
+
+
+def _boss_spawn_squares(boss_name: str) -> List[Tuple[int, int]]:
+    cr, cc = CENTER_SQUARE
+    if boss_name == "Emberus":
+        return [(cr, cc), (cr - 1, cc), (cr + 1, cc), (cr, cc - 1), (cr, cc + 1)]
+    return [(cr, cc)]
+
+
+def _spawn_boss(gs: "GameState", boss_name: str) -> None:
+    squares = _boss_spawn_squares(boss_name)
+
+    # Any piece standing on a spawn square is permanently killed.
+    for (r, c) in squares:
+        occupant = gs.board.get(r, c)
+        if occupant is not None:
+            gs.board.set(r, c, None)
+            occupant.permanently_dead = True
+            gs.board.captured[occupant.color].append(occupant)
+            gs.log_event("boss_spawn_kill", piece=repr(occupant), pos=[r, c])
+
+    gs.boss_active = True
+    gs.active_boss = boss_name
+    gs.boss_hp = _BOSS_MAX_HP.get(boss_name, 0)
+    gs.boss_max_hp = gs.boss_hp
+    gs.boss_position = CENTER_SQUARE
+    gs.boss_squares = squares
+    gs.log_event("boss_summoned", boss=boss_name, hp=gs.boss_hp,
+                 position=list(CENTER_SQUARE), squares=[list(s) for s in squares])
+
+
+def _resolve_summon_card(gs: "GameState", color: Color, dice: Optional["DungeonDice"], card_name: str) -> None:
+    boss_name = SUMMON_CARD_BOSS_TYPES[card_name]
+
+    if gs.boss_active:
+        gs.pending_boss_summon = boss_name
+        gs.log_event("boss_summon_queued", boss=boss_name, detail="A boss is already active")
+        _set_outcome(gs, card_name, color,
+                     f"A boss is already active -- {boss_name} will be summoned next.")
+        return
+
+    _spawn_boss(gs, boss_name)
+    _set_outcome(gs, card_name, color, f"{boss_name} has been summoned!")
+
+
 _CARD_HANDLERS = {
     "AI's Pet": _resolve_ai_s_pet,
     "Dirty Tootsies": _resolve_dirty_tootsies,
@@ -494,4 +572,9 @@ _CARD_HANDLERS = {
     "You a Bitch": _resolve_you_a_bitch,
     "Lottery Ticket": _resolve_lottery_ticket,
     "Too Boring": _resolve_too_boring,
+    "Matt's Drunk Again": _resolve_matts_drunk_again,
+    "Summon Rage Elemental": lambda gs, color, dice: _resolve_summon_card(gs, color, dice, "Summon Rage Elemental"),
+    "Summon Feral Goose": lambda gs, color, dice: _resolve_summon_card(gs, color, dice, "Summon Feral Goose"),
+    "Summon Emberus": lambda gs, color, dice: _resolve_summon_card(gs, color, dice, "Summon Emberus"),
+    "Summon Goblin Murder Dozer": lambda gs, color, dice: _resolve_summon_card(gs, color, dice, "Summon Goblin Murder Dozer"),
 }
