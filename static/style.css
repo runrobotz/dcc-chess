@@ -568,6 +568,16 @@ body {
     text-shadow: 0 0 14px rgba(255, 40, 40, 0.8);
 }
 
+.ai-card.victory {
+    border-color: var(--accent-gold);
+    background: radial-gradient(circle at 50% 0%, #2e2a10, var(--bg-darkest) 80%);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 50px rgba(201, 168, 76, 0.5), 0 20px 60px rgba(0,0,0,0.7);
+}
+.ai-card.victory .ai-card-name {
+    color: var(--accent-gold);
+    text-shadow: 0 0 14px rgba(201, 168, 76, 0.8);
+}
+
 /* Boss summon board announcement */
 .boss-announcement-overlay {
     position: absolute;

@@ -223,6 +223,46 @@ const Game = {
         });
     },
 
+    // Victory overlay shown when a boss's HP reaches 0. Reuses the AI Card
+    // overlay's backdrop/card shell with its own celebratory styling.
+    showBossVictoryOverlay(bossName) {
+        return new Promise((resolve) => {
+            document.getElementById('boss-victory-overlay')?.remove();
+
+            const backdrop = document.createElement('div');
+            backdrop.id = 'boss-victory-overlay';
+            backdrop.className = 'ai-card-overlay-backdrop';
+
+            const card = document.createElement('div');
+            card.className = 'ai-card victory';
+            card.innerHTML = `
+                <div class="ai-card-name">${bossName}</div>
+                <div class="ai-card-icon">🏆</div>
+                <div class="ai-card-desc">Defeated! Normal combat resumes.</div>
+            `;
+
+            backdrop.appendChild(card);
+            document.body.appendChild(backdrop);
+
+            let dismissed = false;
+            const dismiss = () => {
+                if (dismissed) return;
+                dismissed = true;
+                clearTimeout(autoTimer);
+                backdrop.classList.add('exiting');
+                backdrop.classList.remove('visible');
+                setTimeout(() => {
+                    backdrop.remove();
+                    resolve();
+                }, 300);
+            };
+
+            backdrop.addEventListener('click', dismiss);
+            setTimeout(() => backdrop.classList.add('visible'), 20);
+            const autoTimer = setTimeout(dismiss, 2500);
+        });
+    },
+
     // The color whose pieces the current player may click/move right now -- equal to
     // current_player normally, flipped to the opponent's color during a Matt's Drunk
     // Again control swap. Board-level piece.color is always the TRUE color, so any
@@ -985,10 +1025,30 @@ const Game = {
             } else if (event.type === 'boss_no_movement') {
                 const reason = event.reason === 'rolled_10_to_12' ? 'no movement this turn (rolled 10-12)'
                     : event.reason === 'would_leave_board' ? `blocked at the board's edge (rolled ${event.direction})`
+                    : event.reason === 'samantha_iwkym_hold' ? `held by Samantha's IWKYM (${event.iwkym_turns_remaining} turn(s) left)`
                     : 'no movement';
                 this.showToast(`🧭 Boss compass roll: ${reason}`, '');
             } else if (event.type === 'boss_movement_kill') {
                 console.log(`[Boss] ${event.piece} was crushed at ${event.pos}`);
+            } else if (event.type === 'jug_o_boom') {
+                this.showToast(event.hit ? '💥 Jug-o-Boom: Direct hit!' : '💥 Jug-o-Boom: Miss!', event.hit ? '' : 'fail');
+            } else if (event.type === 'magic_missile') {
+                this.showToast(event.hit ? '✨ Magic Missile: Direct hit!' : '✨ Magic Missile: Missed!', event.hit ? '' : 'fail');
+            } else if (event.type === 'gorefest') {
+                this.showToast(event.hit ? '🩸 Gorefest: Direct hit!' : '🩸 Gorefest: Miss!', event.hit ? '' : 'fail');
+            } else if (event.type === 'i_need_my_space') {
+                const moved = event.result && event.result.moved;
+                this.showToast(moved ? `🤺 I Need My Space: boss shoved back ${event.result.distance} square(s)!` : '🤺 I Need My Space: the boss is already at the edge.', '');
+            } else if (event.type === 'iwkym_activated') {
+                this.showToast('🦈 IWKYM: Samantha clamps down on the boss!', '');
+            } else if (event.type === 'iwkym_broken') {
+                this.showToast("🤺 Katia's push broke Samantha's IWKYM hold!", '');
+            } else if (event.type === 'iwkym_release') {
+                this.showToast('🦈 Samantha releases her hold and returns to the back rank.', '');
+            } else if (event.type === 'boss_damaged') {
+                console.log(`[Boss] ${event.boss} takes ${event.amount} damage -- ${event.boss_hp} HP left`);
+            } else if (event.type === 'boss_defeated') {
+                this.showBossVictoryOverlay(event.boss);
             }
         }
     },
@@ -2330,6 +2390,11 @@ const Game = {
             'Lava Surge': 'direction',
             // Two-stage pull ability (select piece, then destination)
             'Leader': 'leader_pull',
+            // Special Event Attacks (boss battles only) -- click any square in range
+            'Jug-o-Boom': 'movement',
+            'Magic Missile': 'movement',
+            'Gorefest': 'movement',
+            // 'I Need My Space' and 'IWKYM' fire immediately, no targeting
         };
 
         const targetingType = targetingAbilities[abilityName];

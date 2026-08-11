@@ -235,6 +235,11 @@ class GameState:
         self.boss_turn_active: bool = False
         self.boss_turn_rolls: Dict[str, Optional[int]] = {"white": None, "black": None}
 
+        # Samantha's IWKYM (Part 3 Stage B): holds the boss still for 2 boss turns.
+        self.iwkym_active: bool = False
+        self.iwkym_turns_remaining: int = 0
+        self.iwkym_holder_pos: Optional[Tuple[int, int]] = None
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -288,6 +293,72 @@ class GameState:
         """
         base = color if color is not None else self.current_player
         return base.opponent if self.swap_active else base
+
+    # ── Boss Combat (Part 3 Stage B) ────────────────────────────────
+
+    def _boss_square_near(self, pos: Tuple[int, int], radius: int = 0) -> bool:
+        """True if any current boss square is within `radius` squares (Chebyshev) of pos."""
+        if not self.boss_active or not self.boss_squares:
+            return False
+        pr, pc = pos
+        for (br, bc) in self.boss_squares:
+            if max(abs(br - pr), abs(bc - pc)) <= radius:
+                return True
+        return False
+
+    def _line_path(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int],
+                    max_distance: int) -> Optional[List[Tuple[int, int]]]:
+        """Squares from (excluding) from_pos to (including) to_pos, if to_pos is
+        reachable in a straight orthogonal or diagonal line within max_distance.
+        Returns None if to_pos isn't aligned with from_pos or is too far.
+        """
+        fr, fc = from_pos
+        tr, tc = to_pos
+        dr, dc = tr - fr, tc - fc
+        if dr == 0 and dc == 0:
+            return None
+        if dr != 0 and dc != 0 and abs(dr) != abs(dc):
+            return None
+        distance = max(abs(dr), abs(dc))
+        if distance > max_distance:
+            return None
+        step_r = (dr > 0) - (dr < 0)
+        step_c = (dc > 0) - (dc < 0)
+        return [(fr + step_r * i, fc + step_c * i) for i in range(1, distance + 1)]
+
+    def damage_boss(self, amount: int = 1) -> None:
+        """Apply damage to the active boss, defeating it once HP reaches 0."""
+        if not self.boss_active:
+            return
+        self.boss_hp = max(0, self.boss_hp - amount)
+        self.log_event("boss_damaged", boss=self.active_boss, amount=amount, boss_hp=self.boss_hp)
+        if self.boss_hp <= 0:
+            self.defeat_boss()
+
+    def defeat_boss(self) -> None:
+        """Clear the active boss and either spawn a queued boss immediately
+        (following standard spawn rules, including killing anything on its
+        spawn squares) or leave the board clear for normal PvP to resume.
+        """
+        defeated_name = self.active_boss
+        self.boss_active = False
+        self.active_boss = None
+        self.boss_hp = 0
+        self.boss_max_hp = 0
+        self.boss_position = None
+        self.boss_squares = []
+        # A defeated boss also ends any IWKYM hold on it.
+        self.iwkym_active = False
+        self.iwkym_turns_remaining = 0
+        self.iwkym_holder_pos = None
+        self.log_event("boss_defeated", boss=defeated_name)
+
+        if self.pending_boss_summon:
+            from . import ai_cards
+            queued = self.pending_boss_summon
+            self.pending_boss_summon = None
+            ai_cards.spawn_boss(self, queued)
+            self.log_event("queued_boss_spawned", boss=queued)
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
@@ -3056,6 +3127,168 @@ class GameState:
         for pos in affected:
             self.succubus_pending.add(pos)
         
-        self.log_event("succubus", affected_count=len(affected), 
+        self.log_event("succubus", affected_count=len(affected),
                        detail=f"{len(affected)} enemy male pieces cannot move next turn")
+        return True
+
+    # ── Special Event Attacks (Part 3 Stage B, boss battles only) ───
+
+    def try_jug_o_boom(self, carl_pos: Tuple[int, int], dice: DungeonDice, die_index: int,
+                       target_pos: Tuple[int, int]) -> Optional[bool]:
+        """Carl's Jug-o-Boom (Cost 4): bomb any square within 3 of Carl. Hits if
+        a boss square is the target or adjacent to it. Returns True/False (hit/
+        miss) once the die is spent, or None if the attempt was never valid.
+        """
+        piece = self.board.get(*carl_pos)
+        if piece is None or piece.piece_type != PieceType.CARL:
+            return None
+        if self.is_piece_suppressed(*carl_pos):
+            return None
+        if not self.boss_active:
+            return None
+        r, c = carl_pos
+        tr, tc = target_pos
+        if max(abs(tr - r), abs(tc - c)) > 3:
+            return None
+
+        success = dice.spend_die(die_index, 4)
+        self.log_event("ability_roll", piece="Carl", ability="Jug-o-Boom",
+                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
+        if not success:
+            return None
+
+        hit = self._boss_square_near(target_pos, radius=1)
+        if hit:
+            self.damage_boss(1)
+        self.log_event("jug_o_boom", target=list(target_pos), hit=hit)
+        return hit
+
+    def try_magic_missile(self, donut_pos: Tuple[int, int], dice: DungeonDice, die_index: int,
+                          target_pos: Tuple[int, int]) -> Optional[bool]:
+        """Donut's Magic Missile (Cost 5): fire in a straight line up to 5 squares.
+        Hits if any boss square lies on the path from Donut to the target.
+        """
+        piece = self.board.get(*donut_pos)
+        if piece is None or piece.piece_type != PieceType.DONUT:
+            return None
+        if self.is_piece_suppressed(*donut_pos):
+            return None
+        if not self.boss_active:
+            return None
+
+        path = self._line_path(donut_pos, target_pos, max_distance=5)
+        if path is None:
+            return None
+
+        success = dice.spend_die(die_index, 5)
+        self.log_event("ability_roll", piece="Donut", ability="Magic Missile",
+                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
+        if not success:
+            return None
+
+        boss_squares = set(self.boss_squares)
+        hit = any(sq in boss_squares for sq in path)
+        if hit:
+            self.damage_boss(1)
+        self.log_event("magic_missile", target=list(target_pos),
+                       path=[list(p) for p in path], hit=hit)
+        return hit
+
+    def try_gorefest(self, mongo_pos: Tuple[int, int], dice: DungeonDice, die_index: int,
+                     target_pos: Tuple[int, int]) -> Optional[bool]:
+        """Mongo's Gorefest (Cost 4): attack any square within 2 of Mongo. Hits
+        if that exact square is currently occupied by the boss.
+        """
+        piece = self.board.get(*mongo_pos)
+        if piece is None or piece.piece_type != PieceType.MONGO:
+            return None
+        if self.is_piece_suppressed(*mongo_pos):
+            return None
+        if not self.boss_active:
+            return None
+        r, c = mongo_pos
+        tr, tc = target_pos
+        if max(abs(tr - r), abs(tc - c)) > 2:
+            return None
+
+        success = dice.spend_die(die_index, 4)
+        self.log_event("ability_roll", piece="Mongo", ability="Gorefest",
+                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
+        if not success:
+            return None
+
+        hit = tuple(target_pos) in self.boss_squares
+        if hit:
+            self.damage_boss(1)
+        self.log_event("gorefest", target=list(target_pos), hit=hit)
+        return hit
+
+    def try_i_need_my_space(self, katia_pos: Tuple[int, int], dice: DungeonDice,
+                            die_index: int) -> Optional[Dict]:
+        """Katia's I Need My Space (Cost 3): push the boss 2 squares directly
+        away from Katia (stopping early at the board edge). Breaks Samantha's
+        IWKYM hold if active, leaving her in place. No targeting -- fires
+        immediately. Returns the push summary dict, or None if unavailable.
+        """
+        piece = self.board.get(*katia_pos)
+        if piece is None or piece.piece_type != PieceType.KATIA:
+            return None
+        if self.is_piece_suppressed(*katia_pos):
+            return None
+        if not self.boss_active or self.boss_position is None:
+            return None
+
+        kr, kc = katia_pos
+        br, bc = self.boss_position
+        dr = (br - kr > 0) - (br - kr < 0)
+        dc = (bc - kc > 0) - (bc - kc < 0)
+        if dr == 0 and dc == 0:
+            return None
+
+        success = dice.spend_die(die_index, 3)
+        self.log_event("ability_roll", piece="Katia", ability="I Need My Space",
+                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
+        if not success:
+            return None
+
+        from .boss import push_boss
+        result = push_boss(self, dr, dc, max_distance=2)
+
+        if self.iwkym_active:
+            self.iwkym_active = False
+            self.iwkym_turns_remaining = 0
+            self.iwkym_holder_pos = None
+            self.log_event("iwkym_broken", detail="Katia's push broke Samantha's hold")
+
+        self.log_event("i_need_my_space", direction=[dr, dc], result=result)
+        return result
+
+    def try_iwkym(self, samantha_pos: Tuple[int, int], dice: DungeonDice,
+                  die_index: int) -> bool:
+        """Samantha's IWKYM (Cost 6): must be adjacent to a boss square. Holds
+        the boss still for 2 boss turns -- it can't move but can still be hit.
+        No targeting -- fires immediately.
+        """
+        piece = self.board.get(*samantha_pos)
+        if piece is None or piece.piece_type != PieceType.SAMANTHA:
+            return False
+        if self.is_piece_suppressed(*samantha_pos):
+            return False
+        if not self.boss_active:
+            return False
+        if not self._boss_square_near(samantha_pos, radius=1):
+            return False
+        if self.iwkym_active:
+            return False
+
+        success = dice.spend_die(die_index, 6)
+        self.log_event("ability_roll", piece="Samantha", ability="IWKYM",
+                       die_value=dice.dice[die_index], floor=6, result="success" if success else "fail")
+        if not success:
+            return False
+
+        self.iwkym_active = True
+        self.iwkym_turns_remaining = 2
+        self.iwkym_holder_pos = samantha_pos
+        self.log_event("iwkym_activated", pos=list(samantha_pos))
         return True

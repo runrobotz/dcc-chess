@@ -10,6 +10,7 @@ import random
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .board import BOARD_SIZE
+from .pieces import Color
 
 if TYPE_CHECKING:
     from .abilities import GameState
@@ -74,6 +75,22 @@ def resolve_boss_movement(gs: "GameState") -> Dict:
     gs.boss_turn_rolls = {"white": None, "black": None}
     gs.boss_turn_active = False
 
+    # Samantha's IWKYM holds the boss still -- skip movement entirely while
+    # active, but her hold still ticks down once per boss turn.
+    if gs.iwkym_active:
+        gs.iwkym_turns_remaining -= 1
+        released = False
+        if gs.iwkym_turns_remaining <= 0:
+            gs.iwkym_active = False
+            gs.iwkym_turns_remaining = 0
+            released = True
+            _release_samantha_iwkym(gs)
+        gs.log_event("boss_no_movement", boss=gs.active_boss, white_roll=white_roll,
+                     black_roll=black_roll, total=total, direction=direction,
+                     reason="samantha_iwkym_hold", iwkym_turns_remaining=gs.iwkym_turns_remaining,
+                     released=released)
+        return {"moved": False, "direction": direction, "total": total, "held": True, "released": released}
+
     if not gs.boss_active or gs.boss_position is None:
         gs.log_event("boss_no_movement", white_roll=white_roll, black_roll=black_roll,
                      total=total, direction=direction, reason="no_boss_active")
@@ -124,3 +141,63 @@ def resolve_boss_movement(gs: "GameState") -> Dict:
         "to_pos": list(gs.boss_position),
         "to_squares": [list(s) for s in final_squares],
     }
+
+
+def _release_samantha_iwkym(gs: "GameState") -> None:
+    """Move the Samantha holding IWKYM to any open square on her own back rank."""
+    pos = gs.iwkym_holder_pos
+    gs.iwkym_holder_pos = None
+    if pos is None:
+        return
+    piece = gs.board.get(*pos)
+    if piece is None or piece.piece_type.value != "Samantha":
+        return
+
+    gs.board.set(pos[0], pos[1], None)
+    back_rank = 0 if piece.color == Color.WHITE else BOARD_SIZE - 1
+    open_cols = [c for c in range(BOARD_SIZE) if gs.board.get(back_rank, c) is None]
+    if not open_cols:
+        # No space -- leave her where she was rather than lose the piece.
+        gs.board.set(pos[0], pos[1], piece)
+        gs.log_event("iwkym_release_failed", detail="No open square on back rank")
+        return
+
+    spawn_col = random.choice(open_cols)
+    gs.board.set(back_rank, spawn_col, piece)
+    gs.log_event("iwkym_release", piece=repr(piece), pos=[back_rank, spawn_col])
+
+
+def push_boss(gs: "GameState", dr: int, dc: int, max_distance: int) -> Dict:
+    """Push the boss's whole shape up to `max_distance` squares in a fixed
+    (dr, dc) direction (each of dr/dc expected to be -1, 0, or 1).
+
+    Unlike the compass roll's all-or-nothing edge rule, a push stops early at
+    the board edge instead of being blocked entirely -- Katia's I Need My
+    Space explicitly allows a partial push. Kills anything in the path.
+    """
+    if not gs.boss_active or gs.boss_position is None:
+        return {"moved": False, "distance": 0}
+
+    old_squares = list(gs.boss_squares)
+    current_squares = old_squares
+    moved_distance = 0
+
+    for _ in range(max_distance):
+        step_squares = [(r + dr, c + dc) for (r, c) in current_squares]
+        if not _squares_in_bounds(step_squares):
+            break
+        for (r, c) in step_squares:
+            _kill_piece_at(gs, r, c)
+        current_squares = step_squares
+        moved_distance += 1
+
+    if moved_distance == 0:
+        gs.log_event("boss_push_blocked", boss=gs.active_boss, detail="Already at the edge")
+        return {"moved": False, "distance": 0}
+
+    gs.boss_position = current_squares[0]
+    gs.boss_squares = current_squares
+    gs.log_event("boss_pushed", boss=gs.active_boss, distance=moved_distance,
+                 from_squares=[list(s) for s in old_squares],
+                 to_squares=[list(s) for s in current_squares])
+    return {"moved": True, "distance": moved_distance, "to_squares": [list(s) for s in current_squares]}

@@ -527,7 +527,7 @@ def _boss_spawn_squares(boss_name: str) -> List[Tuple[int, int]]:
     return [(cr, cc)]
 
 
-def _spawn_boss(gs: "GameState", boss_name: str) -> None:
+def spawn_boss(gs: "GameState", boss_name: str) -> None:
     squares = _boss_spawn_squares(boss_name)
 
     # Any piece standing on a spawn square is permanently killed.
@@ -559,7 +559,7 @@ def _resolve_summon_card(gs: "GameState", color: Color, dice: Optional["DungeonD
                      f"A boss is already active -- {boss_name} will be summoned next.")
         return
 
-    _spawn_boss(gs, boss_name)
+    spawn_boss(gs, boss_name)
     _set_outcome(gs, card_name, color, f"{boss_name} has been summoned!")
 
 

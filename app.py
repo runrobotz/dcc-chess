@@ -1325,6 +1325,35 @@ def get_ability_targets():
                 }
             message = "Choose a direction for Lava Surge"
 
+        # Special Event Attacks (boss battles only)
+        elif ability_name == "Jug-o-Boom" and piece.piece_type == PieceType.CARL:
+            for dr in range(-3, 4):
+                for dc in range(-3, 4):
+                    nr, nc = piece_row + dr, piece_col + dc
+                    if gs.board.in_bounds(nr, nc):
+                        valid_targets.append([nr, nc])
+            message = "Select a square within 3 to bomb (hits the boss if it's there or adjacent)"
+
+        elif ability_name == "Magic Missile" and piece.piece_type == PieceType.DONUT:
+            r, c = piece_row, piece_col
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1),
+                          (-1, -1), (-1, 1), (1, -1), (1, 1)]
+            for dr, dc in directions:
+                for dist in range(1, 6):
+                    nr, nc = r + dr * dist, c + dc * dist
+                    if not gs.board.in_bounds(nr, nc):
+                        break
+                    valid_targets.append([nr, nc])
+            message = "Select a target up to 5 squares away (hits the boss if it's on the path)"
+
+        elif ability_name == "Gorefest" and piece.piece_type == PieceType.MONGO:
+            for dr in range(-2, 3):
+                for dc in range(-2, 3):
+                    nr, nc = piece_row + dr, piece_col + dc
+                    if gs.board.in_bounds(nr, nc):
+                        valid_targets.append([nr, nc])
+            message = "Select a square within 2 to attack (hits the boss if it's there)"
+
         resp_data = {
             "valid_targets": valid_targets,
             "message": message
@@ -1472,6 +1501,13 @@ def use_ability():
             success = result is not None
             result_msg = "Extra moves available!" if success else "Failed"
 
+        elif ability_name == "Jug-o-Boom" and piece.piece_type == PieceType.CARL:
+            if target_pos is None:
+                return jsonify({"error": "Jug-o-Boom needs a target square"}), 400
+            hit = gs.try_jug_o_boom((piece_row, piece_col), dice, die_index, target_pos)
+            success = hit is not None
+            result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square in range.") if success else "Failed"
+
         # Donut abilities
         elif ability_name == "Puddle Jump" and piece.piece_type == PieceType.DONUT:
             result = gs.try_puddle_jump((piece_row, piece_col), dice, die_index)
@@ -1510,6 +1546,13 @@ def use_ability():
             success = result is not None
             result_msg = f"Resurrected {repr(result)}!" if success else "Failed"
 
+        elif ability_name == "Magic Missile" and piece.piece_type == PieceType.DONUT:
+            if target_pos is None:
+                return jsonify({"error": "Magic Missile needs a target square"}), 400
+            hit = gs.try_magic_missile((piece_row, piece_col), dice, die_index, target_pos)
+            success = hit is not None
+            result_msg = ("Direct hit on the boss!" if hit else "The missile flew past -- no boss square on its path.") if success else "Failed"
+
         # Mongo abilities
         elif ability_name == "Pet Carrier" and piece.piece_type == PieceType.MONGO:
             success = gs.try_pet_carrier((piece_row, piece_col), dice, die_index)
@@ -1540,6 +1583,13 @@ def use_ability():
                 gs.board.set(piece_row, piece_col, None)
                 gs.board.set(dest[0], dest[1], piece)
             result_msg = "Charge!" if success else "Failed"
+
+        elif ability_name == "Gorefest" and piece.piece_type == PieceType.MONGO:
+            if target_pos is None:
+                return jsonify({"error": "Gorefest needs a target square"}), 400
+            hit = gs.try_gorefest((piece_row, piece_col), dice, die_index, target_pos)
+            success = hit is not None
+            result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square there.") if success else "Failed"
 
         # Katia abilities
         elif ability_name == "She Tank" and piece.piece_type == PieceType.KATIA:
@@ -1594,6 +1644,11 @@ def use_ability():
                 success = gs.try_dual_threat((piece_row, piece_col), dice, die_index, target)
             result_msg = "Dual threat!" if success else "Failed"
 
+        elif ability_name == "I Need My Space" and piece.piece_type == PieceType.KATIA:
+            result = gs.try_i_need_my_space((piece_row, piece_col), dice, die_index)
+            success = result is not None
+            result_msg = "The boss is shoved back!" if success else "Failed"
+
         # Samantha abilities
         elif ability_name == "Slut Shame" and piece.piece_type == PieceType.SAMANTHA:
             # Slut Shame uses target_pos to select which pawn to swallow
@@ -1637,6 +1692,10 @@ def use_ability():
             result = gs.try_portal_spike((piece_row, piece_col), dice, die_index)
             success = result is not None
             result_msg = "Teleported!" if success else "Failed"
+
+        elif ability_name == "IWKYM" and piece.piece_type == PieceType.SAMANTHA:
+            success = gs.try_iwkym((piece_row, piece_col), dice, die_index)
+            result_msg = "Samantha clamps down on the boss!" if success else "Failed"
 
         # Pawn abilities
         elif piece.is_pawn and piece.pawn_name:

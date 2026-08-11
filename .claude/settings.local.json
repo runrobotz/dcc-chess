@@ -85,7 +85,8 @@
       "Bash(awk '/renderBoard\\\\\\(\\\\\\) \\\\{/,0' static/game.js)",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
       "Bash(node -e \"require\\('fs'\\).readFileSync\\('static/game.js','utf8'\\)\")",
-      "Bash(python3 -c \"import sys; sys.path.insert\\(0,'.'\\); import app; print\\('import OK'\\)\")"
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0,'.'\\); import app; print\\('import OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('py OK'\\)\")"
     ]
   }
 }
