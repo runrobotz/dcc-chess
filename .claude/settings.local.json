@@ -81,7 +81,10 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/ai_cards.py'\\).read\\(\\)\\); ast.parse\\(open\\('dcc_chess/dice.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('dcc_chess/abilities.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
       "Bash(~/Library/Python/3.14/bin/pytest tests/test_game.py::test_random_back_rank -q)",
-      "Bash(python3 -c \"print\\('node not available, skip'\\)\")"
+      "Bash(python3 -c \"print\\('node not available, skip'\\)\")",
+      "Bash(awk '/renderBoard\\\\\\(\\\\\\) \\\\{/,0' static/game.js)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('static/game.js','utf8'\\)\")"
     ]
   }
 }

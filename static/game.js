@@ -304,7 +304,9 @@ const Game = {
                 subtitle.textContent = 'Select exactly 8 pawns';
             } else {
                 title.textContent = 'Player 2 (Black) — Draft Your Pawns';
-                subtitle.textContent = 'Select 8 from the remaining pawns';
+                // Both players draft from the same full roster -- picking a pawn
+                // White already took is allowed, each side gets their own copy.
+                subtitle.textContent = 'Select exactly 8 pawns';
             }
         }
 
@@ -312,14 +314,14 @@ const Game = {
         confirmBtn.disabled = this.draftSelection.length !== 8;
 
         grid.innerHTML = '';
-        for (const pawn of this.roster) {
+        // "The AI" is a real pawn character (used elsewhere, e.g. Dev Mode staging)
+        // but isn't meant to be a draftable pick, so it's filtered out of this grid
+        // only -- this.roster itself stays untouched for other screens.
+        const draftablePawns = this.roster.filter(pawn => pawn.name !== 'The AI');
+        for (const pawn of draftablePawns) {
             const card = document.createElement('div');
             card.className = 'draft-card';
 
-            const taken = this.whitePawns.includes(pawn.name);
-            if (taken) {
-                card.classList.add('taken');
-            }
             if (this.draftSelection.includes(pawn.name)) {
                 card.classList.add('selected');
             }
@@ -336,9 +338,7 @@ const Game = {
                 <div class="ability-desc">${pawn.ability_description}</div>
             `;
 
-            if (!taken) {
-                card.addEventListener('click', () => this.toggleDraftPawn(pawn.name));
-            }
+            card.addEventListener('click', () => this.toggleDraftPawn(pawn.name));
 
             grid.appendChild(card);
         }

@@ -379,7 +379,10 @@ def build_game_state_response():
         "she_tank_targets": [[r, c] for r, c in gs.she_tank_targets],
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
-        "carl_in_check": is_in_check(board, gs.current_player),
+        # Meaningless before both Carls are even on the board -- is_in_check() treats a
+        # missing king as "in check" (for the legitimate mid-game king-captured case),
+        # which produced a false check banner during the placement phase every time.
+        "carl_in_check": is_in_check(board, gs.current_player) if game_data.get("phase") != "placement" else False,
         "status_effects": get_status_effects_summary(gs, game_data),
         "captured_pieces": serialize_captured(board),
         "can_undo": game_data.get("mode") == "dev" and len(move_history) > 0,
