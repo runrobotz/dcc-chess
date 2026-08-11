@@ -434,6 +434,8 @@ const Game = {
         }
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
+        } else if (this.state.phase === 'boss_turn') {
+            this.renderBossTurnPanel();
         } else {
             this.renderDicePanel();
         }
@@ -632,11 +634,12 @@ const Game = {
         label.className = 'turn-label ' + (s.current_player === 'white' ? 'white-turn' : 'black-turn');
         turnNum.textContent = `Turn ${s.turn_number}`;
 
-        const phaseNames = { 
-            move: 'Ready to Start Turn', 
-            ability: 'Ability & Move Phase', 
+        const phaseNames = {
+            move: 'Ready to Start Turn',
+            ability: 'Ability & Move Phase',
             placement: 'Placement Phase',
-            game_over: 'Game Over' 
+            boss_turn: 'Boss Turn',
+            game_over: 'Game Over'
         };
         phase.textContent = phaseNames[s.phase] || s.phase;
         
@@ -976,6 +979,16 @@ const Game = {
                 this.showToast(`🎴 ${event.card}: ${event.outcome}`, '');
             } else if (event.type === 'ai_card_deck_empty') {
                 console.log(`[AI Card] Summon triggered but the deck is empty (${event.player})`);
+            } else if (event.type === 'boss_moved') {
+                this.showToast(`🧭 ${event.boss} moves ${event.direction}!`, '');
+                this.flashBossMovement();
+            } else if (event.type === 'boss_no_movement') {
+                const reason = event.reason === 'rolled_10_to_12' ? 'no movement this turn (rolled 10-12)'
+                    : event.reason === 'would_leave_board' ? `blocked at the board's edge (rolled ${event.direction})`
+                    : 'no movement';
+                this.showToast(`🧭 Boss compass roll: ${reason}`, '');
+            } else if (event.type === 'boss_movement_kill') {
+                console.log(`[Boss] ${event.piece} was crushed at ${event.pos}`);
             }
         }
     },
@@ -1155,6 +1168,70 @@ const Game = {
             instruction.textContent = `Click any square on row ${validRow} to place ${firstPiece}`;
             abilityBtns.appendChild(instruction);
         }
+    },
+
+    renderBossTurnPanel() {
+        const panel = document.getElementById('dice-panel');
+        panel.classList.remove('hidden');
+
+        const diceDisplay = document.getElementById('dice-display');
+        const rollArea = document.getElementById('placement-pieces');
+        const endTurnBtn = document.getElementById('end-turn-btn');
+        const undoBtn = document.getElementById('undo-move-btn');
+
+        endTurnBtn.classList.add('hidden');
+        if (undoBtn) undoBtn.classList.add('hidden');
+
+        const rolls = this.state.boss_turn_rolls || { white: null, black: null };
+        const bossName = this.state.active_boss || 'The Boss';
+
+        diceDisplay.innerHTML = `
+            <h3 style="color: var(--accent-red); margin-bottom: 6px;">⚔️ BOSS TURN — Roll for Direction</h3>
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                ${bossName} moves once both players have rolled.
+            </div>
+            <div style="font-size: 0.95rem; margin-top: 6px; font-weight: 600;">
+                White: ${rolls.white ?? '—'} &nbsp;&nbsp; Black: ${rolls.black ?? '—'}
+            </div>
+        `;
+
+        rollArea.innerHTML = '';
+        const nextColor = rolls.white === null ? 'white' : (rolls.black === null ? 'black' : null);
+        if (nextColor) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-primary';
+            btn.textContent = `🎲 Roll Die (${nextColor === 'white' ? 'White' : 'Black'})`;
+            btn.style.cssText = 'width: 100%; margin-top: 8px;';
+            btn.addEventListener('click', () => this.rollBossDie(nextColor));
+            rollArea.appendChild(btn);
+        }
+    },
+
+    async rollBossDie(color) {
+        try {
+            const resp = await fetch('/boss_roll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ color }),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();
+        } catch (e) {
+            this.showToast('Boss roll failed', 'fail');
+        }
+    },
+
+    flashBossMovement() {
+        const squares = document.querySelectorAll('.boss-square');
+        squares.forEach(sq => {
+            sq.classList.add('boss-square-move-flash');
+            setTimeout(() => sq.classList.remove('boss-square-move-flash'), 900);
+        });
     },
 
     renderDicePanel() {

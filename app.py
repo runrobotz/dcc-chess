@@ -13,6 +13,7 @@ from dcc_chess.movement import all_legal_moves, is_checkmate, is_stalemate, is_i
 from dcc_chess.pawns import PAWN_CHARACTERS, AbilityTrigger
 from dcc_chess.ai import smart_move, smart_abilities, random_draft, random_back_rank
 from dcc_chess.ai_cards import resolve_custard_choice, resolve_too_boring_choice, draw_ai_card
+from dcc_chess.boss import resolve_boss_movement
 
 app = Flask(__name__)
 
@@ -400,6 +401,8 @@ def build_game_state_response():
         "boss_max_hp": gs.boss_max_hp,
         "boss_position": list(gs.boss_position) if gs.boss_position else None,
         "boss_squares": [list(s) for s in gs.boss_squares],
+        "boss_turn_active": gs.boss_turn_active,
+        "boss_turn_rolls": dict(gs.boss_turn_rolls),
     }
     return resp
 
@@ -430,6 +433,38 @@ def _end_game_if_no_legal_moves(gs) -> bool:
     game_data["game_over"] = True
     game_data["phase"] = "game_over"
     return True
+
+
+def _begin_next_phase_after_turn(gs, ended_color):
+    """Decide the phase that follows gs.end_turn() having just ended `ended_color`'s
+    turn. If Black just finished and a boss is active, a Boss Turn round happens
+    first -- both players roll 1 die each to move the boss -- before it becomes
+    White's move phase again. In PvAI mode Black is AI-controlled, so its boss
+    roll is submitted automatically so the flow doesn't stall waiting on it.
+    """
+    if ended_color == Color.BLACK and gs.boss_active:
+        game_data["phase"] = "boss_turn"
+        gs.boss_turn_active = True
+        gs.boss_turn_rolls = {"white": None, "black": None}
+        gs.log_event("boss_turn_begin", boss=gs.active_boss)
+        if game_data.get("mode") == "pvai":
+            _submit_boss_roll(gs, "black")
+    else:
+        game_data["phase"] = "move"
+
+
+def _submit_boss_roll(gs, color):
+    """Roll one die for `color`'s side of the Boss Turn compass roll. If both
+    sides have now rolled, resolves the boss's movement immediately and returns
+    to the move phase.
+    """
+    roll = random.randint(1, 6)
+    gs.boss_turn_rolls[color] = roll
+    gs.log_event("boss_turn_roll", color=color, value=roll)
+
+    if gs.boss_turn_rolls["white"] is not None and gs.boss_turn_rolls["black"] is not None:
+        resolve_boss_movement(gs)
+        game_data["phase"] = "move"
 
 
 # ── Routes ────────────────────────────────────────────────────────
@@ -814,7 +849,7 @@ def _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured):
 
     # Move complete - automatically end turn
     gs.end_turn()
-    game_data["phase"] = "move"
+    _begin_next_phase_after_turn(gs, color)
 
 
 @app.route("/move", methods=["POST"])
@@ -1945,8 +1980,33 @@ def ai_turn():
     
     # End AI turn
     gs.end_turn()
-    game_data["phase"] = "move"
-    
+    _begin_next_phase_after_turn(gs, Color.BLACK)
+
+    return jsonify(build_game_state_response())
+
+
+@app.route("/boss_roll", methods=["POST"])
+def boss_roll():
+    """Submit one player's die roll for the Boss Turn compass movement.
+
+    Body: {color: "white"|"black"}
+    Once both sides have rolled, the boss moves immediately and the phase
+    returns to "move" for White's next turn.
+    """
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    if game_data.get("phase") != "boss_turn":
+        return jsonify({"error": "Not in the Boss Turn phase"}), 400
+
+    data = request.get_json(force=True)
+    color = data.get("color")
+    if color not in ("white", "black"):
+        return jsonify({"error": "color must be 'white' or 'black'"}), 400
+    if gs.boss_turn_rolls.get(color) is not None:
+        return jsonify({"error": f"{color} has already rolled this Boss Turn"}), 400
+
+    _submit_boss_roll(gs, color)
     return jsonify(build_game_state_response())
 
 
@@ -1960,8 +2020,9 @@ def end_turn():
         return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
 
     # End turn (ticks durations, swaps player)
+    ended_color = gs.current_player
     gs.end_turn()
-    game_data["phase"] = "move"
+    _begin_next_phase_after_turn(gs, ended_color)
 
     # Safety max turns
     if gs.turn_number >= 300:
@@ -2085,7 +2146,7 @@ def _play_ai_turn():
 
     # End AI turn
     gs.end_turn()
-    game_data["phase"] = "move"
+    _begin_next_phase_after_turn(gs, color)
 
     # Safety
     if gs.turn_number >= 300:

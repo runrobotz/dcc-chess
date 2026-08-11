@@ -230,6 +230,11 @@ class GameState:
         # spawning immediately; Part 3's boss-defeat logic will pop and spawn it.
         self.pending_boss_summon: Optional[str] = None
 
+        # Boss Turn (Part 3 Stage A): after Black ends their turn, if a boss is
+        # active, both players roll 1 die each before control returns to White.
+        self.boss_turn_active: bool = False
+        self.boss_turn_rolls: Dict[str, Optional[int]] = {"white": None, "black": None}
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
