@@ -272,6 +272,13 @@ def _is_move_legal(
     board: Board, from_pos: Tuple[int, int], to_pos: Tuple[int, int], piece: Piece
 ) -> bool:
     """Test if a move is legal by making it, checking for check, and undoing it."""
+    if board.find_king(piece.color) is None:
+        # No king on the board for this color at all (e.g. a boss-battle co-op
+        # scenario where this side's Carl has already permanently fallen --
+        # see GameState.fallen_players). There's nothing left to protect from
+        # check, so every move is legal from a check standpoint.
+        return True
+
     fr, fc = from_pos
     tr, tc = to_pos
 

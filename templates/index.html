@@ -78,6 +78,7 @@
                 </div>
                 <div id="check-banner" class="check-banner hidden">⚠️ CARL IS IN CHECK — You must move Carl or block the threat!</div>
                 <div id="swap-banner" class="swap-banner hidden"></div>
+                <div id="fallen-banner" class="fallen-banner hidden"></div>
                 <div id="boss-health-bar" class="boss-health-bar hidden"></div>
                 <div class="board-wrapper" style="position: relative;">
                     <div id="boss-announcement-overlay" class="boss-announcement-overlay hidden"></div>
@@ -109,6 +110,8 @@
                     <button id="end-turn-btn" class="btn btn-end-turn" onclick="Game.endTurn()">End Turn</button>
                     <button id="undo-move-btn" class="btn btn-secondary btn-undo hidden" onclick="Game.undoMove()">Undo Last Move</button>
                 </div>
+                <!-- AI Event Panel: persistent record of the last AI Card drawn -->
+                <div id="ai-event-panel" class="ai-event-panel hidden"></div>
             </div>
 
             <!-- Right: White's permanent panel -->

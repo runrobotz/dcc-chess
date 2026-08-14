@@ -36,6 +36,7 @@ SUM_TO_DIRECTION: Dict[int, Optional[str]] = {
 # Squares moved per boss turn. Anything not listed here moves 1.
 BOSS_MOVE_DISTANCE: Dict[str, int] = {
     "Goblin Murder Dozer": 2,
+    "Feral Goose": 2,
 }
 
 
@@ -45,12 +46,9 @@ def direction_for_sum(total: int) -> Optional[str]:
 
 
 def _kill_piece_at(gs: "GameState", row: int, col: int) -> None:
-    piece = gs.board.get(row, col)
+    piece = gs.eliminate_piece_permanently(row, col)
     if piece is None:
         return
-    gs.board.set(row, col, None)
-    piece.permanently_dead = True
-    gs.board.captured[piece.color].append(piece)
     gs.log_event("boss_movement_kill", piece=repr(piece), pos=[row, col])
 
 

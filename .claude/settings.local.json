@@ -86,7 +86,15 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
       "Bash(node -e \"require\\('fs'\\).readFileSync\\('static/game.js','utf8'\\)\")",
       "Bash(python3 -c \"import sys; sys.path.insert\\(0,'.'\\); import app; print\\('import OK'\\)\")",
-      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('py OK'\\)\")"
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('py OK'\\)\")",
+      "Bash(lsof -i :5050 -sTCP:LISTEN)",
+      "Bash(python3 -c \"from app import app; app.run\\(port=5099, debug=False\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5099/)",
+      "Read(//tmp/**)",
+      "Bash(pkill -f \"app.run\\(port=5099\")",
+      "Bash(xargs -r kill)",
+      "Bash(python3 -m py_compile dcc_chess/abilities.py dcc_chess/boss.py dcc_chess/ai_cards.py)",
+      "Bash(lsof -i :5099 -sTCP:LISTEN)"
     ]
   }
 }

@@ -380,10 +380,15 @@ def build_game_state_response():
         "she_tank_targets": [[r, c] for r, c in gs.she_tank_targets],
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
-        # Meaningless before both Carls are even on the board -- is_in_check() treats a
-        # missing king as "in check" (for the legitimate mid-game king-captured case),
-        # which produced a false check banner during the placement phase every time.
-        "carl_in_check": is_in_check(board, gs.current_player) if game_data.get("phase") != "placement" else False,
+        # Meaningless before both Carls are even on the board, and meaningless again
+        # for a boss-co-op "fallen" player who no longer has a king at all -- in both
+        # cases is_in_check() treats a missing king as "in check" (for the legitimate
+        # mid-game king-captured case), which would otherwise show a false check banner.
+        "carl_in_check": (
+            is_in_check(board, gs.current_player)
+            if game_data.get("phase") != "placement" and board.find_king(gs.current_player) is not None
+            else False
+        ),
         "status_effects": get_status_effects_summary(gs, game_data),
         "captured_pieces": serialize_captured(board),
         "can_undo": game_data.get("mode") == "dev" and len(move_history) > 0,
@@ -403,6 +408,7 @@ def build_game_state_response():
         "boss_squares": [list(s) for s in gs.boss_squares],
         "boss_turn_active": gs.boss_turn_active,
         "boss_turn_rolls": dict(gs.boss_turn_rolls),
+        "fallen_players": [c.value for c in gs.fallen_players],
     }
     return resp
 
@@ -423,6 +429,10 @@ def _end_game_if_no_legal_moves(gs) -> bool:
     king, per the original-colors rule for game-end conditions.
     """
     if gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player)):
+        return False
+    # Boss co-op: a fallen (kingless) player with nothing left to move doesn't
+    # end the whole game -- they just have nothing to do this turn.
+    if gs.boss_active and gs.current_player in gs.fallen_players:
         return False
     if is_in_check(gs.board, gs.current_player):
         game_data["winner"] = gs.current_player.opponent.value
@@ -817,39 +827,82 @@ def _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured):
     game_data["moved_from"] = from_pos
     game_data["moved_to"] = to_pos
 
+    if captured is not None and captured.is_king:
+        # Carl never comes back through any resurrection path in this codebase,
+        # but mark it explicitly so that stays true even if one is added later.
+        captured.permanently_dead = True
+
     # During a Matt's Drunk Again swap, `color` (the acting player) may have just
     # moved a piece of the OPPOSITE true color -- whoever's king could have just
     # been threatened is the opponent of the piece that actually moved, not
     # necessarily color.opponent. `color` itself still correctly identifies who
     # gets credit for the win.
     opponent = moved_piece.color.opponent if moved_piece else color.opponent
-    if is_checkmate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = color.value
-        game_data["result_reason"] = "checkmate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return
 
-    if is_stalemate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = None
-        game_data["result_reason"] = "stalemate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return
-
+    # A missing king takes priority over checkmate/stalemate -- those only mean
+    # anything while a king is still on the board. During an active boss battle
+    # a missing king doesn't end the whole game; see _handle_carl_fallen.
     if gs.board.find_king(opponent) is None:
+        if _handle_carl_fallen(gs, color, opponent):
+            return
+    else:
+        if is_checkmate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = color.value
+            game_data["result_reason"] = "checkmate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return
+
+        if is_stalemate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = None
+            game_data["result_reason"] = "stalemate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return
+
+    # Move complete - automatically end turn
+    gs.end_turn()
+    _begin_next_phase_after_turn(gs, color)
+
+
+def _handle_carl_fallen(gs, color: Color, opponent: Color) -> bool:
+    """`opponent`'s Carl is gone (just captured this move, or already gone).
+
+    Outside a boss battle this ends the game immediately as before (normal
+    PvP king-capture rules). During an active boss battle it doesn't end the
+    game: `opponent` is marked fallen and the surviving player keeps playing
+    both armies against the boss -- opponent's remaining pieces stay on the
+    board as extra resources -- until either the boss is defeated or both
+    Carls are gone (draw).
+
+    Returns True if this call set game_data['game_over'] (caller should stop
+    without also calling gs.end_turn()/advancing phase itself).
+    """
+    if not gs.boss_active:
         game_data["game_over"] = True
         game_data["winner"] = color.value
         game_data["result_reason"] = "king_captured"
         game_data["phase"] = "game_over"
         gs.end_turn()
-        return
+        return True
 
-    # Move complete - automatically end turn
-    gs.end_turn()
-    _begin_next_phase_after_turn(gs, color)
+    if opponent in gs.fallen_players:
+        return False
+
+    gs.fallen_players.add(opponent)
+    gs.log_event("player_fallen", color=opponent.value, surviving_color=color.value)
+
+    if len(gs.fallen_players) >= 2:
+        game_data["game_over"] = True
+        game_data["winner"] = None
+        game_data["result_reason"] = "both_fallen"
+        game_data["phase"] = "game_over"
+        gs.end_turn()
+        return True
+
+    return False
 
 
 @app.route("/move", methods=["POST"])
@@ -1506,7 +1559,10 @@ def use_ability():
                 return jsonify({"error": "Jug-o-Boom needs a target square"}), 400
             hit = gs.try_jug_o_boom((piece_row, piece_col), dice, die_index, target_pos)
             success = hit is not None
-            result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square in range.") if success else "Failed"
+            if success and hit and gs.active_boss == "Feral Goose":
+                result_msg = "The Feral Goose is immune to all attacks — solve the puzzle to defeat it."
+            else:
+                result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square in range.") if success else "Failed"
 
         # Donut abilities
         elif ability_name == "Puddle Jump" and piece.piece_type == PieceType.DONUT:
@@ -1551,7 +1607,10 @@ def use_ability():
                 return jsonify({"error": "Magic Missile needs a target square"}), 400
             hit = gs.try_magic_missile((piece_row, piece_col), dice, die_index, target_pos)
             success = hit is not None
-            result_msg = ("Direct hit on the boss!" if hit else "The missile flew past -- no boss square on its path.") if success else "Failed"
+            if success and hit and gs.active_boss == "Feral Goose":
+                result_msg = "The Feral Goose is immune to all attacks — solve the puzzle to defeat it."
+            else:
+                result_msg = ("Direct hit on the boss!" if hit else "The missile flew past -- no boss square on its path.") if success else "Failed"
 
         # Mongo abilities
         elif ability_name == "Pet Carrier" and piece.piece_type == PieceType.MONGO:
@@ -1589,7 +1648,10 @@ def use_ability():
                 return jsonify({"error": "Gorefest needs a target square"}), 400
             hit = gs.try_gorefest((piece_row, piece_col), dice, die_index, target_pos)
             success = hit is not None
-            result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square there.") if success else "Failed"
+            if success and hit and gs.active_boss == "Feral Goose":
+                result_msg = "The Feral Goose is immune to all attacks — solve the puzzle to defeat it."
+            else:
+                result_msg = ("Direct hit on the boss!" if hit else "Miss -- no boss square there.") if success else "Failed"
 
         # Katia abilities
         elif ability_name == "She Tank" and piece.piece_type == PieceType.KATIA:
@@ -2011,32 +2073,29 @@ def ai_turn():
     except Exception as e:
         print(f"AI move error: {e}")
     
-    # Check game end
+    # Check game end. A missing king takes priority over checkmate/stalemate --
+    # see _finish_move_and_check_game_over for why.
     opponent = Color.WHITE
-    if is_checkmate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = Color.BLACK.value
-        game_data["result_reason"] = "checkmate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
-    
-    if is_stalemate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = None
-        game_data["result_reason"] = "stalemate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
-    
     if gs.board.find_king(opponent) is None:
-        game_data["game_over"] = True
-        game_data["winner"] = Color.BLACK.value
-        game_data["result_reason"] = "king_captured"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return jsonify(build_game_state_response())
-    
+        if _handle_carl_fallen(gs, Color.BLACK, opponent):
+            return jsonify(build_game_state_response())
+    else:
+        if is_checkmate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = Color.BLACK.value
+            game_data["result_reason"] = "checkmate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return jsonify(build_game_state_response())
+
+        if is_stalemate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = None
+            game_data["result_reason"] = "stalemate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return jsonify(build_game_state_response())
+
     # End AI turn
     gs.end_turn()
     _begin_next_phase_after_turn(gs, Color.BLACK)
@@ -2113,6 +2172,12 @@ def _play_ai_turn():
     # Get legal moves
     legal = gs.get_legal_moves_with_status(color)
     if not legal:
+        # Boss co-op: a fallen (kingless) AI with nothing left to move doesn't
+        # end the whole game -- just roll into the next phase with no move.
+        if gs.boss_active and color in gs.fallen_players:
+            gs.end_turn()
+            _begin_next_phase_after_turn(gs, color)
+            return build_game_state_response()
         if is_in_check(gs.board, color):
             game_data["game_over"] = True
             game_data["winner"] = "white"
@@ -2171,31 +2236,31 @@ def _play_ai_turn():
     game_data["moved_from"] = from_pos
     game_data["moved_to"] = to_pos
 
-    # Check game end
+    if captured is not None and captured.is_king:
+        captured.permanently_dead = True
+
+    # Check game end. A missing king takes priority over checkmate/stalemate --
+    # see _finish_move_and_check_game_over for why.
     opponent = Color.WHITE
-    if is_checkmate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = "black"
-        game_data["result_reason"] = "checkmate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return build_game_state_response()
-
-    if is_stalemate(gs.board, opponent):
-        game_data["game_over"] = True
-        game_data["winner"] = None
-        game_data["result_reason"] = "stalemate"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return build_game_state_response()
-
     if gs.board.find_king(opponent) is None:
-        game_data["game_over"] = True
-        game_data["winner"] = "black"
-        game_data["result_reason"] = "king_captured"
-        game_data["phase"] = "game_over"
-        gs.end_turn()
-        return build_game_state_response()
+        if _handle_carl_fallen(gs, color, opponent):
+            return build_game_state_response()
+    else:
+        if is_checkmate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = "black"
+            game_data["result_reason"] = "checkmate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return build_game_state_response()
+
+        if is_stalemate(gs.board, opponent):
+            game_data["game_over"] = True
+            game_data["winner"] = None
+            game_data["result_reason"] = "stalemate"
+            game_data["phase"] = "game_over"
+            gs.end_turn()
+            return build_game_state_response()
 
     # Roll dice and use abilities
     dice.roll()

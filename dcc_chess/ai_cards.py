@@ -390,15 +390,12 @@ def _resolve_fireball(gs: "GameState", color: Color) -> None:
     row = _scale_1_to_9(row_roll)
     gs.log_event("fireball_target", col_roll=col_roll, row_roll=row_roll, row=row, col=col)
 
-    target = gs.board.get(row, col)
+    target = gs.eliminate_piece_permanently(row, col)
     if target is None:
         _set_outcome(gs, "Lottery Ticket", color,
                      f"Fireball: Lucky -- the targeted square ({row}, {col}) was empty.")
         return
 
-    gs.board.set(row, col, None)
-    target.permanently_dead = True
-    gs.board.captured[target.color].append(target)
     gs.log_event("fireball_kill", target=repr(target), pos=[row, col])
     _set_outcome(gs, "Lottery Ticket", color,
                  f"Fireball struck ({row}, {col}) -- {target!r} was permanently killed.")
@@ -468,9 +465,7 @@ def resolve_too_boring_choice(gs: "GameState", row, col) -> Tuple[bool, str]:
     if piece is None or not piece.is_pawn or piece.color != eliminate_color:
         return False, "Target is no longer valid"
 
-    gs.board.set(row, col, None)
-    piece.permanently_dead = True
-    gs.board.captured[eliminate_color].append(piece)
+    gs.eliminate_piece_permanently(row, col)
     gs.log_event("too_boring_eliminate", piece=repr(piece), pos=[row, col], color=eliminate_color.value)
 
     gs.pending_ai_card_decision = None
@@ -532,11 +527,8 @@ def spawn_boss(gs: "GameState", boss_name: str) -> None:
 
     # Any piece standing on a spawn square is permanently killed.
     for (r, c) in squares:
-        occupant = gs.board.get(r, c)
+        occupant = gs.eliminate_piece_permanently(r, c)
         if occupant is not None:
-            gs.board.set(r, c, None)
-            occupant.permanently_dead = True
-            gs.board.captured[occupant.color].append(occupant)
             gs.log_event("boss_spawn_kill", piece=repr(occupant), pos=[r, c])
 
     gs.boss_active = True

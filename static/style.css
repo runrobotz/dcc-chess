@@ -326,6 +326,20 @@ body {
     50% { opacity: 0.75; }
 }
 
+/* Boss co-op: a player's Carl has fallen */
+.fallen-banner {
+    background: #1a1a1a;
+    color: #ff8080;
+    border: 2px solid #b91c1c;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 8px 16px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+}
+
 /* Boss health bar */
 .boss-health-bar {
     display: flex;
@@ -384,6 +398,25 @@ body {
 @keyframes boss-square-move-flash-anim {
     0% { background: rgba(255, 220, 80, 0.9); opacity: 1; }
     100% { background: rgba(220, 38, 38, 0.45); opacity: 0.6; }
+}
+
+/* Feral Goose puzzle squares: 4 corners + center */
+.square.feral-goose-square {
+    position: relative;
+}
+.square.feral-goose-square::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border: 3px solid rgba(90, 230, 130, 0.85);
+    border-radius: 3px;
+    box-shadow: 0 0 8px rgba(90, 230, 130, 0.5);
+    animation: feral-goose-pulse 1.6s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes feral-goose-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
 }
 
 /* AI Card deck counter */
@@ -576,6 +609,75 @@ body {
 .ai-card.victory .ai-card-name {
     color: var(--accent-gold);
     text-shadow: 0 0 14px rgba(201, 168, 76, 0.8);
+}
+
+/* AI Event Panel: persistent record of the last drawn AI Card */
+.ai-event-panel {
+    position: relative;
+    margin-top: 10px;
+    padding: 12px 30px 12px 14px;
+    border-radius: 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--accent-gold);
+    font-size: 0.82rem;
+}
+.ai-event-panel-dismiss {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px;
+}
+.ai-event-panel-dismiss:hover {
+    color: var(--text-primary);
+}
+.ai-event-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.ai-event-panel-icon {
+    font-size: 1.3rem;
+}
+.ai-event-panel-name {
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--accent-gold);
+}
+.ai-event-panel-header.buff { border-color: var(--accent-gold); }
+.ai-event-panel-header.buff .ai-event-panel-name { color: var(--accent-gold); }
+.ai-event-panel-header.debuff .ai-event-panel-name { color: #e06060; }
+.ai-event-panel-header.chaos .ai-event-panel-name { color: #c896ff; }
+.ai-event-panel-header.summon .ai-event-panel-name { color: #ff4444; }
+.ai-event-panel.buff { border-left-color: var(--accent-gold); }
+.ai-event-panel.debuff { border-left-color: var(--accent-red); }
+.ai-event-panel.chaos { border-left-color: #9b5cf0; }
+.ai-event-panel.summon { border-left-color: #5a0f0f; }
+.ai-event-panel-row {
+    color: var(--text-primary);
+    line-height: 1.45;
+    margin-bottom: 3px;
+}
+.ai-event-panel-row .aep-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-right: 4px;
+}
+.ai-event-panel-status {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    color: var(--accent-orange);
+    font-weight: 600;
+    line-height: 1.4;
 }
 
 /* Boss summon board announcement */

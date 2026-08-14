@@ -240,6 +240,13 @@ class GameState:
         self.iwkym_turns_remaining: int = 0
         self.iwkym_holder_pos: Optional[Tuple[int, int]] = None
 
+        # Boss co-op (Part 3 Stage D): colors whose Carl has permanently fallen
+        # during an active boss battle. A fallen color's remaining pieces stay
+        # on the board and are still playable (by the surviving player) as
+        # extra resources against the boss -- see app.py's _handle_carl_fallen
+        # and movement._is_move_legal's missing-king carve-out.
+        self.fallen_players: Set[Color] = set()
+
         # Turn counter
         self.turn_number = 0
         self.current_player = Color.WHITE
@@ -330,6 +337,12 @@ class GameState:
         """Apply damage to the active boss, defeating it once HP reaches 0."""
         if not self.boss_active:
             return
+        if self.active_boss == "Feral Goose":
+            # Immune to every Special Event Attack -- only the corner/center
+            # puzzle (see check_feral_goose_puzzle) can defeat her.
+            self.log_event("boss_damage_blocked", boss=self.active_boss,
+                           detail="The Feral Goose is immune to all attacks — solve the puzzle to defeat it.")
+            return
         self.boss_hp = max(0, self.boss_hp - amount)
         self.log_event("boss_damaged", boss=self.active_boss, amount=amount, boss_hp=self.boss_hp)
         if self.boss_hp <= 0:
@@ -359,6 +372,25 @@ class GameState:
             self.pending_boss_summon = None
             ai_cards.spawn_boss(self, queued)
             self.log_event("queued_boss_spawned", boss=queued)
+
+    # The 4 board corners + center square Feral Goose's puzzle requires to be
+    # simultaneously occupied (by any piece, either color) to defeat her.
+    FERAL_GOOSE_PUZZLE_SQUARES = [(0, 0), (0, BOARD_SIZE - 1), (BOARD_SIZE - 1, 0),
+                                   (BOARD_SIZE - 1, BOARD_SIZE - 1), (5, 5)]
+
+    def check_feral_goose_puzzle(self) -> bool:
+        """Called at the end of every turn while a Feral Goose is active. If
+        all 5 puzzle squares are simultaneously occupied, she's defeated.
+        Returns True if this defeated her.
+        """
+        if not self.boss_active or self.active_boss != "Feral Goose":
+            return False
+        if all(self.board.get(r, c) is not None for r, c in self.FERAL_GOOSE_PUZZLE_SQUARES):
+            self.log_event("feral_goose_puzzle_solved",
+                           detail="Puzzle Solved — The Feral Goose has been defeated!")
+            self.defeat_boss()
+            return True
+        return False
 
     # ── Turn Lifecycle ────────────────────────────────────────────
 
@@ -485,6 +517,9 @@ class GameState:
                 self.original_colors = {}
                 self.log_event("matts_drunk_again_ended",
                                detail="Control swap ended, normal control restored")
+
+        # Feral Goose puzzle: check at the end of every turn while she's active
+        self.check_feral_goose_puzzle()
 
         # Swap player
         self.current_player = self.current_player.opponent
@@ -2074,6 +2109,41 @@ class GameState:
 
         self.log_event("orthrus_permanent_death", pos=capture_pos, other_pos=other_pos,
                        detail="Orthrus permanently removed")
+
+    def eliminate_piece_permanently(self, row: int, col: int) -> Optional[Piece]:
+        """Remove whatever piece occupies (row, col) from the board entirely
+        and mark it permanently dead (excluded from every resurrection
+        candidate list, same as Orthrus already always is).
+
+        Orthrus is a 1x2 body -- the same Piece instance occupies both his
+        head and butt squares. Eliminating just the targeted square (a plain
+        board.set(row, col, None)) leaves his other half behind as an
+        unkillable ghost piece, so this clears both of his squares whenever
+        either one is targeted. Every ability that permanently removes a pawn
+        by square (Too Boring, Lottery Ticket's Fireball, a boss's spawn-kill
+        or movement-sweep-kill) should route through this instead of poking
+        the board directly.
+
+        Appends the piece to its owner's captured list. Returns the removed
+        piece, or None if the square was already empty.
+        """
+        piece = self.board.get(row, col)
+        if piece is None:
+            return None
+
+        if piece.is_pawn and piece.pawn_name == "Orthrus" and piece.orthrus_head_pos is not None:
+            head_pos = piece.orthrus_head_pos
+            butt_pos = self.board.orthrus_butt_pos(piece)
+            for pos in (head_pos, butt_pos):
+                if pos is not None and self.board.get(*pos) is piece:
+                    self.board.set(pos[0], pos[1], None)
+            self.orthrus_permanently_dead.add(f"{piece.color.value}_orthrus")
+        else:
+            self.board.set(row, col, None)
+
+        piece.permanently_dead = True
+        self.board.captured[piece.color].append(piece)
+        return piece
 
     def juice_box_key(self, juice_box_pos_or_piece):
         """Stable identity key for a specific Juice Box piece instance.

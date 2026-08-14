@@ -13,6 +13,11 @@ const Game = {
     lastMoveFrom: null,
     lastMoveTo: null,
     lastEventSeq: 0,      // Highest event `seq` already shown, to detect new auto-ability triggers
+
+    // AI Event Panel (Stage F): persistent record of the last-drawn AI Card,
+    // shown below the End Turn / Undo buttons until dismissed or replaced.
+    aiEventPanel: null,          // {card, cardType, triggeredBy, affects, effect} or null
+    aiEventPanelDismissed: false,
     
     // Targeting system
     targetingMode: false,      // Whether we're in targeting mode
@@ -86,6 +91,38 @@ const Game = {
             return 'buff';
         }
         return this.AI_CARD_TYPES[cardName] || 'buff';
+    },
+
+    // Plain-English "who this affects" for the AI Event Panel. Lottery Ticket
+    // isn't listed -- its Custard/Fireball split is resolved dynamically in
+    // aiCardAffectsFor(), same pattern as aiCardTypeFor() above.
+    AI_CARD_AFFECTS: {
+        "You a Bitch": "You — if you're behind on piece count",
+        "AI's Pet": "You — all your ability costs this turn",
+        "Dirty Tootsies": "You — all your ability costs this turn",
+        "System Reset": "Both players — no abilities this turn",
+        "Too Boring": "Both players — one pawn each, chosen by the opponent",
+        "Main Character Syndrome": "Both players — no pawn movement this turn",
+        "Matt's Drunk Again": "Both players — control of pieces is swapped",
+        "Mana Toast": "You — your dice this turn",
+        "What a Bitch": "You — gain an Insta-Kill Boss Card",
+        "Summon Rage Elemental": "Both players — a boss is summoned",
+        "Summon Feral Goose": "Both players — a boss is summoned",
+        "Summon Emberus": "Both players — a boss is summoned",
+        "Summon Goblin Murder Dozer": "Both players — a boss is summoned",
+    },
+
+    aiCardAffectsFor(cardName, batchEvents) {
+        if (cardName === 'Lottery Ticket') {
+            const rollEvent = (batchEvents || []).find(e => e.type === 'lottery_ticket_roll');
+            if (rollEvent) {
+                return rollEvent.roll <= 3
+                    ? 'You — Custard resets one of your spent abilities'
+                    : 'A random square — Fireball may permanently kill whatever piece is there';
+            }
+            return 'You, or a random square, depending on the roll';
+        }
+        return this.AI_CARD_AFFECTS[cardName] || 'You';
     },
 
     renderAiDeckCounter() {
@@ -260,6 +297,69 @@ const Game = {
             backdrop.addEventListener('click', dismiss);
             setTimeout(() => backdrop.classList.add('visible'), 20);
             const autoTimer = setTimeout(dismiss, 2500);
+        });
+    },
+
+    // Populate the AI Event Panel from a freshly-drawn card. `batchEvents` is
+    // the same poll's event batch (may already include this card's
+    // resolution, e.g. instant-resolving cards), so the effect text is filled
+    // in immediately when available.
+    setAiEventPanel(drawnEvent, batchEvents) {
+        const resolvedEvent = (batchEvents || []).find(
+            e => e.type === 'ai_card_resolved' && e.card === drawnEvent.card);
+        this.aiEventPanel = {
+            card: drawnEvent.card,
+            cardType: this.aiCardTypeFor(drawnEvent.card, batchEvents),
+            triggeredBy: drawnEvent.player,
+            affects: this.aiCardAffectsFor(drawnEvent.card, batchEvents),
+            effect: resolvedEvent ? resolvedEvent.outcome : drawnEvent.description,
+        };
+        this.aiEventPanelDismissed = false;
+        this.renderAiEventPanel();
+    },
+
+    renderAiEventPanel() {
+        const panel = document.getElementById('ai-event-panel');
+        if (!panel) return;
+        const ev = this.aiEventPanel;
+        if (!ev || this.aiEventPanelDismissed) {
+            panel.classList.add('hidden');
+            panel.innerHTML = '';
+            return;
+        }
+
+        let statusLine = '';
+        if (ev.card === "Matt's Drunk Again" && this.state.swap_active) {
+            const n = this.state.swap_turns_remaining;
+            statusLine = `🔄 Swap active — ${n} turn${n === 1 ? '' : 's'} remaining`;
+        } else if (ev.card === 'System Reset' && this.state.system_reset_active) {
+            statusLine = '🔒 No abilities this turn.';
+        } else if (ev.card === 'Main Character Syndrome' && this.state.main_character_syndrome_active) {
+            statusLine = '🚫 Pawns cannot move this turn.';
+        } else if (ev.card.startsWith('Summon ') && this.state.boss_active) {
+            statusLine = `👹 ${this.state.active_boss} — ${this.state.boss_hp} / ${this.state.boss_max_hp} HP. ` +
+                `Use Special Event Attacks to damage the boss. Regular PvP combat is paused.`;
+        }
+
+        const icon = this.AI_CARD_ICONS[ev.card] || '🎴';
+        const triggeredByLabel = ev.triggeredBy === 'white' ? 'White' : 'Black';
+
+        panel.classList.remove('hidden');
+        panel.className = `ai-event-panel ${ev.cardType}`;
+        panel.innerHTML = `
+            <button class="ai-event-panel-dismiss" title="Dismiss">✕</button>
+            <div class="ai-event-panel-header ${ev.cardType}">
+                <span class="ai-event-panel-icon">${icon}</span>
+                <span class="ai-event-panel-name">${ev.card}</span>
+            </div>
+            <div class="ai-event-panel-row"><span class="aep-label">Triggered by:</span>${triggeredByLabel}</div>
+            <div class="ai-event-panel-row"><span class="aep-label">Affects:</span>${ev.affects}</div>
+            <div class="ai-event-panel-row"><span class="aep-label">Effect:</span>${ev.effect || '—'}</div>
+            ${statusLine ? `<div class="ai-event-panel-status">${statusLine}</div>` : ''}
+        `;
+        panel.querySelector('.ai-event-panel-dismiss').addEventListener('click', () => {
+            this.aiEventPanelDismissed = true;
+            this.renderAiEventPanel();
         });
     },
 
@@ -462,8 +562,10 @@ const Game = {
         this.renderHeader();
         this.renderCheckBanner();
         this.renderSwapBanner();
+        this.renderFallenBanner();
         this.renderBossHealthBar();
         this.renderAiDeckCounter();
+        this.renderAiEventPanel();
         this.updateActivePanelHighlight();
         this.renderInstaKillBadges();
         for (const color of ['white', 'black']) {
@@ -645,6 +747,61 @@ const Game = {
         }
     },
 
+    renderFallenBanner() {
+        const banner = document.getElementById('fallen-banner');
+        if (!banner) return;
+        const fallen = this.state.fallen_players || [];
+        if (fallen.length === 0 || this.state.game_over) {
+            banner.classList.add('hidden');
+            return;
+        }
+        if (fallen.length >= 2) {
+            banner.textContent = '💀 Both players have fallen.';
+        } else {
+            const fallenLabel = fallen[0] === 'white' ? 'White' : 'Black';
+            const survivorLabel = fallen[0] === 'white' ? 'Black' : 'White';
+            banner.textContent = `💀 ${fallenLabel} has fallen — ${survivorLabel} must defeat the boss alone.`;
+        }
+        banner.classList.remove('hidden');
+    },
+
+    showPlayerFallenOverlay(fallenColor, survivorColor) {
+        return new Promise((resolve) => {
+            document.getElementById('player-fallen-overlay')?.remove();
+
+            const backdrop = document.createElement('div');
+            backdrop.id = 'player-fallen-overlay';
+            backdrop.className = 'ai-card-overlay-backdrop';
+
+            const card = document.createElement('div');
+            card.className = 'ai-card debuff';
+
+            const fallenLabel = fallenColor === 'white' ? 'White' : 'Black';
+            const survivorLabel = survivorColor === 'white' ? 'White' : 'Black';
+            card.innerHTML = `
+                <div class="ai-card-name">${fallenLabel} Has Fallen</div>
+                <div class="ai-card-icon">💀</div>
+                <div class="ai-card-desc">${survivorLabel} must defeat the boss alone. ${fallenLabel}'s remaining pieces stay on the board and can still be used as resources in the fight.</div>
+            `;
+
+            backdrop.appendChild(card);
+            document.body.appendChild(backdrop);
+
+            let dismissed = false;
+            const dismiss = () => {
+                if (dismissed) return;
+                dismissed = true;
+                clearTimeout(autoTimer);
+                backdrop.classList.add('exiting');
+                backdrop.classList.remove('visible');
+                setTimeout(() => { backdrop.remove(); resolve(); }, 300);
+            };
+            backdrop.addEventListener('click', dismiss);
+            setTimeout(() => backdrop.classList.add('visible'), 20);
+            const autoTimer = setTimeout(dismiss, 3000);
+        });
+    },
+
     renderBossHealthBar() {
         const bar = document.getElementById('boss-health-bar');
         if (!bar) return;
@@ -736,6 +893,10 @@ const Game = {
         const airStrikeSet = new Set((this.state.air_strike_zones || []).map(z => `${z[0]},${z[1]}`));
         const lavaZoneSet = new Set((this.state.lava_zones || []).map(z => `${z[0]},${z[1]}`));
         const bossSquareSet = new Set((this.state.boss_squares || []).map(z => `${z[0]},${z[1]}`));
+        const feralGoosePuzzleActive = this.state.boss_active && this.state.active_boss === 'Feral Goose';
+        const feralGooseSquareSet = feralGoosePuzzleActive
+            ? new Set(['0,0', '0,10', '10,0', '10,10', '5,5'])
+            : null;
 
         // Status effect maps/sets
         const frozenSet = new Set((this.state.frozen_pieces || []).map(z => `${z[0]},${z[1]}`));
@@ -771,6 +932,9 @@ const Game = {
                 }
                 if (this.state.boss_active && bossSquareSet.has(`${row},${col}`)) {
                     sq.classList.add('boss-square');
+                }
+                if (feralGooseSquareSet && feralGooseSquareSet.has(`${row},${col}`)) {
+                    sq.classList.add('feral-goose-square');
                 }
 
                 // Last move highlights
@@ -1014,9 +1178,17 @@ const Game = {
                 // boss announcement if applicable). Fire-and-forget: render() isn't
                 // async, and this shouldn't block subsequent renders.
                 this.runAiCardSequence(newEvents);
+            } else if (event.type === 'ai_card_drawn') {
+                this.setAiEventPanel(event, newEvents);
             } else if (event.type === 'ai_card_resolved') {
                 console.log(`[AI Card] ${event.card} (${event.player}): ${event.outcome}`);
                 this.showToast(`🎴 ${event.card}: ${event.outcome}`, '');
+                // Custard / Too Boring pause for a player decision, so their real
+                // outcome can arrive in a later batch than the draw itself.
+                if (this.aiEventPanel && this.aiEventPanel.card === event.card) {
+                    this.aiEventPanel.effect = event.outcome;
+                    this.renderAiEventPanel();
+                }
             } else if (event.type === 'ai_card_deck_empty') {
                 console.log(`[AI Card] Summon triggered but the deck is empty (${event.player})`);
             } else if (event.type === 'boss_moved') {
@@ -1049,6 +1221,12 @@ const Game = {
                 console.log(`[Boss] ${event.boss} takes ${event.amount} damage -- ${event.boss_hp} HP left`);
             } else if (event.type === 'boss_defeated') {
                 this.showBossVictoryOverlay(event.boss);
+            } else if (event.type === 'feral_goose_puzzle_solved') {
+                this.showToast('🧩 Puzzle Solved — The Feral Goose has been defeated!', 'success');
+            } else if (event.type === 'boss_damage_blocked') {
+                this.showToast('🪿 The Feral Goose is immune to all attacks — solve the puzzle to defeat it.', 'fail');
+            } else if (event.type === 'player_fallen') {
+                this.showPlayerFallenOverlay(event.color, event.surviving_color);
             }
         }
     },
@@ -2099,7 +2277,13 @@ const Game = {
             msg.textContent = `Victory by ${this.state.result_reason}`;
         } else {
             title.textContent = 'Draw';
-            msg.textContent = this.state.result_reason === 'stalemate' ? 'Stalemate — no legal moves' : `Draw: ${this.state.result_reason}`;
+            if (this.state.result_reason === 'stalemate') {
+                msg.textContent = 'Stalemate — no legal moves';
+            } else if (this.state.result_reason === 'both_fallen') {
+                msg.textContent = 'Both players have fallen — the boss remains undefeated.';
+            } else {
+                msg.textContent = `Draw: ${this.state.result_reason}`;
+            }
         }
     },
 
