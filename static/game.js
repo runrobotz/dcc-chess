@@ -336,6 +336,10 @@ const Game = {
             statusLine = '🔒 No abilities this turn.';
         } else if (ev.card === 'Main Character Syndrome' && this.state.main_character_syndrome_active) {
             statusLine = '🚫 Pawns cannot move this turn.';
+        } else if (ev.card.startsWith('Summon ') && this.state.boss_active && this.state.active_boss === 'Feral Goose') {
+            statusLine = '⚠️ The Feral Goose cannot be harmed by any attack. To defeat it: simultaneously place a ' +
+                'piece on all 4 corner squares AND the center square (5,5). The green highlighted squares show ' +
+                'where pieces must go.';
         } else if (ev.card.startsWith('Summon ') && this.state.boss_active) {
             statusLine = `👹 ${this.state.active_boss} — ${this.state.boss_hp} / ${this.state.boss_max_hp} HP. ` +
                 `Use Special Event Attacks to damage the boss. Regular PvP combat is paused.`;
@@ -574,6 +578,7 @@ const Game = {
             this.renderCapturedPiecesForColor(color);
             this.renderAbilityGridForColor(color);
         }
+        this.hidePlacementUiIfNotPlacementPhase();
         if (this.state.phase === 'placement') {
             this.renderPlacementPanel();
         } else if (this.state.phase === 'boss_turn') {
@@ -810,6 +815,16 @@ const Game = {
             return;
         }
         bar.classList.remove('hidden');
+        if (this.state.active_boss === 'Feral Goose') {
+            // She can't be damaged at all -- an HP readout (permanently 0/0)
+            // would misleadingly read as already-defeated. Show the puzzle
+            // objective in its place instead.
+            bar.innerHTML = `
+                <span class="boss-name">👹 ${this.state.active_boss}</span>
+                <span class="boss-hp-label">🧩 Puzzle — Place pieces on all corners + center</span>
+            `;
+            return;
+        }
         const hp = this.state.boss_hp || 0;
         const maxHp = this.state.boss_max_hp || 0;
         const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
@@ -1344,6 +1359,19 @@ const Game = {
         }
     },
 
+    // The placement pieces list + "Click any square on row X to place Y"
+    // instruction are both written into #placement-pieces by
+    // renderPlacementPanel(). That element is shared with renderBossTurnPanel()
+    // and renderDicePanel(), so it must be forcibly cleared here -- independent
+    // of whatever any of those panel-render functions do or don't clean up --
+    // whenever the phase is no longer 'placement'. Otherwise the last piece's
+    // leftover instruction can persist (and stay visible) into the first turn.
+    hidePlacementUiIfNotPlacementPhase() {
+        if (this.state.phase === 'placement') return;
+        const placementPieces = document.getElementById('placement-pieces');
+        if (placementPieces) placementPieces.innerHTML = '';
+    },
+
     renderPlacementPanel() {
         const panel = document.getElementById('dice-panel');
         panel.classList.remove('hidden');
@@ -1477,6 +1505,14 @@ const Game = {
         const diceDisplay = document.getElementById('dice-display');
         const endTurnBtn = document.getElementById('end-turn-btn');
         const undoBtn = document.getElementById('undo-move-btn');
+
+        // renderDicePanel() is only ever called when phase is NOT 'placement' and
+        // NOT 'boss_turn' (see render()'s dispatch), so any leftover content
+        // those panels wrote into the shared #placement-pieces element (e.g. a
+        // Boss Turn "Roll Die" button) must be cleared here -- otherwise it
+        // stays in the DOM and visible/clickable long after its phase ended.
+        const rollArea = document.getElementById('placement-pieces');
+        if (rollArea) rollArea.innerHTML = '';
 
         const isDevMode = this.state.mode === 'dev';
 

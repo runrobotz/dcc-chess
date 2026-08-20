@@ -80,13 +80,34 @@ def maybe_trigger_ai_card(gs: "GameState", d1: int, d2: int, triggering_color: "
     -- AI's Pet, Dirty Tootsies, Mana Toast -- need to modify it; a Mediation
     roll-off has no `dice` of its own, so those effects simply have nothing to
     apply to in that case). Returns the drawn card's name, or None if the roll
-    didn't trigger (or the deck was empty).
+    didn't trigger (or the deck was empty, or another event was already active
+    -- see _ai_summon_blocked).
     """
     from .dice import is_ai_summon_roll
 
     if not is_ai_summon_roll(d1, d2):
         return None
+    if _ai_summon_blocked(gs):
+        # Another event is already in progress -- ignore the trigger silently
+        # rather than stacking a card draw on top of it.
+        return None
     return draw_ai_card(gs, triggering_color, dice=dice)
+
+
+def _ai_summon_blocked(gs: "GameState") -> bool:
+    """True if an AI Card summon trigger should be ignored right now because
+    another event or decision is already active."""
+    if gs.boss_active:
+        return True
+    if gs.swap_turns_remaining > 0:
+        return True
+    if gs.system_reset_active:
+        return True
+    if gs.main_character_syndrome_active:
+        return True
+    if gs.pending_ai_card_decision is not None:
+        return True
+    return False
 
 
 def draw_ai_card(gs: "GameState", triggering_color: "Color",

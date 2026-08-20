@@ -94,7 +94,8 @@
       "Bash(pkill -f \"app.run\\(port=5099\")",
       "Bash(xargs -r kill)",
       "Bash(python3 -m py_compile dcc_chess/abilities.py dcc_chess/boss.py dcc_chess/ai_cards.py)",
-      "Bash(lsof -i :5099 -sTCP:LISTEN)"
+      "Bash(lsof -i :5099 -sTCP:LISTEN)",
+      "Bash(python3 -m py_compile dcc_chess/ai_cards.py)"
     ]
   }
 }
