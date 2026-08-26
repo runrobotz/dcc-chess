@@ -621,6 +621,11 @@ body {
     border: 1px solid var(--border-color);
     border-left: 4px solid var(--accent-gold);
     font-size: 0.82rem;
+    width: 100%;
+    max-width: 624px; /* matches .dice-panel's rendered width (the fixed 11x52px board grid) */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
 }
 .ai-event-panel-dismiss {
     position: absolute;
