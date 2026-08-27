@@ -139,6 +139,10 @@ def serialize_dice(dice):
         "used": dice.used[:],
         "banked_die": dice.banked_die,
         "pulled_from_bank": dice.pulled_from_bank,
+        # This turn's ability-cost modifier (AI's Pet -1, Dirty Tootsies +1,
+        # Raul's Group Climax -2; additive). The frontend applies it when
+        # showing/checking ability costs so the UI matches the server's checks.
+        "floor_modifier": dice.floor_modifier,
     }
 
 
@@ -396,6 +400,7 @@ def build_game_state_response():
         "ai_deck_remaining": gs.ai_deck_remaining,
         "system_reset_active": gs.system_reset_active,
         "main_character_syndrome_active": gs.main_character_syndrome_active,
+        "juice_box_cooldown": {c.value: v for c, v in gs.juice_box_cooldown.items()},
         "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
         "pending_ai_card_decision": gs.pending_ai_card_decision,
         "swap_active": gs.swap_active,
@@ -612,6 +617,7 @@ def new_game():
         if not _end_game_if_no_legal_moves(gs):
             dice.roll()
             gs.log_event("dice_roll", values=dice.dice[:])
+            gs.promote_group_climax(dice)
             gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
             game_data["phase"] = "ability"
 
@@ -751,6 +757,7 @@ def start_turn_route():
         dice.roll()
     
     gs.log_event("dice_roll", values=dice.dice[:])
+    gs.promote_group_climax(dice)
 
     # Check for AI summon trigger
     if len(dice.dice) == 2:
@@ -2008,99 +2015,27 @@ def pull_from_bank():
 
 @app.route("/ai_turn", methods=["POST"])
 def ai_turn():
-    """Execute a complete AI turn: start turn, roll dice, use abilities, make move."""
+    """Play the AI's (Black's) full turn.
+
+    Called automatically by the frontend once a human move in PvAI mode has
+    ended the turn and it is now Black's move phase. Delegates to
+    _play_ai_turn -- the maintained AI turn implementation also used by
+    /end_turn's PvAI chain (this route previously carried its own stale copy
+    that used an out-of-date smart_move signature).
+    """
     gs = game_data.get("game_state")
     if gs is None:
         return jsonify({"error": "No game in progress"}), 400
     if game_data.get("game_over"):
         return jsonify({"error": "Game is over"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
     if gs.current_player != Color.BLACK:
         return jsonify({"error": "Not AI's turn"}), 400
-    
-    # Start turn and roll dice
-    gs.start_turn()
-    gs.update_katia_threats()
-    
-    dice = game_data["dice"]
-    dice.roll()
-    gs.log_event("ai_dice_roll", values=dice.dice[:])
+    if game_data.get("phase") != "move":
+        return jsonify({"error": "Not in move phase"}), 400
 
-    # Check for AI summon trigger
-    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], gs.current_player, dice=dice)
-
-    # Use abilities if beneficial (using smart_abilities from ai.py)
-    try:
-        from dcc_chess.ai import smart_abilities
-        smart_abilities(gs, dice)
-    except Exception as e:
-        print(f"AI abilities error: {e}")
-    
-    # Make a move (using smart_move from ai.py)
-    try:
-        from dcc_chess.ai import smart_move
-        move = smart_move(gs.board, Color.BLACK)
-        if move:
-            from_pos, to_pos = move
-            
-            # Execute move with capture interception
-            target = gs.board.get(*to_pos)
-            if target is not None:
-                cap_result = gs.attempt_capture(from_pos, to_pos)
-                if cap_result == "captured":
-                    captured = gs.board.make_move(from_pos, to_pos)
-                    if captured:
-                        attacker = gs.board.get(*to_pos)
-                        gs.process_post_capture(captured, to_pos, attacker, from_pos)
-                elif cap_result == "defended_elle":
-                    gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
-                elif cap_result == "defended_quasar":
-                    attacker = gs.board.get(*from_pos)
-                    gs.board.set(from_pos[0], from_pos[1], None)
-                    if attacker:
-                        gs.board.captured[attacker.color].append(attacker)
-                        gs.log_event("mediation_capture", captured=repr(attacker))
-                else:
-                    gs.board.make_move(from_pos, to_pos)
-            else:
-                gs.board.make_move(from_pos, to_pos)
-            
-            moved_piece = gs.board.get(*to_pos)
-            gs.log_event("ai_move", piece=repr(moved_piece) if moved_piece else "?",
-                        from_pos=from_pos, to_pos=to_pos)
-            
-            game_data["moved_from"] = from_pos
-            game_data["moved_to"] = to_pos
-    except Exception as e:
-        print(f"AI move error: {e}")
-    
-    # Check game end. A missing king takes priority over checkmate/stalemate --
-    # see _finish_move_and_check_game_over for why.
-    opponent = Color.WHITE
-    if gs.board.find_king(opponent) is None:
-        if _handle_carl_fallen(gs, Color.BLACK, opponent):
-            return jsonify(build_game_state_response())
-    else:
-        if is_checkmate(gs.board, opponent):
-            game_data["game_over"] = True
-            game_data["winner"] = Color.BLACK.value
-            game_data["result_reason"] = "checkmate"
-            game_data["phase"] = "game_over"
-            gs.end_turn()
-            return jsonify(build_game_state_response())
-
-        if is_stalemate(gs.board, opponent):
-            game_data["game_over"] = True
-            game_data["winner"] = None
-            game_data["result_reason"] = "stalemate"
-            game_data["phase"] = "game_over"
-            gs.end_turn()
-            return jsonify(build_game_state_response())
-
-    # End AI turn
-    gs.end_turn()
-    _begin_next_phase_after_turn(gs, Color.BLACK)
-
-    return jsonify(build_game_state_response())
+    return jsonify(_play_ai_turn())
 
 
 @app.route("/boss_roll", methods=["POST"])
@@ -2265,6 +2200,7 @@ def _play_ai_turn():
     # Roll dice and use abilities
     dice.roll()
     gs.log_event("dice_roll", values=dice.dice[:])
+    gs.promote_group_climax(dice)
     gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color, dice=dice)
     smart_abilities(gs, dice, color)
 

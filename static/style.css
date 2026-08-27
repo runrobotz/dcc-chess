@@ -506,6 +506,35 @@ body {
     100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
 }
 
+/* Automatic turn transition banner (Chunk 4) */
+.turn-transition-banner {
+    position: fixed;
+    top: 42%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    z-index: 2500;
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    text-shadow: 0 2px 20px rgba(0, 0, 0, 0.85);
+    animation: turn-transition-anim 1s ease-in-out forwards;
+}
+.turn-transition-banner.white { color: var(--white-piece); }
+.turn-transition-banner.black { color: var(--black-piece); }
+.turn-transition-banner.boss {
+    color: #ff4444;
+    text-shadow: 0 0 24px rgba(255, 40, 40, 0.75), 0 2px 20px rgba(0, 0, 0, 0.85);
+}
+@keyframes turn-transition-anim {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    18%, 72% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.06); }
+}
+
 /* AI Card draw overlay */
 .ai-card-overlay-backdrop {
     position: fixed;

@@ -847,27 +847,19 @@ const Game = {
         turnNum.textContent = `Turn ${s.turn_number}`;
 
         const phaseNames = {
-            move: 'Ready to Start Turn',
+            move: 'Starting Turn…',
             ability: 'Ability & Move Phase',
             placement: 'Placement Phase',
             boss_turn: 'Boss Turn',
             game_over: 'Game Over'
         };
         phase.textContent = phaseNames[s.phase] || s.phase;
-        
-        // Add Start Turn button if in move phase
+
+        // The manual "Start Turn" button was removed in Chunk 4 — turn
+        // transitions (banner → auto-roll → ability phase) are automatic now.
+        // Clean up any stale button just in case one is still in the DOM.
         const existingBtn = document.getElementById('start-turn-btn');
         if (existingBtn) existingBtn.remove();
-        
-        if (s.phase === 'move' && !s.game_over) {
-            const startBtn = document.createElement('button');
-            startBtn.id = 'start-turn-btn';
-            startBtn.className = 'btn-primary';
-            startBtn.textContent = 'Start Turn (Roll Dice)';
-            startBtn.style.cssText = 'margin-left: 12px; padding: 8px 16px; font-size: 0.9rem;';
-            startBtn.addEventListener('click', () => this.startTurn());
-            phase.parentElement.appendChild(startBtn);
-        }
     },
 
     renderInstaKillBadges() {
@@ -1378,10 +1370,8 @@ const Game = {
 
         const diceDisplay = document.getElementById('dice-display');
         const abilityBtns = document.getElementById('placement-pieces');
-        const endTurnBtn = document.getElementById('end-turn-btn');
         const undoBtn = document.getElementById('undo-move-btn');
 
-        endTurnBtn.classList.add('hidden');
         if (undoBtn) undoBtn.classList.add('hidden');
 
         const placementPlayer = this.state.placement_player;
@@ -1442,10 +1432,8 @@ const Game = {
 
         const diceDisplay = document.getElementById('dice-display');
         const rollArea = document.getElementById('placement-pieces');
-        const endTurnBtn = document.getElementById('end-turn-btn');
         const undoBtn = document.getElementById('undo-move-btn');
 
-        endTurnBtn.classList.add('hidden');
         if (undoBtn) undoBtn.classList.add('hidden');
 
         const rolls = this.state.boss_turn_rolls || { white: null, black: null };
@@ -1487,6 +1475,11 @@ const Game = {
             }
             this.state = data;
             this.render();
+            // Once both sides have rolled and the boss has moved, the phase
+            // returns to 'move' for White — run the automatic turn transition.
+            if (this.state.phase === 'move') {
+                await this.runTurnTransition();
+            }
         } catch (e) {
             this.showToast('Boss roll failed', 'fail');
         }
@@ -1503,7 +1496,6 @@ const Game = {
     renderDicePanel() {
         const panel = document.getElementById('dice-panel');
         const diceDisplay = document.getElementById('dice-display');
-        const endTurnBtn = document.getElementById('end-turn-btn');
         const undoBtn = document.getElementById('undo-move-btn');
 
         // renderDicePanel() is only ever called when phase is NOT 'placement' and
@@ -1528,9 +1520,9 @@ const Game = {
             }
         }
 
-        // The panel is shown for the ability phase (dice + end turn), or --
-        // in Dev Game mode -- whenever there's a move to undo, so Undo isn't
-        // hidden along with the rest of the panel between turns.
+        // The panel is shown for the ability phase (dice), or -- in Dev Game
+        // mode -- whenever there's a move to undo, so Undo isn't hidden along
+        // with the rest of the panel between turns.
         const keepPanelForUndo = isDevMode && this.state.can_undo;
         if (this.state.phase !== 'ability' && !keepPanelForUndo) {
             panel.classList.add('hidden');
@@ -1539,13 +1531,10 @@ const Game = {
         panel.classList.remove('hidden');
 
         if (this.state.phase !== 'ability') {
-            // Nothing but Undo belongs on screen right now -- no dice rolled,
-            // no turn to end.
+            // Nothing but Undo belongs on screen right now -- no dice rolled.
             diceDisplay.innerHTML = '';
-            endTurnBtn.classList.add('hidden');
             return;
         }
-        endTurnBtn.classList.remove('hidden');
 
         // Render dice (2 dice system)
         const dice = this.state.dice;
@@ -1731,7 +1720,13 @@ const Game = {
         if (ab.is_reaction) limits.push('Reaction ability — usable on opponent\'s turn');
         if (ab.is_boss_only) limits.push('Boss Event only');
 
-        const manaText = ab.floor > 0 ? `${ab.floor} Mana` : (ab.trigger === 'floor_roll' ? '0 Mana' : 'Passive / Automatic');
+        // Juice Box acquired abilities cost +1 over the source pawn's base (Chunk 4).
+        const jbTax = ab.juice_box_source_pawn ? 1 : 0;
+        const baseFloor = (ab.floor || 0) + jbTax;
+        const effFloor = this.effectiveFloor(baseFloor);
+        const manaText = baseFloor > 0
+            ? (effFloor < baseFloor ? `${effFloor} Mana (was ${baseFloor})` : `${baseFloor} Mana${jbTax ? ' (via Juice Box)' : ''}`)
+            : (ab.trigger === 'floor_roll' ? '0 Mana' : 'Passive / Automatic');
 
         tt.innerHTML = `
             <div class="at-title">${pieceLabel} — ${ab.name}</div>
@@ -1852,7 +1847,7 @@ const Game = {
 
             for (const pc of orderedPawns) {
                 if (pc.name === 'Juice Box') {
-                    this.appendJuiceBoxCard(container, pc, availableDice);
+                    this.appendJuiceBoxCard(container, pc, availableDice, color);
                     continue;
                 }
                 for (const ab of pc.abilities) {
@@ -1922,11 +1917,23 @@ const Game = {
         container.appendChild(card);
     },
 
+    // This turn's ability floor cost after AI-Card / Group Climax modifiers
+    // (DungeonDice.floor_modifier on the server), clamped at 0. Keeps the
+    // sidebar affordability checks and "X Mana" labels in sync with the
+    // server's spend_die() / can_combine_for_cost() checks.
+    effectiveFloor(rawFloor) {
+        const mod = (this.state && this.state.dice && typeof this.state.dice.floor_modifier === 'number')
+            ? this.state.dice.floor_modifier : 0;
+        return Math.max(0, (rawFloor || 0) + mod);
+    },
+
     appendAbilityCard(container, { pieceLabel, allInstances, ab, availableDice }) {
         let status = 'red';
         let clickable = false;
         let bestDie = null;
         let useCombined = false;
+
+        const floor = this.effectiveFloor(ab.floor);
 
         if (this.state.system_reset_active) {
             status = 'grey';
@@ -1942,16 +1949,16 @@ const Game = {
                 status = 'grey';
             } else if (ab.requires_combined) {
                 const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                if (availableDice.length >= 2 && diceSum >= ab.floor) {
+                if (availableDice.length >= 2 && diceSum >= floor) {
                     status = 'green'; clickable = true; bestDie = availableDice[0]; useCombined = true;
                 }
             } else {
-                const single = this.findBestDie(availableDice, ab.floor);
-                if (single !== null && single.value >= ab.floor) {
+                const single = this.findBestDie(availableDice, floor);
+                if (single !== null && single.value >= floor) {
                     status = 'green'; clickable = true; bestDie = single;
                 } else if (availableDice.length >= 2) {
                     const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                    if (diceSum >= ab.floor) {
+                    if (diceSum >= floor) {
                         status = 'green'; clickable = true; bestDie = availableDice[0]; useCombined = true;
                     }
                 }
@@ -1962,11 +1969,12 @@ const Game = {
         card.className = `ability-card status-${status}`;
 
         const abLabel = ab.juice_box_source_pawn ? `${ab.name} (${ab.juice_box_source_pawn})` : ab.name;
+        const discounted = floor < (ab.floor || 0);
         const manaLabel = this.state.system_reset_active
             ? '🔒 System Reset'
             : (ab.is_boss_only && !this.state.boss_active)
                 ? '🔒 Boss Event Only'
-                : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${ab.floor} Mana`;
+                : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
 
         card.innerHTML = `
             <span class="ac-piece-name">${pieceLabel}</span>
@@ -2045,7 +2053,9 @@ const Game = {
         setTimeout(() => document.addEventListener('click', dismiss), 0);
     },
 
-    appendJuiceBoxCard(container, pc, availableDice) {
+    appendJuiceBoxCard(container, pc, availableDice, color) {
+        const onCooldown = !!(this.state.juice_box_cooldown || {})[color];
+
         const card = document.createElement('div');
         card.className = 'ability-card status-grey';
         card.style.cursor = 'default';
@@ -2053,7 +2063,7 @@ const Game = {
         card.innerHTML = `
             <span class="ac-piece-name">${pc.short || pc.name}</span>
             <span class="ac-ability-name">Shapeshift</span>
-            <span class="ac-mana">Select an acquired ability below</span>
+            <span class="ac-mana">${onCooldown ? 'Cooldown — 1 turn' : 'Select an acquired ability below'}</span>
         `;
 
         const jbBaseAbility = this.roster.find(p => p.name === 'Juice Box');
@@ -2089,16 +2099,21 @@ const Game = {
                 const entry = document.createElement('div');
                 entry.className = 'jb-entry';
 
+                // Chunk 4 balance: acquired abilities cost Juice Box 1 more than
+                // the source pawn's base cost, then AI-Card / Group Climax
+                // modifiers apply on top (matches the server-side +1 bump).
+                const jbFloor = this.effectiveFloor(ab.floor + 1);
+
                 let status = 'grey';
                 let bestDie = null;
                 let useCombined = false;
-                if (!this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
-                    const single = this.findBestDie(availableDice, ab.floor);
-                    if (single !== null && single.value >= ab.floor) {
+                if (!onCooldown && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
+                    const single = this.findBestDie(availableDice, jbFloor);
+                    if (single !== null && single.value >= jbFloor) {
                         status = 'green'; bestDie = single;
                     } else if (availableDice.length >= 2) {
                         const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                        if (diceSum >= ab.floor) {
+                        if (diceSum >= jbFloor) {
                             status = 'green'; bestDie = availableDice[0]; useCombined = true;
                         } else {
                             status = 'red';
@@ -2108,9 +2123,14 @@ const Game = {
                     }
                 }
 
+                const manaCell = this.state.system_reset_active
+                    ? '🔒 System Reset'
+                    : onCooldown
+                        ? 'Cooldown — 1 turn'
+                        : `${jbFloor} Mana (via Juice Box)`;
                 entry.innerHTML = `
                     <span>${ab.juice_box_source_pawn} — ${ab.name}</span>
-                    <span>${this.state.system_reset_active ? '🔒 System Reset' : `${ab.floor} Mana`}</span>
+                    <span>${manaCell}</span>
                 `;
                 entry.style.borderLeft = `3px solid var(--${status === 'green' ? 'success' : status === 'red' ? 'danger' : 'text-dim'})`;
 
@@ -2189,7 +2209,8 @@ const Game = {
                     entries = `<div class="pc-ability">No abilities acquired yet.</div>`;
                 } else {
                     for (const ab of pc.abilities) {
-                        const floorText = ab.floor > 0 ? `${ab.floor} Mana` : 'Auto';
+                        // Juice Box pays +1 over the source pawn's base cost (Chunk 4).
+                        const floorText = ab.floor > 0 ? `${ab.floor + 1} Mana (via Juice Box)` : 'Auto';
                         entries += `
                             <div class="pc-ability">
                                 <span class="ab-label">${ab.juice_box_source_pawn} — ${ab.name}</span>
@@ -2327,7 +2348,9 @@ const Game = {
 
     async handleSquareClick(row, col) {
         if (!this.state || this.state.game_over) return;
-        
+        // Ignore board clicks while an automatic turn transition is running.
+        if (this._transitioning) return;
+
         // Handle targeting mode - player is selecting a target
         if (this.targetingMode) {
             const abilityName = this.targetingAbility ? this.targetingAbility.abilityName : null;
@@ -2420,6 +2443,11 @@ const Game = {
             }
             this.state = data;
             this.render();
+            // When the last piece is placed the game enters the move phase for
+            // White — kick off the automatic first-turn transition.
+            if (this.state.phase === 'move' && !this.state.game_over) {
+                await this.runTurnTransition();
+            }
         } catch (e) {
             this.showToast('Placement failed', 'fail');
         }
@@ -2468,6 +2496,8 @@ const Game = {
             this.lastMoveFrom = [fromRow, fromCol];
             this.lastMoveTo = [toRow, toCol];
             this.render();
+            // The move ended the turn on the backend — run the automatic transition.
+            await this.runTurnTransition();
         } catch (e) {
             this.showToast('Move failed', 'fail');
         }
@@ -2543,6 +2573,8 @@ const Game = {
                 useImmunity ? "Frozen Immunity negated the capture!" : 'Capture proceeds — immunity held in reserve',
                 useImmunity ? 'success' : ''
             );
+            // Resolving the Elle decision completes the move, which ended the turn.
+            await this.runTurnTransition();
         } catch (e) {
             this.showToast('Failed to resolve decision', 'fail');
         }
@@ -3074,6 +3106,102 @@ const Game = {
 
     // ═══ TURN MANAGEMENT ═══
 
+    // Brief centered banner announcing whose turn it is (or "Boss Turn").
+    // `cls` is 'white' | 'black' | 'boss'. Resolves after ~1s.
+    showTurnBanner(text, cls) {
+        return new Promise((resolve) => {
+            document.getElementById('turn-transition-banner')?.remove();
+            const b = document.createElement('div');
+            b.id = 'turn-transition-banner';
+            b.className = `turn-transition-banner ${cls}`;
+            b.textContent = text;
+            document.body.appendChild(b);
+            setTimeout(() => { b.remove(); resolve(); }, 1000);
+        });
+    },
+
+    // Automatic turn transition. Invoked after a move ends the turn (the
+    // backend has already advanced current_player and set phase to 'move',
+    // or 'boss_turn' when a boss is active). Shows the transition banner,
+    // then either plays the AI's turn (PvAI) or auto-rolls the dice for the
+    // next human player and drops straight into their ability phase.
+    async runTurnTransition() {
+        if (this._transitioning) return;
+        this._transitioning = true;
+        try {
+            while (true) {
+                if (!this.state || this.state.game_over) return;
+                const phase = this.state.phase;
+
+                if (phase === 'boss_turn') {
+                    // Boss Turn happens between Black ending and White starting.
+                    // Show the red banner; the compass-roll prompts live in the
+                    // boss turn panel. rollBossDie() re-enters this transition
+                    // once both sides have rolled and phase flips back to 'move'.
+                    await this.showTurnBanner('Boss Turn', 'boss');
+                    this.render();
+                    return;
+                }
+
+                if (phase !== 'move') return;  // already in ability/placement — nothing to do
+
+                const cur = this.state.current_player;
+
+                if (this.mode === 'pvai' && cur === 'black') {
+                    await this.showTurnBanner('AI is thinking…', 'black');
+                    const ok = await this.playAiTurn();
+                    if (!ok) return;
+                    continue;  // AI turn done → loop: White's move phase, or another boss turn
+                }
+
+                await this.showTurnBanner(cur === 'white' ? "White's Turn" : "Black's Turn", cur);
+                await this.startTurn();  // banked-die prompt (if any) → /start_turn → ability phase
+
+                // Boss co-op safety net: a fallen player with no pieces left cannot
+                // move and there is no longer an End Turn button — auto-pass so the
+                // game does not soft-lock.
+                if (this.state && !this.state.game_over && this.state.phase === 'ability'
+                    && this.state.boss_active
+                    && (this.state.fallen_players || []).includes(this.state.current_player)
+                    && (this.state.player_pieces || []).length === 0) {
+                    try {
+                        const resp = await fetch('/end_turn', { method: 'POST' });
+                        const data = await resp.json();
+                        if (!data.error) { this.state = data; this.render(); continue; }
+                    } catch (e) { /* leave as-is */ }
+                }
+                return;
+            }
+        } finally {
+            this._transitioning = false;
+        }
+    },
+
+    async playAiTurn() {
+        try {
+            const resp = await fetch('/ai_turn', { method: 'POST' });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return false;
+            }
+            this.state = data;
+            const aiMoves = (data.events || []).filter(e => e.type === 'ai_move');
+            if (aiMoves.length) {
+                const last = aiMoves[aiMoves.length - 1];
+                if (last.from_pos && last.to_pos) {
+                    this.lastMoveFrom = last.from_pos;
+                    this.lastMoveTo = last.to_pos;
+                }
+            }
+            this.render();
+            return true;
+        } catch (e) {
+            this.showToast('AI turn failed', 'fail');
+            return false;
+        }
+    },
+
     async startTurn() {
         // Check if current player has a banked die
         const currentPlayer = this.state.current_player;
@@ -3159,36 +3287,6 @@ const Game = {
             await this.executeStartTurn();
         } catch (e) {
             this.showToast('Failed to remove bank die', 'fail');
-        }
-    },
-
-    async endTurn() {
-        try {
-            const resp = await fetch('/end_turn', { method: 'POST' });
-            const data = await resp.json();
-            if (data.error) {
-                this.showToast(data.error, 'fail');
-                return;
-            }
-            this.state = data;
-            this.selectedSquare = null;
-            this.legalMoves = [];
-
-            // If AI just played, show its move info
-            if (this.mode === 'pvai' && data.events && data.events.length > 0) {
-                const aiMoves = data.events.filter(e => e.type === 'ai_move');
-                if (aiMoves.length > 0) {
-                    const last = aiMoves[aiMoves.length - 1];
-                    if (last.from_pos && last.to_pos) {
-                        this.lastMoveFrom = last.from_pos;
-                        this.lastMoveTo = last.to_pos;
-                    }
-                }
-            }
-
-            this.render();
-        } catch (e) {
-            this.showToast('End turn failed', 'fail');
         }
     },
 

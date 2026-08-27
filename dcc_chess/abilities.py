@@ -132,6 +132,9 @@ class GameState:
         # moves and captures again, not just whatever she captured most recently.
         self.juice_box_captured: Dict[Tuple[Color, int], List[str]] = {}
         self.juice_box_used_this_turn: Set[Tuple[int, int]] = set()  # can't use ability same turn as capture
+        # Chunk 4 balance: 1-turn cooldown between acquired-ability uses, per side.
+        # Set True after a successful use; cleared at the start of that side's next turn.
+        self.juice_box_cooldown: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         
         # Florin — Suppressing Fire: push pieces away
         # (handled directly in ability, no persistent state needed)
@@ -403,6 +406,9 @@ class GameState:
         self.phantom_threats[Color.BLACK].clear()
         self.blitzed_pieces.clear()
         self.juice_box_used_this_turn.clear()
+        # Juice Box's acquired-ability cooldown lasts until the start of her
+        # side's next turn (see try_juice_box_use_captured_ability).
+        self.juice_box_cooldown[self.current_player] = False
 
         # Promote pending suppressed pieces to active (lasts 1 opponent turn)
         self.suppressed_pieces = self.suppressed_pending.copy()
@@ -418,11 +424,30 @@ class GameState:
         self.she_tank_targets = self.she_tank_pending.copy()
         self.she_tank_pending.clear()
 
+    def promote_group_climax(self, dice: DungeonDice):
+        """Apply Raul the Crab's Group Climax if it's pending for the player whose
+        turn is starting: all their ability floor costs drop by 2 for this turn.
+
+        Reuses the same DungeonDice.floor_modifier channel the AI Cards
+        "AI's Pet" (-1) and "Dirty Tootsies" (+1) use, and stacks additively
+        with them. Must be called after the turn's dice have been rolled (roll()
+        resets floor_modifier to 0) and before any ability is attempted.
+        """
+        color = self.current_player
+        if self.group_climax_pending.get(color):
+            dice.floor_modifier -= 2
+            self.group_climax_pending[color] = False
+            self.group_climax_active[color] = True
+            self.log_event("group_climax_active",
+                           detail="All friendly ability costs reduced by 2 this turn")
+
     def end_turn(self):
         """Called at end of turn. Tick down durations, swap player."""
         # AI Card effects scoped to "this turn only"
         self.system_reset_active = False
         self.main_character_syndrome_active = False
+        # Raul's Group Climax buff is scoped to the single turn it applied on.
+        self.group_climax_active = {Color.WHITE: False, Color.BLACK: False}
 
         # Tick ghost tokens
         expired_ghosts = []
@@ -2224,6 +2249,9 @@ class GameState:
         # Check if Juice Box used ability this turn (captured someone)
         if juice_box_pos in self.juice_box_used_this_turn:
             return False
+        # Chunk 4 balance: one acquired-ability use per side per turn cycle.
+        if self.juice_box_cooldown.get(piece.color):
+            return False
 
         pawn_char = self.find_captured_ability(juice_box_pos, ability_name)
         if pawn_char is None:
@@ -2232,55 +2260,67 @@ class GameState:
         name = pawn_char.name
         success = False
 
-        if name == "Zev":
-            success = self.try_biggest_fan(juice_box_pos, dice, die_index)
-        elif name == "Elle McGib":
-            success = self.try_frozen(juice_box_pos, dice, die_index, target_pos=target_pos)
-        elif name == "Imani":
-            success = self.try_suppress(juice_box_pos, dice, die_index)
-        elif name == "Slugalo":
-            success = self.try_one_of_us(juice_box_pos, dice, target_pos=target_pos)
-        elif name == "Louie":
-            success = self.try_air_strike(juice_box_pos, dice, die_index, target_pos=target_pos)
-        elif name == "Sledge":
-            success = self.try_body_guard(juice_box_pos, dice, die_index)
-        elif name == "Stripper Anaconda":
-            success = self.try_gun_show(juice_box_pos, dice, die_index)
-        elif name == "Quasar":
-            # Mediation is a passive defense (see attempt_capture) that triggers
-            # automatically when Juice Box herself is about to be captured --
-            # it has no manual, die-spend trigger to fire here.
-            success = False
-        elif name == "Lucia Mar":
-            success = self.try_sic_em(juice_box_pos, dice, die_index)
-        elif name == "Chris":
-            success = self.try_lava_surge_chunk2(juice_box_pos, dice, die_index, direction=direction)
-        elif name == "Florin":
-            success = self.try_suppressing_fire(juice_box_pos, dice, die_index)
-        elif name == "Signet":
-            success = self.try_succubus(juice_box_pos, dice, die_index)
-        elif name == "Miriam Dom":
-            success = self.try_blood_magic(juice_box_pos, dice, target_pos=target_pos)
-        elif name == "Raul the Crab":
-            success = self.try_group_climax(juice_box_pos, dice)
-        elif name == "Bad Llama":
-            success = self.try_lava_spit_chunk2(juice_box_pos, dice, die_index, target_pos=target_pos)
-        elif name == "Prepotente":
-            result = self.try_special_boy(juice_box_pos, dice, die_index)
-            if result:
-                if target_pos is not None and tuple(target_pos) in result:
-                    dest = tuple(target_pos)
-                else:
-                    dest = random.choice(result)
-                self.board.set(juice_box_pos[0], juice_box_pos[1], None)
-                self.board.set(dest[0], dest[1], piece)
-                piece.has_moved = True
-                success = True
-        elif name == "Garret":
-            # Indestructible is passive and has no active effect to fire.
-            success = False
+        # Chunk 4 balance: an acquired ability costs Juice Box 1 more than the
+        # original pawn's base cost. Bump the shared floor modifier for just this
+        # delegated call so every spend_die / combine check inside the underlying
+        # try_* runs against floor + 1 (stacks additively with AI-Card / Group
+        # Climax modifiers, exactly like the server's own checks).
+        dice.floor_modifier += 1
+        try:
+            if name == "Zev":
+                success = self.try_biggest_fan(juice_box_pos, dice, die_index)
+            elif name == "Elle McGib":
+                success = self.try_frozen(juice_box_pos, dice, die_index, target_pos=target_pos)
+            elif name == "Imani":
+                success = self.try_suppress(juice_box_pos, dice, die_index)
+            elif name == "Slugalo":
+                success = self.try_one_of_us(juice_box_pos, dice, target_pos=target_pos)
+            elif name == "Louie":
+                success = self.try_air_strike(juice_box_pos, dice, die_index, target_pos=target_pos)
+            elif name == "Sledge":
+                success = self.try_body_guard(juice_box_pos, dice, die_index)
+            elif name == "Stripper Anaconda":
+                success = self.try_gun_show(juice_box_pos, dice, die_index)
+            elif name == "Quasar":
+                # Mediation is a passive defense (see attempt_capture) that triggers
+                # automatically when Juice Box herself is about to be captured --
+                # it has no manual, die-spend trigger to fire here.
+                success = False
+            elif name == "Lucia Mar":
+                success = self.try_sic_em(juice_box_pos, dice, die_index)
+            elif name == "Chris":
+                success = self.try_lava_surge_chunk2(juice_box_pos, dice, die_index, direction=direction)
+            elif name == "Florin":
+                success = self.try_suppressing_fire(juice_box_pos, dice, die_index)
+            elif name == "Signet":
+                success = self.try_succubus(juice_box_pos, dice, die_index)
+            elif name == "Miriam Dom":
+                success = self.try_blood_magic(juice_box_pos, dice, target_pos=target_pos)
+            elif name == "Raul the Crab":
+                success = self.try_group_climax(juice_box_pos, dice)
+            elif name == "Bad Llama":
+                success = self.try_lava_spit_chunk2(juice_box_pos, dice, die_index, target_pos=target_pos)
+            elif name == "Prepotente":
+                result = self.try_special_boy(juice_box_pos, dice, die_index)
+                if result:
+                    if target_pos is not None and tuple(target_pos) in result:
+                        dest = tuple(target_pos)
+                    else:
+                        dest = random.choice(result)
+                    self.board.set(juice_box_pos[0], juice_box_pos[1], None)
+                    self.board.set(dest[0], dest[1], piece)
+                    piece.has_moved = True
+                    success = True
+            elif name == "Garret":
+                # Indestructible is passive and has no active effect to fire.
+                success = False
+        finally:
+            dice.floor_modifier -= 1
 
         if success:
+            # Chunk 4 balance: block another acquired-ability use until the start
+            # of this side's next turn (see start_turn()).
+            self.juice_box_cooldown[piece.color] = True
             self.log_event("juice_box_use_ability", pos=juice_box_pos,
                            ability=ability_name, pawn=name)
         return success
