@@ -1167,10 +1167,19 @@ body {
     width: 46px;
     height: 46px;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     border-radius: 4px;
     letter-spacing: 0.3px;
+}
+/* Small, dimmer chess piece-type subtitle under the character name (main board only) */
+.piece-type-label {
+    font-size: 0.68em;
+    font-weight: 600;
+    opacity: 0.55;
+    letter-spacing: 0.2px;
+    margin-top: 1px;
 }
 .piece.white {
     background: rgba(212, 203, 184, 0.15);

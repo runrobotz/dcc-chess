@@ -503,9 +503,16 @@ def index():
 
 @app.route("/roster", methods=["GET"])
 def get_roster():
-    """Return the full pawn roster with ability info."""
+    """Return the full pawn roster with ability info.
+
+    "The AI" is excluded here so it can never be drafted, auto-drafted, or placed
+    in any game mode (human draft, AI opponent draft, or Dev Settings staging).
+    Its character data remains in pawns.py for reference only.
+    """
     roster = []
     for name in PAWN_ROSTER:
+        if name == "The AI":
+            continue
         char = PAWN_CHARACTERS[name]
         roster.append({
             "name": name,

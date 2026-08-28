@@ -30,8 +30,12 @@ PIECE_VALUES: Dict[PieceType, int] = {
 
 
 def random_draft(count: int = 8) -> List[str]:
-    """Draft unique pawns from the roster of 21. Default 8 per player."""
-    return random.sample(PAWN_ROSTER, count)
+    """Draft unique pawns from the roster. Default 8 per player.
+
+    "The AI" is never draftable in any game mode, so it's excluded from the pool.
+    """
+    draftable = [name for name in PAWN_ROSTER if name != "The AI"]
+    return random.sample(draftable, count)
 
 
 def random_back_rank() -> List[int]:

@@ -38,6 +38,18 @@ const Game = {
 
     ORTHRUS_ARROWS: { up: '▲', down: '▼', left: '◀', right: '▶' },
 
+    // Traditional chess piece type shown as a small subtitle under the character
+    // name on each main-board piece square. Keyed by piece.type; pawns arrive as
+    // type "Pawn" already. Anything not listed (e.g. the boss) gets no subtitle.
+    CHESS_TYPE_LABELS: {
+        'Carl': 'King',
+        'Donut': 'Queen',
+        'Mongo': 'Knight',
+        'Katia': 'Bishop',
+        'Samantha': 'Rook',
+        'Pawn': 'Pawn',
+    },
+
     pieceLabel(piece) {
         if (piece.name === 'Orthrus' && piece.is_orthrus_head && piece.orthrus_direction) {
             return `${piece.short}${this.ORTHRUS_ARROWS[piece.orthrus_direction] || ''}`;
@@ -662,10 +674,12 @@ const Game = {
             this.draftSelection = [];
 
             if (this.mode === 'pvai') {
-                // AI drafts from remaining
+                // AI drafts from remaining. "The AI" pawn is never draftable by
+                // anyone -- exclude it here too (belt-and-suspenders alongside the
+                // /roster endpoint, which already omits it).
                 const remaining = this.roster
                     .map(p => p.name)
-                    .filter(n => !this.whitePawns.includes(n));
+                    .filter(n => n !== 'The AI' && !this.whitePawns.includes(n));
                 this.blackPawns = this.shuffleArray(remaining).slice(0, 8);
                 await this.startGame();
             } else {
@@ -1226,17 +1240,26 @@ const Game = {
                     }
                     if (primaryEffect) pieceEl.classList.add(primaryEffect);
 
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'piece-name';
+                    nameSpan.textContent = this.pieceLabel(piece);
+                    pieceEl.appendChild(nameSpan);
+
+                    // Small chess piece-type subtitle under the character name.
+                    const chessType = this.CHESS_TYPE_LABELS[piece.type];
+                    if (chessType) {
+                        const typeSpan = document.createElement('span');
+                        typeSpan.className = 'piece-type-label';
+                        typeSpan.textContent = chessType;
+                        pieceEl.appendChild(typeSpan);
+                    }
+
                     if (effectSymbols.length > 0) {
                         pieceEl.style.position = 'relative';
-                        const labelSpan = document.createElement('span');
-                        labelSpan.textContent = this.pieceLabel(piece);
-                        pieceEl.appendChild(labelSpan);
                         const badge = document.createElement('span');
                         badge.className = 'effect-badge';
                         badge.textContent = effectSymbols.join('');
                         pieceEl.appendChild(badge);
-                    } else {
-                        pieceEl.textContent = this.pieceLabel(piece);
                     }
 
                     sq.appendChild(pieceEl);
@@ -3722,9 +3745,12 @@ const Game = {
         const whiteSelected = this.devSettings ? this.devSettings.whitePawns : [];
         const blackSelected = this.devSettings ? this.devSettings.blackPawns : [];
         
+        // "The AI" is never selectable or placeable in any mode.
+        const stagingRoster = this.roster.filter(p => p.name !== 'The AI');
+
         // Render white roster
         whiteRoster.innerHTML = '';
-        for (const pawn of this.roster) {
+        for (const pawn of stagingRoster) {
             const item = document.createElement('div');
             const isChecked = whiteSelected.includes(pawn.name);
             const isDisabled = whiteSelected.length >= 8 && !isChecked;
@@ -3743,7 +3769,7 @@ const Game = {
         
         // Render black roster
         blackRoster.innerHTML = '';
-        for (const pawn of this.roster) {
+        for (const pawn of stagingRoster) {
             const item = document.createElement('div');
             const isChecked = blackSelected.includes(pawn.name);
             const isDisabled = blackSelected.length >= 8 && !isChecked;
