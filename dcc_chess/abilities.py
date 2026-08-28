@@ -527,8 +527,10 @@ class GameState:
             for c in range(BOARD_SIZE):
                 if self.board.get(back_rank, c) is None:
                     self.board.set(back_rank, c, piece)
-                    if piece.is_pawn and piece.pawn_name:
-                        self._juice_box_lose_ability(piece.pawn_name)
+                    # NOTE: Mordecai's Manager Benefit respawn is his own passive,
+                    # not an enemy resurrection, so a Juice Box that captured him
+                    # keeps that acquired ability. Only an opponent actively
+                    # resurrecting the pawn (Cockroach / Blood Magic) strips it.
                     self.log_event("mordecai_respawn", piece=repr(piece), pos=(back_rank, c))
                     break
 
@@ -626,6 +628,13 @@ class GameState:
             # Can't capture invulnerable pieces
             target = self.board.get(tr, tc)
             if target and self.is_piece_invulnerable(tr, tc):
+                continue
+            # During a Boss Event, regular PvP captures are disabled entirely --
+            # pieces may still move for positioning, but only Special Event
+            # Attacks can deal damage (and only to the boss). Any move that would
+            # land on an occupied square (friendly or enemy) is excluded so the
+            # board highlights only non-capture destinations.
+            if self.boss_active and target is not None:
                 continue
             # Garret cannot capture enemy pieces
             if piece.is_pawn and piece.pawn_name == "Garret" and target is not None:
@@ -737,21 +746,26 @@ class GameState:
             defender.is_pawn and defender.pawn_name == "Juice Box"
             and "Mediation" in self.juice_box_captured.get(self.juice_box_key(defender), [])
         )
-        if (quasar_alive or juice_box_has_mediation) and self.quasar_uses[defender.color] < 2:
-            # Don't use on Narrator's Favor situations
-            if not (defender.is_king and not self.narrators_favor_used.get(defender.color, True)):
-                attacker_roll = random.randint(1, 6)
-                defender_roll = random.randint(1, 6)
-                self.quasar_uses[defender.color] += 1
-                self.log_event("ability_auto", piece="Quasar", ability="Mediation",
-                               attacker_roll=attacker_roll, defender_roll=defender_roll)
-                self.draw_ai_card_if_triggered(attacker_roll, defender_roll, attacker.color)
-                if defender_roll > attacker_roll:
-                    # Defender wins! Attacker is captured instead.
-                    self.log_event("mediation_reversal",
-                                   detail=f"Defender rolled {defender_roll} vs {attacker_roll}")
-                    return "defended_quasar"
-                # Tie or attacker wins — capture proceeds normally
+        # Mediation can never protect Carl himself, and cannot fire while the
+        # defending side's Carl is in check.
+        mediation_available = (
+            (quasar_alive or juice_box_has_mediation)
+            and self.quasar_uses[defender.color] < 2
+            and not defender.is_king
+            and not is_in_check(self.board, defender.color)
+        )
+        if mediation_available:
+            self.quasar_uses[defender.color] += 1
+            defender_saved, atk_total, dfn_total = self._mediation_rolloff(attacker.color)
+            self.log_event("ability_auto", piece="Quasar", ability="Mediation",
+                           attacker_total=atk_total, defender_total=dfn_total,
+                           result="success" if defender_saved else "fail")
+            if defender_saved:
+                # Defender won the roll-off by 2+ -- the attacker is captured instead.
+                self.log_event("mediation_reversal",
+                               detail=f"Defender rolled {dfn_total} vs {atk_total} (won by 2+)")
+                return "defended_quasar"
+            # Tie or attacker wins the roll-off -- capture proceeds normally.
 
         return "captured"
 
@@ -2614,64 +2628,85 @@ class GameState:
 
     # ── Chunk 2 Abilities: Priority Group 6 (Reaction Abilities) ──
 
+    def _mediation_rolloff(self, ai_card_color: Color,
+                           dice: Optional[DungeonDice] = None) -> Tuple[bool, int, int]:
+        """Resolve a Quasar Mediation roll-off. Both sides roll BOTH of their
+        dice and add them together (a total of 2-12 each). The defender only
+        saves the threatened piece by winning by a margin of 2 or more -- a tie,
+        or the defender leading by exactly 1, goes to the attacker.
+
+        The attacker's own two d6 are still fed to the AI-summon-pattern check,
+        exactly as any other roll would be. Returns (defender_saved, attacker_total,
+        defender_total).
+        """
+        atk = (random.randint(1, 6), random.randint(1, 6))
+        dfn = (random.randint(1, 6), random.randint(1, 6))
+        atk_total, dfn_total = atk[0] + atk[1], dfn[0] + dfn[1]
+        self.log_event("mediation_rolloff",
+                       attacker_dice=list(atk), defender_dice=list(dfn),
+                       attacker_total=atk_total, defender_total=dfn_total)
+        self.draw_ai_card_if_triggered(atk[0], atk[1], ai_card_color, dice=dice)
+        return (dfn_total - atk_total) >= 2, atk_total, dfn_total
+
     def try_mediation_chunk2(self, quasar_pos: Tuple[int, int], dice: DungeonDice,
                              defender_pos: Tuple[int, int]) -> Optional[str]:
-        """Quasar's Mediation (Floor 5, twice per game, reaction): 
-        When friendly piece about to be captured, spend banked die to roll off.
-        Returns: "defender_wins", "attacker_wins", or None if failed.
+        """Quasar's Mediation (cost 6, twice per game, reaction): when a friendly
+        piece *other than Carl* is about to be captured, spend a banked die
+        (value >= 6) to declare Mediation. Both players roll both of their dice
+        and sum them (2-12); the defender must win by 2 or more to save the
+        threatened piece -- a tie or a 1-point defender lead goes to the attacker.
+
+        Cannot be declared while the defending side's Carl is in check, and can
+        never be used to defend Carl himself.
+
+        Returns "defender_wins", "attacker_wins", or None if Mediation could not
+        be declared.
         """
         piece = self.board.get(*quasar_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name != "Quasar":
             return None
-        
+
+        defender = self.board.get(*defender_pos)
+        if defender is None:
+            return None
+        # Mediation can never protect Carl himself.
+        if defender.is_king:
+            return None
+        # Cannot be declared while the defending side's Carl is in check.
+        if is_in_check(self.board, defender.color):
+            return None
+
         # Check uses remaining
         pawn_key = f"{piece.color.value}_Quasar"
         uses_left = self.pawn_ability_uses.get(pawn_key, {}).get("Mediation", 2)
         if uses_left <= 0:
             return None
-        
-        # Must have banked die
-        if not dice.has_banked_die():
+
+        # Must have a banked die worth at least the cost (6)
+        player = piece.color.value
+        pulled_value = dice.banked_die.get(player)
+        if pulled_value is None or pulled_value < 6:
             return None
-        
-        # Pull banked die and check if it meets floor requirement
-        pulled_value = dice.pull_from_bank()
-        if pulled_value < 5:
-            return None
-        
+        dice.pull_from_bank(player)  # consume the banked die
+
         # Decrement uses
         if pawn_key not in self.pawn_ability_uses:
             self.pawn_ability_uses[pawn_key] = {}
         self.pawn_ability_uses[pawn_key]["Mediation"] = uses_left - 1
-        
-        # Roll off: both players roll 1d6
-        defender_roll = random.randint(1, 6)
-        attacker_roll = random.randint(1, 6)
-        
-        self.log_event("ability_reaction", piece="Quasar", ability="Mediation",
-                       defender_roll=defender_roll, attacker_roll=attacker_roll,
-                       banked_die_value=pulled_value)
-        self.draw_ai_card_if_triggered(attacker_roll, defender_roll, piece.color, dice=dice)
 
-        if defender_roll > attacker_roll:
-            # Defender wins - both pieces return to original positions
-            self.log_event("mediation_success", detail=f"Defender {defender_roll} > Attacker {attacker_roll}")
+        defender_saved, atk_total, dfn_total = self._mediation_rolloff(
+            defender.color.opponent, dice=dice)
+        self.log_event("ability_reaction", piece="Quasar", ability="Mediation",
+                       banked_die_value=pulled_value,
+                       attacker_total=atk_total, defender_total=dfn_total,
+                       result="success" if defender_saved else "fail")
+        if defender_saved:
+            self.log_event("mediation_success",
+                           detail=f"Defender {dfn_total} beat Attacker {atk_total} by 2+")
             return "defender_wins"
-        elif attacker_roll > defender_roll:
-            # Attacker wins - defender captured
-            self.log_event("mediation_fail", detail=f"Attacker {attacker_roll} > Defender {defender_roll}")
-            return "attacker_wins"
-        else:
-            # Tie - reroll (simplified: just roll again once)
-            defender_roll2 = random.randint(1, 6)
-            attacker_roll2 = random.randint(1, 6)
-            self.log_event("mediation_tie_reroll",
-                          defender_roll=defender_roll2, attacker_roll=attacker_roll2)
-            self.draw_ai_card_if_triggered(attacker_roll2, defender_roll2, piece.color, dice=dice)
-            if defender_roll2 >= attacker_roll2:
-                return "defender_wins"
-            else:
-                return "attacker_wins"
+        self.log_event("mediation_fail",
+                       detail=f"Attacker {atk_total} vs Defender {dfn_total} -- attacker wins")
+        return "attacker_wins"
 
     def try_she_tank(self, katia_pos: Tuple[int, int], dice: DungeonDice,
                      target_pos: Tuple[int, int], is_reaction: bool = False) -> bool:

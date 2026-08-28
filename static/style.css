@@ -395,6 +395,31 @@ body {
 .square.boss-square.boss-square-move-flash::after {
     animation: boss-square-move-flash-anim 0.9s ease-out;
 }
+
+/* Boss identifying label — sits on top of the red pulsing overlay */
+.boss-square-label {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 1px;
+    font-size: 0.46rem;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.95);
+    pointer-events: none;
+    word-break: break-word;
+}
+.boss-square-label.boss-square-label-tag {
+    font-size: 0.4rem;
+    opacity: 0.92;
+}
 @keyframes boss-square-move-flash-anim {
     0% { background: rgba(255, 220, 80, 0.9); opacity: 1; }
     100% { background: rgba(220, 38, 38, 0.45); opacity: 0.6; }
@@ -1005,6 +1030,37 @@ body {
     color: var(--black-piece);
     border: 1px solid rgba(212, 88, 40, 0.3);
 }
+
+/* ═══ MINI BATTLE LOG ═══ */
+.battle-log {
+    margin-top: 10px;
+    padding: 6px 8px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    /* Fixed height: exactly 6 lines (1.6em each) + vertical padding. Never grows,
+       never shrinks -- fewer than 6 entries just leave blank space below. */
+    height: calc(6 * 1.6em + 12px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.battle-log-entry {
+    font-size: 1em;
+    line-height: 1.6em;
+    height: 1.6em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 0 0 auto;
+}
+.battle-log-white { color: var(--white-piece); }
+.battle-log-black { color: var(--black-piece); }
+.battle-log-aicard { color: var(--accent-gold); font-weight: 600; }
+.battle-log-boss { color: #ff6b6b; font-weight: 600; }
+.battle-log-neutral { color: var(--text-secondary); }
+.battle-log-empty { color: var(--text-dim); font-style: italic; }
 
 /* ═══ DICE PANEL ═══ */
 .dice-panel {

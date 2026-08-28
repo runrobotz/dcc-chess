@@ -166,8 +166,8 @@ PAWN_CHARACTERS = {
         name="Quasar",
         ability=PawnAbility(
             name="Mediation",
-            description="When a friendly piece is about to be captured, spend banked die to declare Mediation. Both players roll 1 die. Highest roll wins. Winner's piece survives, loser's is captured. Ties reroll. If you win both pieces return to original positions.",
-            floor_number=5,
+            description="When a friendly piece other than Carl is about to be captured, spend a banked die (cost 6, twice per game) to declare Mediation. Cannot be declared while your Carl is in check, and can never protect Carl himself. Both players roll BOTH of their dice and add them together (2-12). The defender must win by 2 or more to save the threatened piece; a tie or a 1-point defender lead goes to the attacker. If the defender wins, the attacking piece is captured instead.",
+            floor_number=6,
             trigger=AbilityTrigger.NO_ROLL,
             uses_per_game=2,
         ),

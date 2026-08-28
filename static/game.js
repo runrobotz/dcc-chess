@@ -586,6 +586,7 @@ const Game = {
         } else {
             this.renderDicePanel();
         }
+        this.renderBattleLog();
         if (this.state.game_over) {
             this.checkGameOver();
         }
@@ -1086,6 +1087,23 @@ const Game = {
                     sq.appendChild(pieceEl);
                 }
 
+                // Boss square identifying label (Bug 4): the boss's name on its
+                // centre square, and a short tag on the other squares of a
+                // multi-square boss (e.g. Emberus's 5 squares) so players can
+                // tell all the squares belong to one boss. Sits on top of the
+                // red pulsing overlay.
+                if (this.state.boss_active && bossSquareSet.has(sqKey)) {
+                    const bp = this.state.boss_position;
+                    const isCentre = bp && bp[0] === row && bp[1] === col;
+                    const multi = (this.state.boss_squares || []).length > 1;
+                    const label = document.createElement('div');
+                    label.className = 'boss-square-label' + ((multi && !isCentre) ? ' boss-square-label-tag' : '');
+                    label.textContent = (multi && !isCentre)
+                        ? this.bossShortTag(this.state.active_boss)
+                        : (this.state.active_boss || 'BOSS');
+                    sq.appendChild(label);
+                }
+
                 // Zone overlays (rendered above pieces via z-index)
                 if (airStrikeSet.has(sqKey)) {
                     const overlay = document.createElement('div');
@@ -1199,14 +1217,8 @@ const Game = {
             } else if (event.type === 'ai_card_deck_empty') {
                 console.log(`[AI Card] Summon triggered but the deck is empty (${event.player})`);
             } else if (event.type === 'boss_moved') {
-                this.showToast(`🧭 ${event.boss} moves ${event.direction}!`, '');
+                // Boss movement is shown in the mini battle log now; keep the flash.
                 this.flashBossMovement();
-            } else if (event.type === 'boss_no_movement') {
-                const reason = event.reason === 'rolled_10_to_12' ? 'no movement this turn (rolled 10-12)'
-                    : event.reason === 'would_leave_board' ? `blocked at the board's edge (rolled ${event.direction})`
-                    : event.reason === 'samantha_iwkym_hold' ? `held by Samantha's IWKYM (${event.iwkym_turns_remaining} turn(s) left)`
-                    : 'no movement';
-                this.showToast(`🧭 Boss compass roll: ${reason}`, '');
             } else if (event.type === 'boss_movement_kill') {
                 console.log(`[Boss] ${event.piece} was crushed at ${event.pos}`);
             } else if (event.type === 'jug_o_boom') {
@@ -1269,15 +1281,17 @@ const Game = {
     },
 
     showAutoAbilityNotification(event) {
-        const { piece, ability, attacker_roll, defender_roll, result, detail } = event;
-        
+        const { piece, ability, attacker_total, defender_total, result, detail } = event;
+
         let message = `⚡ ${piece}'s ${ability} activated!\n`;
-        
-        if (attacker_roll !== undefined && defender_roll !== undefined) {
-            message += `Attacker rolled: ${attacker_roll}\n`;
-            message += `Defender rolled: ${defender_roll}\n`;
-            if (defender_roll > attacker_roll) {
-                message += `Defender wins! Capture reversed!`;
+
+        if (attacker_total !== undefined && defender_total !== undefined) {
+            // Quasar Mediation roll-off: both sides roll 2d6 and add them.
+            // The defender only wins by a margin of 2 or more.
+            message += `Attacker total: ${attacker_total}\n`;
+            message += `Defender total: ${defender_total}\n`;
+            if (defender_total - attacker_total >= 2) {
+                message += `Defender wins by 2+! Capture reversed!`;
             } else {
                 message += `Attacker wins. Capture proceeds.`;
             }
@@ -1493,6 +1507,117 @@ const Game = {
         });
     },
 
+    // Short tag shown on the non-centre squares of a multi-square boss (Bug 4).
+    bossShortTag(name) {
+        if (!name) return 'BOSS';
+        if (name === 'Emberus') return 'EMBS';
+        return name.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase();
+    },
+
+    // ═══ MINI BATTLE LOG ═══
+    // Compact fixed-height log of the last 6 describable game events, newest on
+    // top, colour-coded by kind. Replaces the per-event toast notifications.
+
+    _sideWord(c) { return c === 'white' ? 'White' : c === 'black' ? 'Black' : ''; },
+
+    // Piece event reprs are "<color>_<name>" (see Piece.__repr__ on the server).
+    _nameFromRepr(r) {
+        if (!r || typeof r !== 'string') return null;
+        const i = r.indexOf('_');
+        return i >= 0 ? r.slice(i + 1) : r;
+    },
+
+    // Turn one game event into { text, kind } for the battle log, or null to skip it.
+    // kind ∈ 'white' | 'black' | 'aicard' | 'boss' | 'neutral'.
+    describeEvent(e) {
+        if (!e || !e.type) return null;
+        const T = (e.turn !== undefined && e.turn !== null) ? `T${e.turn}: ` : '';
+        const moverKind = e.player === 'black' ? 'black' : 'white';
+
+        switch (e.type) {
+            case 'move': {
+                const nm = this._nameFromRepr(e.piece) || 'a piece';
+                const who = this._sideWord(e.player) || 'White';
+                return { kind: moverKind, text: `${T}${who} ${e.captured ? 'captured with' : 'moved'} ${nm}` };
+            }
+            case 'ai_move': {
+                let nm = null;
+                try {
+                    const p = e.to_pos && this.state.board[e.to_pos[0]][e.to_pos[1]];
+                    if (p) nm = p.name;
+                } catch (_) { /* board shifted since — fall back to generic */ }
+                return { kind: 'black', text: `${T}AI moved ${nm || 'a piece'}${e.captured ? ' (capture)' : ''}` };
+            }
+            case 'ability_roll': {
+                if (!e.ability) return null;
+                const who = this._sideWord(e.player);
+                return { kind: moverKind, text: `${T}${who} used ${e.ability}${e.result === 'fail' ? ' (failed)' : ''}` };
+            }
+            case 'ability_auto':
+                return { kind: 'neutral', text: `${T}${[e.piece, e.ability].filter(Boolean).join(' ')}`.trim() };
+            case 'ai_summon_trigger':
+                return { kind: 'aicard', text: `${T}AI summon triggered` };
+            case 'ai_card_drawn':
+                return { kind: 'aicard', text: `${T}AI drew ${e.card}` };
+            case 'ai_card_resolved':
+                return { kind: 'aicard', text: `${T}${e.card}: ${e.outcome || 'resolved'}` };
+            case 'ai_card_deck_empty':
+                return { kind: 'aicard', text: `${T}AI summon — deck empty` };
+            case 'boss_summoned':
+                return { kind: 'boss', text: `${T}${e.boss} summoned` };
+            case 'boss_moved':
+                return { kind: 'boss', text: `${T}Boss moved ${e.direction || ''}`.trim() };
+            case 'boss_no_movement':
+                return { kind: 'boss', text: `${T}Boss held position` };
+            case 'boss_turn_begin':
+                return { kind: 'boss', text: `${T}Boss Turn` };
+            case 'boss_damaged':
+                return { kind: 'boss', text: `${T}${e.boss} hit — ${e.boss_hp} HP left` };
+            case 'boss_damage_blocked':
+                return { kind: 'boss', text: `${T}Feral Goose shrugs off the attack` };
+            case 'boss_defeated':
+                return { kind: 'boss', text: `${T}${e.boss} defeated!` };
+            case 'feral_goose_puzzle_solved':
+                return { kind: 'boss', text: `${T}Feral Goose puzzle solved!` };
+            case 'player_fallen':
+                return { kind: 'boss', text: `${T}${this._sideWord(e.color)} has fallen` };
+            case 'bank_die':
+                return { kind: moverKind, text: `${T}${this._sideWord(e.player)} banked a die` };
+            case 'dice_roll':
+                return { kind: moverKind, text: `${T}${this._sideWord(e.player)} rolled ${(e.values || []).join(' + ')}` };
+            default:
+                return null;
+        }
+    },
+
+    renderBattleLog() {
+        const el = document.getElementById('battle-log');
+        if (!el) return;
+        const events = (this.state && this.state.events) || [];
+
+        const lines = [];
+        for (let i = events.length - 1; i >= 0 && lines.length < 6; i--) {
+            const line = this.describeEvent(events[i]);
+            if (line) lines.push(line);
+        }
+
+        el.innerHTML = '';
+        if (lines.length === 0) {
+            const d = document.createElement('div');
+            d.className = 'battle-log-entry battle-log-empty';
+            d.textContent = 'No events yet';
+            el.appendChild(d);
+            return;
+        }
+        for (const ln of lines) {
+            const d = document.createElement('div');
+            d.className = `battle-log-entry battle-log-${ln.kind}`;
+            d.textContent = ln.text.length > 60 ? ln.text.slice(0, 59) + '…' : ln.text;
+            el.appendChild(d);
+        }
+        el.scrollTop = 0; // newest is on top
+    },
+
     renderDicePanel() {
         const panel = document.getElementById('dice-panel');
         const diceDisplay = document.getElementById('dice-display');
@@ -1520,21 +1645,19 @@ const Game = {
             }
         }
 
-        // The panel is shown for the ability phase (dice), or -- in Dev Game
-        // mode -- whenever there's a move to undo, so Undo isn't hidden along
-        // with the rest of the panel between turns.
-        const keepPanelForUndo = isDevMode && this.state.can_undo;
-        if (this.state.phase !== 'ability' && !keepPanelForUndo) {
-            panel.classList.add('hidden');
-            return;
-        }
+        // Keep the panel itself on screen during play so the mini battle log
+        // (docked below the dice area) is always visible; just blank the dice
+        // header + dice UI when it's not the ability phase.
         panel.classList.remove('hidden');
+        const diceHeader = panel.querySelector('h3');
 
         if (this.state.phase !== 'ability') {
-            // Nothing but Undo belongs on screen right now -- no dice rolled.
+            // Nothing but the battle log / Undo belongs on screen right now -- no dice rolled.
+            if (diceHeader) diceHeader.classList.add('hidden');
             diceDisplay.innerHTML = '';
             return;
         }
+        if (diceHeader) diceHeader.classList.remove('hidden');
 
         // Render dice (2 dice system)
         const dice = this.state.dice;
@@ -2055,107 +2178,91 @@ const Game = {
 
     appendJuiceBoxCard(container, pc, availableDice, color) {
         const onCooldown = !!(this.state.juice_box_cooldown || {})[color];
+        const abilities = pc.abilities || [];
 
-        const card = document.createElement('div');
-        card.className = 'ability-card status-grey';
-        card.style.cursor = 'default';
-
-        card.innerHTML = `
-            <span class="ac-piece-name">${pc.short || pc.name}</span>
-            <span class="ac-ability-name">Shapeshift</span>
-            <span class="ac-mana">${onCooldown ? 'Cooldown — 1 turn' : 'Select an acquired ability below'}</span>
-        `;
-
-        const jbBaseAbility = this.roster.find(p => p.name === 'Juice Box');
-        if (jbBaseAbility) {
-            const shapeshiftAb = {
-                name: jbBaseAbility.ability_name,
-                floor: jbBaseAbility.floor_number,
-                description: jbBaseAbility.ability_description,
-                trigger: jbBaseAbility.trigger,
-                uses_per_game: jbBaseAbility.uses_per_game,
-                requires_combined: false,
-                is_reaction: false,
-                is_boss_only: false,
-            };
-            card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, shapeshiftAb, pc.name));
-            card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+        // No acquired abilities yet: one generic Shapeshift tile with a hint that
+        // capturing enemy pawns is how she gains usable abilities.
+        if (abilities.length === 0) {
+            const card = document.createElement('div');
+            card.className = 'ability-card status-grey';
+            card.style.cursor = 'default';
+            card.innerHTML = `
+                <span class="ac-piece-name">${pc.short || pc.name}</span>
+                <span class="ac-ability-name">Shapeshift</span>
+                <span class="ac-mana">Capture enemy pawns to gain abilities</span>
+            `;
+            const jbBaseAbility = this.roster.find(p => p.name === 'Juice Box');
+            if (jbBaseAbility) {
+                const shapeshiftAb = {
+                    name: jbBaseAbility.ability_name,
+                    floor: jbBaseAbility.floor_number,
+                    description: jbBaseAbility.ability_description,
+                    trigger: jbBaseAbility.trigger,
+                    uses_per_game: jbBaseAbility.uses_per_game,
+                    requires_combined: false,
+                    is_reaction: false,
+                    is_boss_only: false,
+                };
+                card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, shapeshiftAb, pc.name));
+                card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+            }
+            container.appendChild(card);
+            return;
         }
 
-        const subpanel = document.createElement('details');
-        subpanel.className = 'juice-box-subpanel';
+        // One clickable tile per acquired ability, rendered directly in the grid
+        // so they behave exactly like every other ability tile. Rebuilt on every
+        // render() from pc.abilities, so tiles appear/disappear as she gains or
+        // loses acquired abilities.
+        for (const ab of abilities) {
+            // Chunk 4 balance: acquired abilities cost Juice Box 1 more than the
+            // source pawn's base cost, then AI-Card / Group Climax modifiers apply
+            // on top (matches the server-side +1 bump).
+            const jbFloor = this.effectiveFloor(ab.floor + 1);
 
-        const summary = document.createElement('summary');
-        summary.textContent = `Acquired Abilities (${pc.abilities.length})`;
-        subpanel.appendChild(summary);
-
-        if (pc.abilities.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'jb-empty';
-            empty.textContent = 'No abilities acquired yet.';
-            subpanel.appendChild(empty);
-        } else {
-            for (const ab of pc.abilities) {
-                const entry = document.createElement('div');
-                entry.className = 'jb-entry';
-
-                // Chunk 4 balance: acquired abilities cost Juice Box 1 more than
-                // the source pawn's base cost, then AI-Card / Group Climax
-                // modifiers apply on top (matches the server-side +1 bump).
-                const jbFloor = this.effectiveFloor(ab.floor + 1);
-
-                let status = 'grey';
-                let bestDie = null;
-                let useCombined = false;
-                if (!onCooldown && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
-                    const single = this.findBestDie(availableDice, jbFloor);
-                    if (single !== null && single.value >= jbFloor) {
-                        status = 'green'; bestDie = single;
-                    } else if (availableDice.length >= 2) {
-                        const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
-                        if (diceSum >= jbFloor) {
-                            status = 'green'; bestDie = availableDice[0]; useCombined = true;
-                        } else {
-                            status = 'red';
-                        }
+            let status = 'grey';
+            let bestDie = null;
+            let useCombined = false;
+            if (!onCooldown && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
+                const single = this.findBestDie(availableDice, jbFloor);
+                if (single !== null && single.value >= jbFloor) {
+                    status = 'green'; bestDie = single;
+                } else if (availableDice.length >= 2) {
+                    const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
+                    if (diceSum >= jbFloor) {
+                        status = 'green'; bestDie = availableDice[0]; useCombined = true;
                     } else {
                         status = 'red';
                     }
+                } else {
+                    status = 'red';
                 }
-
-                const manaCell = this.state.system_reset_active
-                    ? '🔒 System Reset'
-                    : onCooldown
-                        ? 'Cooldown — 1 turn'
-                        : `${jbFloor} Mana (via Juice Box)`;
-                entry.innerHTML = `
-                    <span>${ab.juice_box_source_pawn} — ${ab.name}</span>
-                    <span>${manaCell}</span>
-                `;
-                entry.style.borderLeft = `3px solid var(--${status === 'green' ? 'success' : status === 'red' ? 'danger' : 'text-dim'})`;
-
-                if (status === 'green') {
-                    entry.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        this.useAbility(pc.row, pc.col, ab.name, bestDie.index, useCombined);
-                    });
-                }
-
-                entry.addEventListener('mouseenter', (e) => {
-                    e.stopPropagation();
-                    this.showAbilityTooltip(entry, ab, ab.juice_box_source_pawn);
-                });
-                entry.addEventListener('mouseleave', (e) => {
-                    e.stopPropagation();
-                    this.hideAbilityTooltip();
-                });
-
-                subpanel.appendChild(entry);
             }
-        }
 
-        card.appendChild(subpanel);
-        container.appendChild(card);
+            const manaLabel = this.state.system_reset_active
+                ? '🔒 System Reset'
+                : onCooldown
+                    ? 'Cooldown — 1 turn'
+                    : `${useCombined ? '⚄+⚄ ' : ''}${jbFloor} Mana (via Juice Box)`;
+
+            const card = document.createElement('div');
+            card.className = `ability-card status-${status}`;
+            card.innerHTML = `
+                <span class="ac-piece-name">${ab.juice_box_source_pawn}</span>
+                <span class="ac-ability-name">${ab.name}</span>
+                <span class="ac-mana">${manaLabel}</span>
+            `;
+
+            if (status === 'green') {
+                card.addEventListener('click', () => {
+                    this.useAbility(pc.row, pc.col, ab.name, bestDie.index, useCombined);
+                });
+            }
+            card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, ab, ab.juice_box_source_pawn));
+            card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+
+            container.appendChild(card);
+        }
     },
 
     findBestDie(availableDice, floor) {
@@ -2918,10 +3025,7 @@ const Game = {
                 return;
             }
             this.state = data;
-            const result = data.ability_result;
-            if (result) {
-                this.showToast(`Leader: ${result.message}`, result.success ? 'success' : 'fail');
-            }
+            // Ability outcome now shows in the mini battle log, not a toast.
             this.render();
         } catch (e) {
             this.showToast('Leader ability failed', 'fail');
@@ -3091,13 +3195,7 @@ const Game = {
                 return;
             }
             this.state = data;
-            const result = data.ability_result;
-            if (result) {
-                this.showToast(
-                    `${abilityName}: ${result.message}`,
-                    result.success ? 'success' : 'fail'
-                );
-            }
+            // Ability outcome now shows in the mini battle log, not a toast.
             this.render();
         } catch (e) {
             this.showToast('Ability failed', 'fail');
@@ -3157,13 +3255,17 @@ const Game = {
                 await this.showTurnBanner(cur === 'white' ? "White's Turn" : "Black's Turn", cur);
                 await this.startTurn();  // banked-die prompt (if any) → /start_turn → ability phase
 
-                // Boss co-op safety net: a fallen player with no pieces left cannot
-                // move and there is no longer an End Turn button — auto-pass so the
-                // game does not soft-lock.
+                // Boss battle safety net: while a boss is active the game no
+                // longer ends by checkmate/stalemate (Bug 3), and there is no
+                // manual End Turn button. If the current player has no legal move
+                // (a fallen co-op player with no pieces left, or an army with no
+                // legal non-capture move), auto-pass so the game does not
+                // soft-lock.
                 if (this.state && !this.state.game_over && this.state.phase === 'ability'
                     && this.state.boss_active
-                    && (this.state.fallen_players || []).includes(this.state.current_player)
-                    && (this.state.player_pieces || []).length === 0) {
+                    && (this.state.current_player_stuck === true
+                        || ((this.state.fallen_players || []).includes(this.state.current_player)
+                            && (this.state.player_pieces || []).length === 0))) {
                     try {
                         const resp = await fetch('/end_turn', { method: 'POST' });
                         const data = await resp.json();

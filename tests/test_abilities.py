@@ -547,21 +547,25 @@ def test_status_effects_on_legal_moves():
 # ── Quasar Mediation Test ─────────────────────────────────────────
 
 def test_quasar_mediation():
-    """Quasar mediation should sometimes defend."""
-    b = make_empty_board()
-    place(b, 4, 4, PieceType.PAWN, Color.WHITE, "Zev")
-    place(b, 4, 5, PieceType.SAMANTHA, Color.BLACK)
-    place(b, 0, 0, PieceType.PAWN, Color.WHITE, "Quasar")  # Quasar alive anywhere
-    place(b, 0, 5, PieceType.CARL, Color.WHITE)
-    place(b, 9, 0, PieceType.CARL, Color.BLACK)
+    """Quasar mediation should sometimes defend a non-Carl piece (defender must
+    win the 2d6-vs-2d6 roll-off by 2 or more), and sometimes fail.
 
-    gs = GameState(b)
-
-    # Run multiple times to see both outcomes
+    A fresh board/GameState is built each iteration so that a Mediation roll
+    which happens to trigger an AI Summon card can't cascade into later trials.
+    """
     defended = 0
     captured = 0
-    for i in range(100):
-        gs.quasar_uses[Color.WHITE] = 0
+    for _ in range(300):
+        b = make_empty_board()
+        place(b, 4, 4, PieceType.PAWN, Color.WHITE, "Zev")
+        place(b, 4, 5, PieceType.SAMANTHA, Color.BLACK)
+        place(b, 0, 0, PieceType.PAWN, Color.WHITE, "Quasar")  # Quasar alive anywhere
+        # White Carl kept clear of the attacking Samantha's rank/file -- Mediation
+        # cannot fire while the defending side's Carl is in check.
+        place(b, 0, 9, PieceType.CARL, Color.WHITE)
+        place(b, 9, 0, PieceType.CARL, Color.BLACK)
+
+        gs = GameState(b)
         result = gs.attempt_capture((4, 5), (4, 4))
         if result == "defended_quasar":
             defended += 1
@@ -570,7 +574,7 @@ def test_quasar_mediation():
 
     assert defended > 0, "Quasar should defend at least sometimes"
     assert captured > 0, "Quasar should fail at least sometimes"
-    print(f"  ✓ test_quasar_mediation passed (defended={defended}, captured={captured} in 100 trials)")
+    print(f"  ✓ test_quasar_mediation passed (defended={defended}, captured={captured} in 300 trials)")
 
 
 # ── Run All Tests ─────────────────────────────────────────────────

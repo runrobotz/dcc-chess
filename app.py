@@ -414,6 +414,14 @@ def build_game_state_response():
         "boss_turn_active": gs.boss_turn_active,
         "boss_turn_rolls": dict(gs.boss_turn_rolls),
         "fallen_players": [c.value for c in gs.fallen_players],
+        # True when the current player has no legal move available. During a Boss
+        # Event the game no longer ends by checkmate/stalemate (Bug 3), so the
+        # frontend uses this to auto-pass a stuck player's turn instead of
+        # soft-locking (there is no manual End Turn button).
+        "current_player_stuck": (
+            game_data.get("phase") not in ("placement", "boss_turn", "game_over")
+            and not gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player))
+        ),
     }
     return resp
 
@@ -435,9 +443,12 @@ def _end_game_if_no_legal_moves(gs) -> bool:
     """
     if gs.get_legal_moves_with_status(gs.controlled_color(gs.current_player)):
         return False
-    # Boss co-op: a fallen (kingless) player with nothing left to move doesn't
-    # end the whole game -- they just have nothing to do this turn.
-    if gs.boss_active and gs.current_player in gs.fallen_players:
+    # During a Boss Event the fight takes priority: the game never ends by
+    # checkmate/stalemate while a boss is active (Bug 3). This covers both a
+    # fallen (kingless) boss co-op player and a player whose whole army happens
+    # to have no legal non-capture move. They simply have nothing to move this
+    # turn; the frontend auto-passes the turn (see runTurnTransition).
+    if gs.boss_active:
         return False
     if is_in_check(gs.board, gs.current_player):
         game_data["winner"] = gs.current_player.opponent.value
@@ -852,7 +863,9 @@ def _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured):
     if gs.board.find_king(opponent) is None:
         if _handle_carl_fallen(gs, color, opponent):
             return
-    else:
+    elif not gs.boss_active:
+        # During a Boss Event the fight takes priority -- the game does not end by
+        # checkmate/stalemate until the boss is defeated (Bug 3).
         if is_checkmate(gs.board, opponent):
             game_data["game_over"] = True
             game_data["winner"] = color.value
@@ -942,6 +955,18 @@ def make_move():
 
     from_pos = (fr, fc)
     to_pos = (tr, tc)
+
+    # During a Boss Event, regular PvP captures are disabled. Pieces may move for
+    # positioning, but any move that would land on an occupied square (friendly or
+    # enemy) is rejected -- only Special Event Attacks can deal damage, and only to
+    # the boss. (get_legal_moves_with_status already excludes these; this is an
+    # explicit, clearer guard. An Orthrus body-shift onto its own second square is
+    # not a capture.)
+    if gs.boss_active:
+        _mover = gs.board.get(*from_pos)
+        _target = gs.board.get(*to_pos)
+        if _target is not None and _target is not _mover:
+            return jsonify({"error": "Captures are disabled during a Boss Event — only Special Event Attacks can damage the boss"}), 400
 
     # Validate move (Matt's Drunk Again: validate against the army gs.current_player
     # actually controls this turn, not necessarily their own true color)
@@ -2107,9 +2132,11 @@ def _play_ai_turn():
     # Get legal moves
     legal = gs.get_legal_moves_with_status(color)
     if not legal:
-        # Boss co-op: a fallen (kingless) AI with nothing left to move doesn't
-        # end the whole game -- just roll into the next phase with no move.
-        if gs.boss_active and color in gs.fallen_players:
+        # During a Boss Event the fight takes priority -- an AI with no legal
+        # (non-capture) move doesn't end the game by checkmate/stalemate; it just
+        # rolls into the next phase with no move (Bug 3; also the boss co-op
+        # fallen-AI case).
+        if gs.boss_active:
             gs.end_turn()
             _begin_next_phase_after_turn(gs, color)
             return build_game_state_response()
@@ -2180,7 +2207,9 @@ def _play_ai_turn():
     if gs.board.find_king(opponent) is None:
         if _handle_carl_fallen(gs, color, opponent):
             return build_game_state_response()
-    else:
+    elif not gs.boss_active:
+        # During a Boss Event the fight takes priority -- no checkmate/stalemate
+        # game-end until the boss is defeated (Bug 3).
         if is_checkmate(gs.board, opponent):
             game_data["game_over"] = True
             game_data["winner"] = "black"
