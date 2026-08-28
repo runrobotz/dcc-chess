@@ -432,6 +432,90 @@ const Game = {
 
     // ═══ DRAFT ═══
 
+    // Per-pawn visual identity for the draft cards. `grad` fills the placeholder
+    // art area (real character art lands here later), `accent` colours the
+    // ability name + hover border, `emoji` is the thematic glyph shown in the art
+    // area (falls back to the pawn's initials when absent).
+    DEFAULT_PAWN_THEME: { grad: 'linear-gradient(160deg, #2a2a3e, #12121a)', accent: 'var(--accent-gold)', emoji: '' },
+    PAWN_CARD_THEMES: {
+        'Zev':               { grad: 'linear-gradient(160deg, #4a1d3d, #1a0f16)', accent: '#ec4899', emoji: '🎀' },
+        'Mordecai':          { grad: 'linear-gradient(160deg, #2a3340, #12161c)', accent: '#94a3b8', emoji: '👔' },
+        'Prepotente':        { grad: 'linear-gradient(160deg, #3d2a0f, #1a1206)', accent: '#f59e0b', emoji: '🐎' },
+        'Elle McGib':        { grad: 'linear-gradient(160deg, #0e2f42, #08151d)', accent: '#38bdf8', emoji: '❄️' },
+        'Imani':             { grad: 'linear-gradient(160deg, #2c1d47, #140d1f)', accent: '#a78bfa', emoji: '🔇' },
+        'Slugalo':           { grad: 'linear-gradient(160deg, #26330d, #111706)', accent: '#84cc16', emoji: '🐌' },
+        'Louie':             { grad: 'linear-gradient(160deg, #3d1414, #1a0808)', accent: '#f87171', emoji: '💣' },
+        'Sledge':            { grad: 'linear-gradient(160deg, #2b3440, #12171d)', accent: '#cbd5e1', emoji: '🛡️' },
+        'Stripper Anaconda': { grad: 'linear-gradient(160deg, #0f3d38, #081917)', accent: '#2dd4bf', emoji: '🐍' },
+        'Quasar':            { grad: 'linear-gradient(160deg, #3a2f14, #181206)', accent: '#c9a84c', emoji: '⚖️' },
+        'Lucia Mar':         { grad: 'linear-gradient(160deg, #3d240c, #1a0f05)', accent: '#fb923c', emoji: '🐕' },
+        'Chris':             { grad: 'linear-gradient(160deg, #3d1608, #1a0904)', accent: '#ef4444', emoji: '🌋' },
+        'Juice Box':         { grad: 'linear-gradient(160deg, #2f3d0c, #141a05)', accent: '#a3e635', emoji: '🧃' },
+        'Florin':            { grad: 'linear-gradient(160deg, #3d1220, #1a070d)', accent: '#fb7185', emoji: '💥' },
+        'Garret':            { grad: 'linear-gradient(160deg, #33302c, #161512)', accent: '#d6d3d1', emoji: '🗿' },
+        'Signet':            { grad: 'linear-gradient(160deg, #3a1240, #18071b)', accent: '#e879f9', emoji: '💋' },
+        'Miriam Dom':        { grad: 'linear-gradient(160deg, #3d0f0f, #1a0606)', accent: '#dc2626', emoji: '🩸' },
+        'Orthrus':           { grad: 'linear-gradient(160deg, #232a4d, #0f1220)', accent: '#818cf8', emoji: '🐺' },
+        'Raul the Crab':     { grad: 'linear-gradient(160deg, #3d1c22, #1a0b0e)', accent: '#fda4af', emoji: '🦀' },
+        'Bad Llama':         { grad: 'linear-gradient(160deg, #3a2e0a, #181304)', accent: '#eab308', emoji: '🦙' },
+    },
+
+    // Static reference data for the collapsible Major Pieces panel. Mirrors
+    // MAJOR_ABILITIES in app.py (display only — no game state involved here).
+    MAJOR_REF: [
+        { name: 'Carl', type: 'King', abilities: [
+            { name: 'Leader', floor: 0, requires_combined: true, uses_per_game: 2, description: 'Combine all available dice this turn into a pull distance, then pull one friendly back-line major (Donut, Katia, or Samantha) toward Carl by up to that many squares along its normal path. Carl still makes his normal move.' },
+            { name: 'Plot Armor', floor: 8, requires_combined: true, uses_per_game: 1, description: 'Carl moves up to 3 squares in any King direction (choose 1–3). Cannot pass through occupied squares but can capture the piece he lands on. Must not end in check.' },
+            { name: 'Jug-o-Boom', floor: 4, boss_only: true, description: 'Carl tosses a bomb up to 3 squares in any direction to attack a summoned boss.' },
+        ] },
+        { name: 'Donut', type: 'Queen', abilities: [
+            { name: 'Puddle Jump', floor: 5, description: 'Donut moves like a Queen but can pass through or jump past any pieces in her path. She cannot harm pieces she passes through.' },
+            { name: 'Cockroach', floor: 7, requires_combined: true, uses_per_game: 1, description: 'Resurrect one captured friendly piece and place it on any open square adjacent to Donut.' },
+            { name: 'Magic Missile', floor: 5, boss_only: true, description: 'Shoots a magic missile 5 squares in any direction to damage a summoned boss.' },
+        ] },
+        { name: 'Mongo', type: 'Knight', abilities: [
+            { name: 'Pet Carrier', floor: 4, description: 'Remove Mongo from the board and store him. He can be released for free on your turn within 2 squares of Donut. If Donut is captured while Mongo is stored, Mongo is captured too. Only 1 stored at a time.' },
+            { name: 'Rampage', floor: 8, requires_combined: true, uses_per_game: 1, description: "Mongo captures any piece within his L-shaped movement path, not just the final destination." },
+            { name: 'Gorefest', floor: 4, boss_only: true, description: 'Mongo attacks 2 squares from his current location in any direction to damage a summoned boss.' },
+        ] },
+        { name: 'Katia', type: 'Bishop', abilities: [
+            { name: 'She Tank', floor: 6, reaction: true, uses_per_game: 2, description: 'Prevent one enemy piece from moving on its next turn. Usable as a reaction with a banked die before the enemy moves, or at the start of your own turn.' },
+            { name: 'Blitzed', floor: 5, description: 'Any one piece on your side skips its movement requirement this turn. That piece can still use an ability.' },
+            { name: 'I Need My Space', floor: 3, boss_only: true, description: 'Pushes the boss 2 squares directly away from Katia. Any piece the boss is pushed into is permanently killed.' },
+        ] },
+        { name: 'Samantha', type: 'Rook', abilities: [
+            { name: 'Slut Shame', floor: 8, requires_combined: true, uses_per_game: 1, description: 'Samantha swallows any pawn within 3 squares, temporarily removing it from the board. It respawns within 1 square of Samantha within 5 turns.' },
+            { name: 'Miss Me?', floor: 5, reaction: true, description: 'Force a reroll of any dice currently in play — your own at the start of your turn, or an enemy roll as a reaction using a banked die.' },
+            { name: 'IWKYM', floor: 6, boss_only: true, description: 'When adjacent to the boss, Samantha holds it still for 2 full turns (it can still take damage). After 2 turns she releases and respawns on her back rank.' },
+        ] },
+    ],
+
+    // Short mana descriptor for a pawn's card badge.
+    draftManaBadge(pawn) {
+        if (pawn.trigger === 'auto_capture' || pawn.trigger === 'auto_defense') return 'AUTO';
+        if (pawn.trigger === 'no_roll' && !pawn.floor_number) return 'PASSIVE';
+        if (pawn.requires_combined) return `⚄+⚄ ${pawn.floor_number}`;
+        return `⚄ ${pawn.floor_number}`;
+    },
+
+    // Longer mana line for the hover tooltip.
+    draftManaText(pawn) {
+        if (pawn.trigger === 'auto_capture' || pawn.trigger === 'auto_defense') return 'Automatic — triggers on its own, no die';
+        if (pawn.trigger === 'no_roll') return pawn.floor_number > 0 ? `${pawn.floor_number} Mana — no roll needed` : 'Passive / no roll needed';
+        if (pawn.floor_number > 0) return `${pawn.requires_combined ? 'Combined dice ⚄+⚄ — ' : ''}${pawn.floor_number} Mana`;
+        return '0 Mana';
+    },
+
+    // Trim to at most `maxWords` words, appending an ellipsis when truncated.
+    shortDesc(text, maxWords = 10) {
+        if (!text) return '';
+        const words = text.trim().split(/\s+/);
+        if (words.length <= maxWords) return text;
+        return words.slice(0, maxWords).join(' ') + '…';
+    },
+
+    _attr(s) { return (s || '').replace(/"/g, '&quot;'); },
+
     renderDraft() {
         const grid = document.getElementById('draft-grid');
         const title = document.getElementById('draft-title');
@@ -439,23 +523,20 @@ const Game = {
         const counter = document.getElementById('draft-count');
         const confirmBtn = document.getElementById('draft-confirm');
 
-        if (this.mode === 'pvai') {
-            title.textContent = 'Draft Your Pawns (White)';
-            subtitle.textContent = 'Select exactly 8 pawns — AI will draft randomly';
-        } else {
-            if (this.draftPlayer === 1) {
-                title.textContent = 'Player 1 (White) — Draft Your Pawns';
-                subtitle.textContent = 'Select exactly 8 pawns';
-            } else {
-                title.textContent = 'Player 2 (Black) — Draft Your Pawns';
-                // Both players draft from the same full roster -- picking a pawn
-                // White already took is allowed, each side gets their own copy.
-                subtitle.textContent = 'Select exactly 8 pawns';
-            }
-        }
+        this.hideAbilityTooltip();
 
-        counter.textContent = this.draftSelection.length;
-        confirmBtn.disabled = this.draftSelection.length !== 8;
+        const whoLabel = (this.mode !== 'pvai' && this.draftPlayer === 2) ? "Black's Draft" : "White's Draft";
+        const n = this.draftSelection.length;
+        title.textContent = `${whoLabel} — ${n} of 8 selected`;
+        subtitle.textContent = this.mode === 'pvai'
+            ? 'Pick any 8 pawns — the AI drafts its own 8 afterward'
+            : 'Pick any 8 pawns — both players draft from the full roster, duplicates allowed';
+
+        counter.textContent = n;
+        confirmBtn.disabled = n !== 8;
+        confirmBtn.textContent = n === 8 ? 'Confirm Draft' : `Select ${8 - n} more`;
+
+        this.renderMajorRefPanel();
 
         grid.innerHTML = '';
         // "The AI" is a real pawn character (used elsewhere, e.g. Dev Mode staging)
@@ -463,28 +544,102 @@ const Game = {
         // only -- this.roster itself stays untouched for other screens.
         const draftablePawns = this.roster.filter(pawn => pawn.name !== 'The AI');
         for (const pawn of draftablePawns) {
+            const theme = this.PAWN_CARD_THEMES[pawn.name] || this.DEFAULT_PAWN_THEME;
+            const selected = this.draftSelection.includes(pawn.name);
+
             const card = document.createElement('div');
-            card.className = 'draft-card';
+            card.className = 'pawn-card' + (selected ? ' selected' : '');
+            card.style.setProperty('--card-accent', theme.accent);
 
-            if (this.draftSelection.includes(pawn.name)) {
-                card.classList.add('selected');
-            }
-
-            const floorText = pawn.floor_number > 0 ? `${pawn.floor_number} Mana` : pawn.trigger === 'auto_capture' ? 'Auto' : pawn.trigger === 'auto_defense' ? 'Auto' : 'Passive';
-            const usesText = pawn.uses_per_game ? ` (${pawn.uses_per_game}/game)` : '';
+            const initials = (pawn.short || pawn.name.slice(0, 2)).slice(0, 4).toUpperCase();
+            const glyph = theme.emoji || initials;
 
             card.innerHTML = `
-                <div class="pawn-name">${pawn.name}</div>
-                <div>
-                    <span class="ability-name">${pawn.ability_name}</span>
-                    <span class="floor-badge">${floorText}${usesText}</span>
+                <div class="pawn-card-check">✓</div>
+                <div class="pawn-card-name">${pawn.name}</div>
+                <div class="pawn-card-art" style="background: ${theme.grad};">
+                    <span class="pawn-card-art-glyph">${glyph}</span>
                 </div>
-                <div class="ability-desc">${pawn.ability_description}</div>
+                <div class="pawn-card-ability">${pawn.ability_name}</div>
+                <div class="pawn-card-mana">${this.draftManaBadge(pawn)}</div>
+                <div class="pawn-card-desc">${this.shortDesc(pawn.ability_description)}</div>
             `;
 
             card.addEventListener('click', () => this.toggleDraftPawn(pawn.name));
+            card.addEventListener('mouseenter', () => this.showDraftCardTooltip(card, pawn));
+            card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
 
             grid.appendChild(card);
+        }
+    },
+
+    // Full ability rules for a pawn, shown on card hover. Reuses the shared
+    // #ability-tooltip element / .ability-tooltip styling from the game screen
+    // (the two screens are never visible at once).
+    showDraftCardTooltip(anchorEl, pawn) {
+        let tt = document.getElementById('ability-tooltip');
+        if (!tt) {
+            tt = document.createElement('div');
+            tt.id = 'ability-tooltip';
+            tt.className = 'ability-tooltip';
+            document.body.appendChild(tt);
+        }
+
+        const limits = [];
+        if (pawn.uses_per_game) limits.push(`${pawn.uses_per_game} use${pawn.uses_per_game !== 1 ? 's' : ''} per game`);
+        if (pawn.requires_combined) limits.push('Requires combined dice');
+
+        tt.innerHTML = `
+            <div class="at-title">${pawn.name} — ${pawn.ability_name}</div>
+            <div class="at-mana">${this.draftManaText(pawn)}</div>
+            <div class="at-desc">${pawn.ability_description || ''}</div>
+            ${limits.length ? `<div class="at-limits">${limits.join(' • ')}</div>` : ''}
+        `;
+        tt.classList.add('visible');
+
+        const r = anchorEl.getBoundingClientRect();
+        const ttr = tt.getBoundingClientRect();
+        const m = 8;
+        let left = r.left + (r.width / 2) - (ttr.width / 2);
+        left = Math.max(m, Math.min(left, window.innerWidth - ttr.width - m));
+        let top = r.bottom + m;
+        if (top + ttr.height > window.innerHeight - m) top = r.top - ttr.height - m;
+        top = Math.max(m, top);
+        tt.style.left = `${left}px`;
+        tt.style.top = `${top}px`;
+    },
+
+    // Builds the Major Pieces panel once, then only manages its open/closed
+    // default (expanded on wide screens, collapsed on narrow). A user toggle
+    // afterward is left untouched.
+    renderMajorRefPanel() {
+        const panel = document.getElementById('major-ref-panel');
+        const grid = document.getElementById('major-ref-grid');
+        if (grid && !this._majorRefBuilt) {
+            grid.innerHTML = '';
+            for (const mp of this.MAJOR_REF) {
+                const card = document.createElement('div');
+                card.className = 'major-ref-card';
+                const rows = mp.abilities.map(ab => {
+                    const tags = [];
+                    if (ab.reaction) tags.push('reaction');
+                    if (ab.uses_per_game) tags.push(`${ab.uses_per_game}/game`);
+                    const tagHtml = tags.length ? ` <em>(${tags.join(', ')})</em>` : '';
+                    const right = ab.boss_only
+                        ? '<span class="mrc-boss-label">Boss Event Only</span>'
+                        : `<span class="mrc-cost">${ab.requires_combined ? '⚄+⚄ ' : ''}${ab.floor}</span>`;
+                    return `<div class="mrc-ability${ab.boss_only ? ' boss-only' : ''}" title="${this._attr(ab.description)}">
+                        <span class="mrc-ability-name">${ab.name}${tagHtml}</span>${right}
+                    </div>`;
+                }).join('');
+                card.innerHTML = `<div class="major-ref-name">${mp.name} <span class="mrc-type">(${mp.type})</span></div>${rows}`;
+                grid.appendChild(card);
+            }
+            this._majorRefBuilt = true;
+        }
+        if (panel && this._majorRefOpenInit === undefined) {
+            panel.open = window.innerWidth >= 900;
+            this._majorRefOpenInit = true;
         }
     },
 

@@ -29,12 +29,22 @@
         <div class="draft-container">
             <div class="draft-header">
                 <h2 id="draft-title">Draft Your Pawns</h2>
-                <p id="draft-subtitle">Select exactly 8 pawns for your army</p>
+                <p id="draft-subtitle">Pick any 8 pawns</p>
                 <div class="draft-counter">
                     <span id="draft-count">0</span> / 8 selected
                 </div>
             </div>
+
+            <details id="major-ref-panel" class="major-ref-panel">
+                <summary class="major-ref-summary">
+                    <span class="mrp-title">⚔️ Major Pieces Reference</span>
+                    <span class="mrp-hint">abilities &amp; synergies — click to expand / collapse</span>
+                </summary>
+                <div id="major-ref-grid" class="major-ref-grid"></div>
+            </details>
+
             <div id="draft-grid" class="draft-grid"></div>
+
             <div class="draft-actions">
                 <button id="draft-confirm" class="btn btn-primary" disabled onclick="Game.confirmDraft()">Confirm Draft</button>
             </div>

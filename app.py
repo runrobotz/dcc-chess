@@ -514,6 +514,7 @@ def get_roster():
             "floor_number": char.ability.floor_number,
             "trigger": char.ability.trigger.value,
             "uses_per_game": char.ability.uses_per_game,
+            "requires_combined": getattr(char.ability, "requires_combined", False),
             "is_female": char.is_female,
         })
     return jsonify(roster)

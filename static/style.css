@@ -160,89 +160,241 @@ body {
 
 /* ═══ DRAFT SCREEN ═══ */
 #draft-screen {
-    justify-content: center;
+    flex-direction: column;
+    justify-content: flex-start;
     align-items: center;
-    padding: 20px;
-    background: var(--bg-darkest);
+    padding: 24px 20px;
+    background: radial-gradient(ellipse at top, var(--bg-medium) 0%, var(--bg-darkest) 70%);
+    overflow: hidden;
 }
 .draft-container {
-    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    max-width: 1040px;
     width: 100%;
+    max-height: calc(100vh - 48px);
 }
 .draft-header {
     text-align: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
+    flex: 0 0 auto;
 }
 .draft-header h2 {
     color: var(--accent-gold);
-    font-size: 1.8rem;
-    margin-bottom: 0.3rem;
+    font-size: 1.7rem;
+    letter-spacing: 1px;
+    margin-bottom: 0.25rem;
 }
 .draft-header p {
     color: var(--text-secondary);
+    font-size: 0.9rem;
 }
 .draft-counter {
-    margin-top: 0.5rem;
-    font-size: 1.3rem;
+    margin-top: 0.4rem;
+    font-size: 1.1rem;
     color: var(--accent-gold);
     font-weight: 700;
 }
-.draft-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 1.5rem;
-}
-.draft-card {
-    background: var(--bg-medium);
-    border: 2px solid var(--border-color);
+
+/* Major pieces reference panel (collapsible) */
+.major-ref-panel {
+    flex: 0 0 auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 14px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+.major-ref-summary {
+    list-style: none;
     cursor: pointer;
-    transition: all 0.2s;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    user-select: none;
+    flex-wrap: wrap;
 }
-.draft-card:hover {
-    border-color: var(--accent-gold);
-    transform: translateY(-2px);
+.major-ref-summary::-webkit-details-marker { display: none; }
+.major-ref-summary::before {
+    content: '▸';
+    color: var(--accent-gold);
+    font-size: 0.9rem;
+    transition: transform 0.15s;
 }
-.draft-card.selected {
-    border-color: var(--accent-gold);
-    background: rgba(201, 168, 76, 0.1);
-    box-shadow: 0 0 12px rgba(201, 168, 76, 0.2);
+.major-ref-panel[open] .major-ref-summary::before { transform: rotate(90deg); }
+.mrp-title {
+    color: var(--accent-gold);
+    font-weight: 700;
+    font-size: 0.95rem;
 }
-.draft-card.taken {
-    opacity: 0.3;
-    cursor: not-allowed;
-    pointer-events: none;
+.mrp-hint {
+    color: var(--text-dim);
+    font-size: 0.75rem;
 }
-.draft-card .pawn-name {
-    font-size: 1.1rem;
+.major-ref-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 10px;
+    padding: 4px 14px 14px;
+    max-height: 34vh;
+    overflow-y: auto;
+}
+.major-ref-card {
+    background: var(--bg-medium);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+.major-ref-name {
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 4px;
-}
-.draft-card .ability-name {
-    color: var(--accent-gold);
     font-size: 0.85rem;
-    font-weight: 600;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 4px;
 }
-.draft-card .floor-badge {
-    display: inline-block;
-    background: var(--bg-light);
+.mrc-type {
     color: var(--text-secondary);
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-weight: 400;
     font-size: 0.75rem;
-    margin-left: 6px;
 }
-.draft-card .ability-desc {
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-    margin-top: 6px;
-    line-height: 1.4;
+.mrc-ability {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 0.75rem;
+    padding: 3px 0;
+    color: var(--text-primary);
+}
+.mrc-ability-name em {
+    color: var(--text-dim);
+    font-style: normal;
+    font-size: 0.68rem;
+}
+.mrc-cost {
+    color: var(--accent-gold);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.mrc-ability.boss-only { opacity: 0.5; }
+.mrc-boss-label {
+    color: #b183d6;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+/* Pawn card grid */
+.draft-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+    gap: 12px;
+    padding: 4px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    align-content: start;
 }
 .draft-actions {
     text-align: center;
+    padding-top: 1rem;
+    flex: 0 0 auto;
+}
+
+.pawn-card {
+    position: relative;
+    background: var(--bg-medium);
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.pawn-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--card-accent, var(--accent-gold));
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.pawn-card.selected {
+    border-color: var(--accent-gold);
+    box-shadow: 0 0 0 1px var(--accent-gold), 0 0 16px rgba(201, 168, 76, 0.35);
+}
+.pawn-card-name {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.15;
+    letter-spacing: 0.2px;
+}
+.pawn-card-art {
+    height: 82px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+}
+.pawn-card-art-glyph {
+    font-size: 2.2rem;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.9);
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+.pawn-card-ability {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--card-accent, var(--accent-gold));
+}
+.pawn-card-mana {
+    align-self: flex-start;
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.pawn-card-desc {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+.pawn-card-check {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent-gold);
+    color: var(--bg-darkest);
+    font-size: 0.8rem;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 0.12s, transform 0.12s;
+}
+.pawn-card.selected .pawn-card-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
+@media (max-width: 640px) {
+    .draft-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
 
 /* ═══ GAME SCREEN ═══ */
