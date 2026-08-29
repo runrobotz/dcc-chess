@@ -421,6 +421,27 @@ const Game = {
     showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
+        this.updatePlaytestButton();
+    },
+
+    // ═══ PLAYTEST REPORT ═══
+
+    PLAYTEST_FORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform?usp=publish-editor',
+
+    openPlaytestForm() {
+        window.open(this.PLAYTEST_FORM_URL, '_blank', 'noopener');
+    },
+
+    // Floating in-game report button: visible only on the game screen during
+    // active play — hidden on the start/draft screens, during piece placement,
+    // and after the game is over.
+    updatePlaytestButton() {
+        const btn = document.getElementById('playtest-float-btn');
+        if (!btn) return;
+        const onGameScreen = document.getElementById('game-screen')?.classList.contains('active');
+        const activePhases = ['move', 'ability', 'boss_turn'];
+        const show = !!onGameScreen && !!this.state && activePhases.includes(this.state.phase);
+        btn.classList.toggle('hidden', !show);
     },
 
     // ═══ HOW TO PLAY TUTORIAL ═══
@@ -963,6 +984,7 @@ const Game = {
         this.checkForAutoAbilityEvents();
         this.checkGameOver();
         this.handlePendingAiCardDecision();
+        this.updatePlaytestButton();
     },
 
     handlePendingAiCardDecision() {

@@ -24,6 +24,7 @@
                 <button class="btn btn-settings" onclick="Game.openDevSettings()" title="Dev Settings">⚙️ Dev Settings</button>
                 <div id="dev-status" class="dev-status">Dev: Random Roster</div>
                 <button class="btn btn-tutorial" onclick="Game.openTutorial()">📖 How to Play</button>
+                <button class="btn btn-tutorial" onclick="Game.openPlaytestForm()">📋 Playtest Report</button>
             </div>
         </div>
     </div>
@@ -220,6 +221,9 @@
 
     <!-- ═══ NOTIFICATION TOAST ═══ -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- ═══ FLOATING PLAYTEST REPORT BUTTON (active gameplay only) ═══ -->
+    <button id="playtest-float-btn" class="playtest-float-btn hidden" onclick="Game.openPlaytestForm()" title="Open the Playtest Report form (new tab)">📋 Report</button>
 
     <script src="/static/game.js"></script>
 </body>
