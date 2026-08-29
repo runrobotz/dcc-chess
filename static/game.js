@@ -606,6 +606,23 @@ const Game = {
         return `<div class="tut-diagram tut-triggers">${parts.join('')}</div>`;
     },
 
+    // ═══ COLLAPSIBLE SIDEBARS ═══
+
+    toggleSidebar(color) {
+        const panel = document.getElementById(`${color}-player-panel`);
+        if (panel) panel.classList.toggle('collapsed');
+    },
+
+    // Default: both sidebars expanded on desktop, both collapsed on screens
+    // narrower than 768px so the board takes full width. Called when a game starts.
+    applyInitialSidebarState() {
+        const collapse = window.matchMedia('(max-width: 767px)').matches;
+        for (const color of ['black', 'white']) {
+            const panel = document.getElementById(`${color}-player-panel`);
+            if (panel) panel.classList.toggle('collapsed', collapse);
+        }
+    },
+
     // ═══ MODE SELECT ═══
 
     selectMode(mode) {
@@ -902,6 +919,7 @@ const Game = {
             this.lastMoveTo = null;
             this.selectedPieceToPlace = null;  // For placement phase
             this.showScreen('game-screen');
+            this.applyInitialSidebarState();
             this.render();
         } catch (e) {
             console.error('Failed to start game:', e);
@@ -3788,12 +3806,21 @@ const Game = {
 
     showToast(message, type) {
         const toast = document.getElementById('toast');
+        if (!toast) return;
         toast.textContent = message;
         toast.className = 'toast show';
         if (type === 'fail') toast.classList.add('toast-fail');
-        setTimeout(() => {
-            toast.className = 'toast';
-        }, 2000);
+        // Tap/click to dismiss immediately.
+        toast.onclick = () => this.dismissToast();
+        // Auto-dismiss after 4s; a new toast resets the timer.
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => this.dismissToast(), 4000);
+    },
+
+    dismissToast() {
+        clearTimeout(this._toastTimer);
+        const toast = document.getElementById('toast');
+        if (toast) toast.classList.remove('show');
     },
 
     showMoveBlockedNotification(message) {
@@ -3898,6 +3925,7 @@ const Game = {
             this.lastMoveFrom = null;
             this.lastMoveTo = null;
             this.showScreen('game-screen');
+            this.applyInitialSidebarState();
             this.render();
         } catch (e) {
             console.error('Failed to start dev game:', e);

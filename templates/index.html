@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <!-- ═══ ROTATE DEVICE HINT (small portrait screens only) ═══ -->
+    <div id="rotate-hint" class="rotate-hint" onclick="this.style.display='none'">📱 Rotate device for best experience</div>
+
     <!-- ═══ START SCREEN ═══ -->
     <div id="start-screen" class="screen active">
         <div class="start-container">
@@ -57,6 +60,8 @@
         <div class="game-layout">
             <!-- Left: Black's permanent panel -->
             <div class="player-panel" id="black-player-panel" data-color="black">
+                <button class="sidebar-toggle" onclick="Game.toggleSidebar('black')" aria-label="Toggle Black sidebar">‹</button>
+                <div class="sidebar-collapsed-label" onclick="Game.toggleSidebar('black')"><span>BLACK</span></div>
                 <div class="player-panel-header black-panel-header">Black</div>
                 <div class="sidebar-section">
                     <h3>Black's Pieces</h3>
@@ -127,6 +132,8 @@
 
             <!-- Right: White's permanent panel -->
             <div class="player-panel" id="white-player-panel" data-color="white">
+                <button class="sidebar-toggle" onclick="Game.toggleSidebar('white')" aria-label="Toggle White sidebar">›</button>
+                <div class="sidebar-collapsed-label" onclick="Game.toggleSidebar('white')"><span>WHITE</span></div>
                 <div class="player-panel-header white-panel-header">White</div>
                 <div class="sidebar-section">
                     <h3>White's Pieces</h3>

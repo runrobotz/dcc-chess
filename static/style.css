@@ -1533,6 +1533,7 @@ body {
 
 /* ═══ PLAYER PANELS (permanent dual sidebar) ═══ */
 .player-panel {
+    position: relative;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -1543,11 +1544,98 @@ body {
     border-radius: 8px;
     border: 2px solid transparent;
     padding: 2px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s, min-width 0.3s ease, max-width 0.3s ease;
 }
 .player-panel.active-panel {
     border-color: var(--accent-gold);
     box-shadow: 0 0 14px rgba(201, 168, 76, 0.25);
+}
+
+/* ═══ COLLAPSIBLE SIDEBARS ═══ */
+.sidebar-toggle {
+    position: absolute;
+    top: 6px;
+    z-index: 5;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--bg-light);
+    color: var(--accent-gold);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 0.2s, background 0.15s, border-color 0.15s;
+}
+.sidebar-toggle:hover {
+    background: var(--bg-medium);
+    border-color: var(--accent-gold);
+}
+#black-player-panel .sidebar-toggle { right: 6px; }
+#white-player-panel .sidebar-toggle { left: 6px; }
+
+.sidebar-collapsed-label {
+    display: none;
+}
+
+.player-panel.collapsed {
+    min-width: 40px;
+    max-width: 40px;
+}
+.player-panel.collapsed .player-panel-header,
+.player-panel.collapsed .sidebar-section {
+    display: none;
+}
+.player-panel.collapsed .sidebar-collapsed-label {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.player-panel.collapsed .sidebar-collapsed-label span {
+    font-weight: 800;
+    font-size: 0.9rem;
+    letter-spacing: 0.2em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+#black-player-panel.collapsed .sidebar-collapsed-label span { transform: rotate(-90deg); }
+#white-player-panel.collapsed .sidebar-collapsed-label span { transform: rotate(90deg); }
+#black-player-panel.collapsed .sidebar-toggle,
+#white-player-panel.collapsed .sidebar-toggle { transform: rotate(180deg); }
+
+/* Keep the board centered as it expands into space freed by a collapsed sidebar */
+.game-layout:has(.player-panel.collapsed) {
+    justify-content: center;
+}
+
+/* ═══ ROTATE DEVICE HINT ═══ */
+.rotate-hint {
+    display: none;
+}
+@media (max-width: 599px) and (orientation: portrait) {
+    .rotate-hint {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 400;
+        padding: 6px 12px;
+        background: rgba(22, 22, 42, 0.96);
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        text-align: center;
+        cursor: pointer;
+    }
 }
 .player-panel-header {
     text-align: center;
@@ -1764,8 +1852,15 @@ body {
     border-radius: 6px;
     font-size: 0.9rem;
     z-index: 200;
-    transition: opacity 0.3s;
+    opacity: 0;
+    pointer-events: none;
+    cursor: pointer;
+    transition: opacity 0.3s ease;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.toast.show {
+    opacity: 1;
+    pointer-events: auto;
 }
 .toast.success {
     border-color: var(--success);
