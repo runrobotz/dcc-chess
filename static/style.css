@@ -60,17 +60,12 @@ body {
 .start-container {
     text-align: center;
 }
-.title {
-    font-size: 3rem;
-    color: var(--accent-gold);
-    text-shadow: 0 0 30px rgba(201, 168, 76, 0.3);
-    margin-bottom: 0.5rem;
-    letter-spacing: 2px;
-}
-.subtitle {
-    color: var(--text-secondary);
-    font-size: 1.2rem;
-    margin-bottom: 2.5rem;
+.start-logo {
+    display: block;
+    width: 500px;
+    max-width: 90%;
+    height: auto;
+    margin: 0 auto 2.5rem;
 }
 .mode-select {
     display: flex;
