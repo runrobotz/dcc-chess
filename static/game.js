@@ -3969,11 +3969,37 @@ const Game = {
         this.showToast('Dev settings cleared - using random rosters', '');
     },
 
+    // True if a persisted dev-settings blob references the retired "The AI" pawn
+    // anywhere -- in either roster list or as a placed cell in the staging board
+    // layout. Such blobs were saved before "The AI" was removed from the game.
+    _devSettingsMentionsAI(ds) {
+        if (!ds || typeof ds !== 'object') return false;
+        const listHasAI = (arr) => Array.isArray(arr) && arr.includes('The AI');
+        if (listHasAI(ds.whitePawns) || listHasAI(ds.blackPawns)) return true;
+        if (Array.isArray(ds.boardLayout)) {
+            for (const row of ds.boardLayout) {
+                if (!Array.isArray(row)) continue;
+                for (const cell of row) {
+                    if (cell && cell.name === 'The AI') return true;
+                }
+            }
+        }
+        return false;
+    },
+
     loadDevSettings() {
         const saved = localStorage.getItem('dcc_dev_settings');
         if (saved) {
             try {
                 this.devSettings = JSON.parse(saved);
+                // Wipe any stale cache saved before "The AI" pawn was removed --
+                // it must never come back via a persisted roster or board layout.
+                if (this._devSettingsMentionsAI(this.devSettings)) {
+                    console.warn('Stored dev settings referenced the removed "The AI" pawn - clearing stale cache.');
+                    localStorage.removeItem('dcc_dev_settings');
+                    this.devSettings = null;
+                    return;
+                }
                 if (this.devSettings && this.devSettings.boardLayout) {
                     this.normalizeOrthrusInGrid(this.devSettings.boardLayout);
                 }
