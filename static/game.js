@@ -423,6 +423,189 @@ const Game = {
         document.getElementById(id).classList.add('active');
     },
 
+    // ═══ HOW TO PLAY TUTORIAL ═══
+
+    tutorialIndex: 0,
+
+    TUTORIAL_SLIDES: [
+        {
+            title: 'Welcome to Dungeon Crawler Carl Chess',
+            body: [
+                'Welcome to DCC Chess — a strategic board game built on the foundation of chess, set in the Dungeon Crawler Carl universe.',
+                'Two players command armies of named characters, draft custom pawn rosters, use a dice-driven ability system, and must sometimes set aside their rivalry to survive a boss summoned by the ever-present AI.',
+                'Every game is different. Every game is dangerous. Use the arrows to navigate or click Skip Tutorial to jump straight in.',
+            ],
+        },
+        {
+            title: 'The Board',
+            body: [
+                'DCC Chess is played on an 11x11 grid — larger than standard chess. The center square is marked and serves as the boss spawn point when the AI summons one.',
+                'White always starts on the bottom rows, Black on the top rows. The back rank is where your major pieces start. The pawn rank is directly in front of it.',
+                'The highlighted center square at position 5,5 is where bosses spawn — any piece standing there when a boss arrives is permanently destroyed.',
+            ],
+            diagram: 'board',
+        },
+        {
+            title: 'Pieces Move Like Chess',
+            body: [
+                'Each character represents a traditional chess piece and moves exactly like that piece — unless their special ability says otherwise.',
+                'Carl moves like a King: one square in any direction. Donut moves like a Queen: any direction, any distance. Mongo moves like a Knight: L-shape, can jump over pieces. Katia moves like a Bishop: diagonally any distance. Samantha moves like a Rook: horizontally or vertically any distance. Pawns move like chess pawns: one square forward, capture diagonally.',
+                'Standard chess movement always applies. Abilities can grant extra movement but never replace the base rules.',
+            ],
+        },
+        {
+            title: 'Building Your Army',
+            body: [
+                'Before each game you draft exactly 8 pawns from a roster of 20 characters. Both players can pick any pawn — there are no restrictions, you can both pick the same ones.',
+                'Study each character card carefully — their ability, mana cost, and limits will shape your strategy.',
+                'After drafting, you place all your pieces freely on your starting ranks. Major pieces go on your back rank. Pawns go on the row in front. There is no fixed starting formation — where you place your pieces is your first strategic decision.',
+            ],
+        },
+        {
+            title: 'How Turns Work',
+            body: [
+                'Each turn follows this exact order every time.',
+                'Step 1: Dice roll automatically at the start of your turn. Step 2: Decide whether to bank one die to save for later or keep both to spend. Step 3: Optionally use one ability by spending dice that meet the mana cost. Step 4: Move one of your pieces — this ends your turn.',
+                'The turn then passes to your opponent automatically. Important: moving a piece is always the final action of your turn. You cannot move first and then use an ability.',
+            ],
+            diagram: 'flow',
+        },
+        {
+            title: 'Abilities and Mana',
+            body: [
+                'Every piece has abilities that cost mana to activate — mana comes from your dice rolls. The mana cost on each ability card is the minimum die value needed. Roll a 4 or higher to use a cost-4 ability. Some abilities cost more than 6 and require combining both dice together.',
+                'Pawns each have one ability. Major pieces have two standard abilities and one Special Event Attack that only unlocks during boss battles.',
+                'Once per game and twice per game abilities are precious — use them at the right moment. Banking a die saves it across turns for reaction abilities like Quasar\'s Mediation.',
+            ],
+        },
+        {
+            title: 'The AI is Always Watching',
+            body: [
+                'When you roll double 1s, double 3s, or one 6 and one 2, the AI is summoned. A card is drawn from the AI deck and its effect resolves immediately.',
+                'AI cards can buff or debuff a player for a turn, swap player control, permanently eliminate pawns, randomize dice, or summon a boss onto the board.',
+                'The AI deck has 14 cards and never reshuffles — once empty the AI cannot appear again. The AI cannot be summoned during an active AI event or active boss battle.',
+            ],
+            diagram: 'triggers',
+        },
+        {
+            title: 'Boss Battles',
+            body: [
+                'When a boss is summoned it spawns on the center square — permanently destroying any piece already there. During a boss battle regular captures between players are paused. You cannot attack each other.',
+                'Both players must cooperate to defeat the boss using Special Event Attacks — the abilities on major pieces marked Boss Event Only.',
+                'After both players take their turns each round the boss moves. Each player rolls one die and adds the results together to get a compass direction. The boss then moves in that direction and permanently kills any piece it touches — including Carl.',
+                'Each boss has unique rules. Some have hit points you must reduce to zero. The Feral Goose is immune to all attacks and can only be defeated by a puzzle.',
+                'If your Carl is killed during a boss battle you lose. If both Carls die it is a draw.',
+            ],
+        },
+        {
+            title: 'You Are Ready',
+            body: [
+                'That covers the basics. The best way to learn is to play. Try a game against the AI to get comfortable with the mechanics before challenging another player.',
+                'A few tips: study your opponent\'s pawn abilities in the sidebar during play. Bank dice strategically for reaction abilities. During boss battles position your major pieces so their Special Event Attacks can reach the boss.',
+                'The dungeon awaits — good luck Crawler.',
+            ],
+        },
+    ],
+
+    openTutorial() {
+        this.tutorialIndex = 0;
+        const modal = document.getElementById('tutorial-modal');
+        if (modal) modal.classList.remove('hidden');
+        this.renderTutorial();
+        document.removeEventListener('keydown', this._tutorialKeyHandler);
+        document.addEventListener('keydown', this._tutorialKeyHandler);
+    },
+
+    closeTutorial() {
+        const modal = document.getElementById('tutorial-modal');
+        if (modal) modal.classList.add('hidden');
+        document.removeEventListener('keydown', this._tutorialKeyHandler);
+    },
+
+    _tutorialKeyHandler(e) {
+        if (e.key === 'Escape') Game.closeTutorial();
+    },
+
+    tutorialNext() {
+        if (this.tutorialIndex < this.TUTORIAL_SLIDES.length - 1) {
+            this.tutorialIndex++;
+            this.renderTutorial();
+        }
+    },
+
+    tutorialPrev() {
+        if (this.tutorialIndex > 0) {
+            this.tutorialIndex--;
+            this.renderTutorial();
+        }
+    },
+
+    renderTutorial() {
+        const slides = this.TUTORIAL_SLIDES;
+        const total = slides.length;
+        this.tutorialIndex = Math.max(0, Math.min(this.tutorialIndex, total - 1));
+        const idx = this.tutorialIndex;
+        const slide = slides[idx];
+
+        document.getElementById('tutorial-title').textContent = slide.title;
+
+        let diagramHtml = '';
+        if (slide.diagram === 'board') diagramHtml = this._tutBoardDiagram();
+        else if (slide.diagram === 'flow') diagramHtml = this._tutFlowDiagram();
+        else if (slide.diagram === 'triggers') diagramHtml = this._tutTriggersDiagram();
+
+        const content = document.getElementById('tutorial-content');
+        content.innerHTML = slide.body.map(p => `<p>${p}</p>`).join('') + diagramHtml;
+        content.scrollTop = 0;
+
+        document.getElementById('tutorial-counter').textContent = `${idx + 1} of ${total}`;
+
+        const onLast = idx === total - 1;
+        document.getElementById('tutorial-prev').disabled = idx === 0;
+        const nextBtn = document.getElementById('tutorial-next');
+        nextBtn.disabled = onLast;
+        nextBtn.classList.toggle('hidden', onLast);
+        document.getElementById('tutorial-start').classList.toggle('hidden', !onLast);
+    },
+
+    _tutBoardDiagram() {
+        let cells = '';
+        for (let r = 10; r >= 0; r--) {
+            for (let c = 0; c < 11; c++) {
+                const cls = ['tbd-cell', (r + c) % 2 === 0 ? 'tbd-light' : 'tbd-dark'];
+                if (r === 0 || r === 10) cls.push('tbd-back');
+                else if (r === 1 || r === 9) cls.push('tbd-pawn');
+                if (r === 5 && c === 5) cls.push('tbd-center');
+                cells += `<div class="${cls.join(' ')}"></div>`;
+            }
+        }
+        return `
+            <div class="tut-diagram tut-board">
+                <div class="tbd-grid">${cells}</div>
+                <ul class="tbd-legend">
+                    <li><span class="tbd-swatch tbd-back"></span> Back rank — major pieces start here</li>
+                    <li><span class="tbd-swatch tbd-pawn"></span> Pawn rank — pawns start here</li>
+                    <li><span class="tbd-swatch tbd-center"></span> Center square (5,5) — boss spawn point</li>
+                </ul>
+            </div>`;
+    },
+
+    _tutFlowDiagram() {
+        const steps = ['Roll Dice', 'Bank or Spend', 'Use Ability', 'Move Piece', 'Switch Sides'];
+        const parts = steps.map((s, i) =>
+            `<div class="tut-flow-step"><span class="tfs-num">${i + 1}</span><span class="tfs-label">${s}</span></div>`
+        );
+        return `<div class="tut-diagram tut-flow">${parts.join('<span class="tut-flow-arrow">→</span>')}</div>`;
+    },
+
+    _tutTriggersDiagram() {
+        const combos = [[1, 1], [3, 3], [6, 2]];
+        const parts = combos.map(([a, b]) =>
+            `<div class="tut-trigger"><span class="tut-die">${a}</span><span class="tut-plus">+</span><span class="tut-die">${b}</span></div>`
+        );
+        return `<div class="tut-diagram tut-triggers">${parts.join('')}</div>`;
+    },
+
     // ═══ MODE SELECT ═══
 
     selectMode(mode) {

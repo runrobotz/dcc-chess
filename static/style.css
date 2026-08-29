@@ -1924,6 +1924,221 @@ body {
     justify-content: center;
 }
 
+/* ═══ HOW TO PLAY TUTORIAL ═══ */
+.btn-tutorial {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    font-size: 0.9rem;
+}
+.btn-tutorial:hover:not(:disabled) {
+    background: var(--bg-medium);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    transform: translateY(-1px);
+}
+
+.tutorial-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 15, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+    padding: 20px;
+}
+.tutorial-modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 640px;
+    max-height: calc(100vh - 40px);
+    background: var(--bg-medium);
+    border: 2px solid var(--accent-gold);
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(201, 168, 76, 0.2);
+    overflow: hidden;
+}
+.tutorial-header {
+    flex: 0 0 auto;
+    padding: 20px 28px 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+.tutorial-header h2 {
+    color: var(--accent-gold);
+    font-size: 1.4rem;
+    letter-spacing: 0.5px;
+}
+.tutorial-content {
+    flex: 1 1 auto;
+    padding: 20px 28px;
+    overflow-y: auto;
+}
+.tutorial-content p {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+.tutorial-content p:last-of-type {
+    margin-bottom: 0;
+}
+.tutorial-footer {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 28px 20px;
+    border-top: 1px solid var(--border-color);
+}
+.tutorial-counter {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
+.tutorial-nav {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.tutorial-nav .btn {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+}
+
+/* Shared tutorial diagram shell */
+.tut-diagram {
+    margin-top: 18px;
+    padding: 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Slide 2 — board diagram */
+.tut-board {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.tbd-grid {
+    display: grid;
+    grid-template-columns: repeat(11, 15px);
+    grid-template-rows: repeat(11, 15px);
+    gap: 1px;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    flex: 0 0 auto;
+}
+.tbd-cell { width: 15px; height: 15px; }
+.tbd-light { background: var(--square-light); }
+.tbd-dark { background: var(--square-dark); }
+.tbd-back { background: rgba(201, 168, 76, 0.75); }
+.tbd-pawn { background: rgba(56, 189, 248, 0.6); }
+.tbd-center {
+    background: var(--accent-gold);
+    box-shadow: inset 0 0 0 2px #fff;
+}
+.tbd-legend {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.tbd-legend li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tbd-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+    flex: 0 0 auto;
+}
+
+/* Slide 5 — turn flow diagram */
+.tut-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.tut-flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    min-width: 76px;
+    padding: 8px 10px;
+    background: var(--bg-medium);
+    border: 1px solid var(--accent-gold);
+    border-radius: 6px;
+}
+.tfs-num {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-gold);
+    color: var(--bg-darkest);
+    font-size: 0.75rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tfs-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: center;
+}
+.tut-flow-arrow {
+    color: var(--accent-gold);
+    font-weight: 700;
+}
+
+/* Slide 7 — AI trigger combinations */
+.tut-triggers {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 22px;
+}
+.tut-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tut-die {
+    width: 34px;
+    height: 34px;
+    background: var(--bg-light);
+    border: 2px solid var(--accent-gold);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+.tut-plus {
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
 /* ═══ UTILITIES ═══ */
 .hidden {
     display: none !important;

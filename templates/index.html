@@ -20,6 +20,7 @@
             <div class="dev-controls">
                 <button class="btn btn-settings" onclick="Game.openDevSettings()" title="Dev Settings">⚙️ Dev Settings</button>
                 <div id="dev-status" class="dev-status">Dev: Random Roster</div>
+                <button class="btn btn-tutorial" onclick="Game.openTutorial()">📖 How to Play</button>
             </div>
         </div>
     </div>
@@ -187,6 +188,25 @@
                 <button class="btn btn-primary" onclick="Game.saveDevSettings()">Save Settings</button>
                 <button class="btn btn-secondary" onclick="Game.clearDevSettings()">Clear Settings</button>
                 <button class="btn btn-secondary" onclick="Game.closeDevSettings()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ HOW TO PLAY TUTORIAL MODAL ═══ -->
+    <div id="tutorial-modal" class="tutorial-overlay hidden">
+        <div class="tutorial-modal">
+            <div class="tutorial-header">
+                <h2 id="tutorial-title"></h2>
+            </div>
+            <div id="tutorial-content" class="tutorial-content"></div>
+            <div class="tutorial-footer">
+                <div id="tutorial-counter" class="tutorial-counter"></div>
+                <div class="tutorial-nav">
+                    <button id="tutorial-prev" class="btn btn-secondary" onclick="Game.tutorialPrev()">Previous</button>
+                    <button id="tutorial-skip" class="btn btn-secondary" onclick="Game.closeTutorial()">Skip Tutorial</button>
+                    <button id="tutorial-next" class="btn btn-primary" onclick="Game.tutorialNext()">Next</button>
+                    <button id="tutorial-start" class="btn btn-primary hidden" onclick="Game.closeTutorial()">Start Playing</button>
+                </div>
             </div>
         </div>
     </div>
