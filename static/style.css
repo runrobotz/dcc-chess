@@ -2386,30 +2386,43 @@ body {
 
 /* ═══ MOBILE LANDSCAPE — fit the full 11×11 board without scrolling ═══ */
 @media (max-height: 500px) and (orientation: landscape) {
+    /* Don't stretch the sidebars to the board column's height */
+    .game-layout {
+        align-items: flex-start;
+    }
+    /* Horizontal-scroll fallback so every square stays reachable */
+    .board-section {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
     .board {
-        grid-template-columns: repeat(11, 36px);
-        grid-template-rows: repeat(11, 36px);
+        grid-template-columns: repeat(11, 28px);
+        grid-template-rows: repeat(11, 28px);
     }
     .square {
-        width: 36px;
-        height: 36px;
+        width: 28px;
+        height: 28px;
     }
     .piece {
-        width: 32px;
-        height: 32px;
-        font-size: 0.46rem;
+        width: 24px;
+        height: 24px;
+        font-size: 0.4rem;
     }
     .row-labels span {
-        height: 36px;
+        height: 28px;
         width: 16px;
     }
     .col-labels span {
-        width: 36px;
+        width: 28px;
     }
-    /* Let the whole sidebar scroll vertically instead of overflowing the short
-       landscape viewport — individual section collapse toggles still work. */
+    /* Fill the full viewport height independently of the board column and
+       scroll internally — individual section collapse toggles still work. */
     .player-panel {
+        height: 100vh;
         max-height: 100vh;
         overflow-y: auto;
+        align-self: flex-start;
+        position: sticky;
+        top: 0;
     }
 }
