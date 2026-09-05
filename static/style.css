@@ -1187,28 +1187,54 @@ body {
     border: 1px solid rgba(212, 88, 40, 0.3);
 }
 
-/* ═══ MINI BATTLE LOG ═══ */
-.battle-log {
+/* ═══ BATTLE LOG ═══ */
+.battle-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-top: 10px;
+}
+.battle-log-title {
+    color: var(--accent-gold);
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+}
+.battle-log-clear-btn {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px 9px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.battle-log-clear-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-gold);
+}
+.battle-log {
+    margin-top: 4px;
     padding: 6px 8px;
     background: var(--bg-dark);
     border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 0.7rem;
-    /* Fixed height: exactly 6 lines (1.6em each) + vertical padding. Never grows,
-       never shrinks -- fewer than 6 entries just leave blank space below. */
-    height: calc(6 * 1.6em + 12px);
+    /* Fixed height regardless of entry count -- the full log (from the start
+       of the game) scrolls inside this box instead of growing it. 40px taller
+       than the original 6-line box. */
+    height: calc(6 * 1.6em + 52px);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
 }
 .battle-log-entry {
     font-size: 1em;
-    line-height: 1.6em;
-    height: 1.6em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.4em;
+    padding: 2px 0;
+    white-space: normal;
+    overflow-wrap: break-word;
     flex: 0 0 auto;
 }
 .battle-log-white { color: var(--white-piece); }
@@ -1217,6 +1243,15 @@ body {
 .battle-log-boss { color: #ff6b6b; font-weight: 600; }
 .battle-log-neutral { color: var(--text-secondary); }
 .battle-log-empty { color: var(--text-dim); font-style: italic; }
+.battle-log-divider {
+    color: var(--text-dim);
+    font-size: 0.66rem;
+    text-align: center;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+    margin: 3px 0;
+    flex: 0 0 auto;
+}
 
 /* ═══ DICE PANEL ═══ */
 .dice-panel {
@@ -1609,6 +1644,48 @@ body {
 /* Keep the board centered as it expands into space freed by a collapsed sidebar */
 .game-layout:has(.player-panel.collapsed) {
     justify-content: center;
+}
+
+/* ═══ PER-SECTION COLLAPSE TOGGLES (inside each sidebar) ═══
+   State lives as .section-collapsed on the individual .sidebar-section, so each
+   section is controlled independently and its open/closed state is untouched
+   when the whole sidebar is horizontally collapsed (.player-panel.collapsed
+   hides every .sidebar-section) and later reopened. */
+.sidebar-section > h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+.sidebar-section > h3 .section-chevron {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    color: var(--accent-gold);
+    transition: transform 0.2s ease;
+}
+.sidebar-section > h3 + div {
+    overflow: hidden;
+    max-height: 60vh;
+    opacity: 1;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+.sidebar-section.section-collapsed {
+    flex: 0 0 auto;
+    min-height: 0;
+}
+.sidebar-section.section-collapsed > h3 {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom-color: transparent;
+}
+.sidebar-section.section-collapsed > h3 .section-chevron {
+    transform: rotate(-90deg);
+}
+.sidebar-section.section-collapsed > h3 + div {
+    max-height: 0;
+    opacity: 0;
 }
 
 /* ═══ ROTATE DEVICE HINT ═══ */
@@ -2036,6 +2113,35 @@ body {
     left: 12px;
     z-index: 150;
     padding: 5px 9px;
+    font-size: calc(0.78rem + 2px);
+    font-weight: 600;
+    line-height: 1.1;
+    background: rgba(30, 30, 60, 0.9);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0.85;
+    min-height: 44px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+}
+.playtest-float-btn:hover {
+    opacity: 1;
+    background: var(--bg-medium);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    transform: translateY(-1px);
+}
+
+/* Floating "Export Log" button — sits directly above the Playtest Report
+   button, shown any time the game screen is active. */
+.export-log-float-btn {
+    position: fixed;
+    bottom: 50px;
+    left: 12px;
+    z-index: 150;
+    padding: 5px 9px;
     font-size: 0.78rem;
     font-weight: 600;
     line-height: 1.1;
@@ -2048,11 +2154,11 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
 }
-.playtest-float-btn:hover {
+.export-log-float-btn:hover {
     opacity: 1;
     background: var(--bg-medium);
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
     transform: translateY(-1px);
 }
 

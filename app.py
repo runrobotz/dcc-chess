@@ -490,8 +490,26 @@ def _submit_boss_roll(gs, color):
     gs.log_event("boss_turn_roll", color=color, value=roll)
 
     if gs.boss_turn_rolls["white"] is not None and gs.boss_turn_rolls["black"] is not None:
-        resolve_boss_movement(gs)
+        # Defensive: resolve_boss_movement() must never leave the game stuck
+        # in the "boss_turn" phase. If it raises for any reason, log it and
+        # still fall through to returning control to "move" instead of
+        # soft-locking the game with both sides waiting forever.
+        try:
+            resolve_boss_movement(gs)
+        except Exception as exc:
+            gs.log_event("boss_movement_resolve_error", error=repr(exc))
         game_data["phase"] = "move"
+
+        # The boss's own sweep may have just killed one or both Kings directly
+        # (see boss.py's _kill_piece_at, which tracks this in fallen_players).
+        # If that leaves both sides fallen, end the game as a draw now the
+        # same way a player-move king-capture would via _handle_carl_fallen,
+        # instead of leaving an unresolvable kingless game running.
+        if len(gs.fallen_players) >= 2 and not game_data.get("game_over"):
+            game_data["game_over"] = True
+            game_data["winner"] = None
+            game_data["result_reason"] = "both_fallen"
+            game_data["phase"] = "game_over"
 
 
 # ── Routes ────────────────────────────────────────────────────────
@@ -1717,8 +1735,13 @@ def use_ability():
                 target_piece = gs.board.get(target_pos[0], target_pos[1])
                 if target_piece and target_piece.color == piece.color:
                     success = dice.spend_die(die_index, 5)
+                    gs.log_event("ability_roll", piece="Katia", ability="Blitzed",
+                                 die_value=dice.dice[die_index], floor=5,
+                                 result="success" if success else "fail")
                     if success:
                         gs.blitzed_pieces.add(target_pos)
+                        gs.log_event("blitzed", target=repr(target_piece), target_pos=target_pos,
+                                     detail="Can skip movement this turn")
                         result_msg = "Blitzed activated!"
                     else:
                         result_msg = "Failed"
@@ -1762,6 +1785,8 @@ def use_ability():
                     key = (piece.color, id(piece))
                     if not gs.slut_shame_used.get(key, False) and dice.can_combine_for_cost(8):
                         dice.spend_combined(8)
+                        gs.log_event("ability_roll", piece="Samantha", ability="Slut Shame",
+                                     detail="Combined dice for cost 8", result="success")
                         gs.slut_shame_used[key] = True
                         gs.board.set(target_pos[0], target_pos[1], None)
                         gs.swallowed_pawns.append({
@@ -1769,6 +1794,8 @@ def use_ability():
                             "turns_left": 5,
                             "samantha_pos": (piece_row, piece_col)
                         })
+                        gs.log_event("slut_shame", swallowed=repr(target_piece), pos=target_pos,
+                                     detail="Will respawn within 1 square of Samantha in 5 turns")
                         success = True
                         result_msg = "Pawn swallowed!"
                     else:
@@ -1850,8 +1877,12 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             if target_piece and target_piece.is_pawn and target_piece.color != piece.color:
                 if dice.can_combine_for_cost(10):
                     dice.spend_combined(10)
+                    gs.log_event("ability_roll", piece="Slugalo", ability="One Of Us",
+                                 detail="Combined dice for cost 10", result="success")
                     from dcc_chess.pieces import Color
                     target_piece.color = piece.color
+                    gs.log_event("one_of_us", converted=repr(target_piece), pos=target_pos,
+                                 detail="Enemy pawn converted to friendly")
                     success = True
                     msg = "Converted!"
                 else:
@@ -1876,6 +1907,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             # Place 2x2 zone at target_pos (top-left corner) — combined dice floor 6
             if dice.can_combine_for_cost(6):
                 dice.spend_combined(6)
+                gs.log_event("ability_roll", piece="Louie", ability="Air Strike",
+                             detail="Combined dice for cost 6", result="success")
                 gs.air_strike_zones.clear()  # Replace any existing zone
                 for dr in range(2):
                     for dc in range(2):
@@ -1883,6 +1916,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                         if gs.board.in_bounds(nr, nc):
                             gs.air_strike_zones[(nr, nc)] = 2  # 2 turns duration
                 gs.louie_cant_move = set(gs.air_strike_zones.keys())
+                gs.log_event("air_strike", zone_pos=list(target_pos), detail="2x2 blocked for 2 turns")
                 success = True
                 msg = "Air strike!"
             else:
@@ -1938,6 +1972,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                 # Execute blood magic with specific sacrifice
                 if dice.can_combine_for_cost(8):
                     dice.spend_combined(8)
+                    gs.log_event("ability_roll", piece="Miriam Dom", ability="Blood Magic",
+                                 detail="Combined dice for cost 8", result="success")
                     gs.board.set(target_pos[0], target_pos[1], None)
                     # Resurrect captured pawn on back rank (Orthrus can never be resurrected)
                     source = gs.captured_pieces.get(piece.color, [])
@@ -1953,6 +1989,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                             gs.board.set(spawn_pos[0], spawn_pos[1], resurrected)
                             if resurrected.is_pawn and resurrected.pawn_name:
                                 gs._juice_box_lose_ability(resurrected.pawn_name)
+                            gs.log_event("blood_magic", sacrificed=repr(sacrifice_piece), sacrificed_pos=target_pos,
+                                         resurrected=repr(resurrected), spawn_pos=spawn_pos)
                             success = True
                             msg = "Blood magic!"
                         else:
@@ -1981,10 +2019,17 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             r, c = target_pos[0], target_pos[1]
             # 1×2 horizontal: extend right, or left if at board edge
             c2 = c + 1 if c < 10 else c - 1
-            if dice.spend_die(die_index, 5):
+            spend_success = dice.spend_die(die_index, 5)
+            gs.log_event("ability_roll", piece="Bad Llama", ability="Lava Spit",
+                         die_value=dice.dice[die_index], floor=5,
+                         result="success" if spend_success else "fail")
+            if spend_success:
+                zone = []
                 for nc in (c, c2):
                     if gs.board.in_bounds(r, nc):
                         gs.lava_zones[(r, nc)] = 3  # 3 turns duration
+                        zone.append([r, nc])
+                gs.log_event("lava_spit_zone", zone=zone, detail="Lava zone for 3 turns")
                 success = True
                 msg = "Lava spit!"
             else:
@@ -2201,7 +2246,9 @@ def _play_ai_turn():
     else:
         captured = gs.board.make_move(from_pos, to_pos)
 
-    gs.log_event("ai_move", from_pos=from_pos, to_pos=to_pos,
+    moved_piece = gs.board.get(*to_pos)
+    gs.log_event("ai_move", piece=repr(moved_piece) if moved_piece else "?",
+                 from_pos=from_pos, to_pos=to_pos,
                  captured=repr(captured) if captured else None)
 
     game_data["moved_from"] = from_pos

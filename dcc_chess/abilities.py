@@ -384,11 +384,25 @@ class GameState:
     def check_feral_goose_puzzle(self) -> bool:
         """Called at the end of every turn while a Feral Goose is active. If
         all 5 puzzle squares are simultaneously occupied, she's defeated.
-        Returns True if this defeated her.
+        Returns True if this defeated her, and False in every other case
+        (including whenever she isn't the active boss at all) -- the return
+        value is diagnostic only; callers must not depend on it to decide
+        whether the turn is allowed to end (see end_turn()).
+
+        Logs a "feral_goose_puzzle_check" event on every call while she's
+        active, recording which of the 5 squares are currently occupied, so a
+        future freeze during her fight can be traced from the event log alone.
         """
         if not self.boss_active or self.active_boss != "Feral Goose":
             return False
-        if all(self.board.get(r, c) is not None for r, c in self.FERAL_GOOSE_PUZZLE_SQUARES):
+
+        occupied = [self.board.get(r, c) is not None for (r, c) in self.FERAL_GOOSE_PUZZLE_SQUARES]
+        solved = all(occupied)
+        self.log_event("feral_goose_puzzle_check",
+                       squares=[[r, c] for (r, c) in self.FERAL_GOOSE_PUZZLE_SQUARES],
+                       occupied=occupied, solved=solved)
+
+        if solved:
             self.log_event("feral_goose_puzzle_solved",
                            detail="Puzzle Solved — The Feral Goose has been defeated!")
             self.defeat_boss()
@@ -545,8 +559,16 @@ class GameState:
                 self.log_event("matts_drunk_again_ended",
                                detail="Control swap ended, normal control restored")
 
-        # Feral Goose puzzle: check at the end of every turn while she's active
-        self.check_feral_goose_puzzle()
+        # Feral Goose puzzle: check at the end of every turn while she's active.
+        # Wrapped defensively -- an exception here must never prevent the turn
+        # from actually ending (player swap + turn increment below). Without
+        # this guard, any failure in the puzzle check would leave the move
+        # already applied to the board but control never passed to the other
+        # side, soft-locking the game.
+        try:
+            self.check_feral_goose_puzzle()
+        except Exception as exc:
+            self.log_event("feral_goose_puzzle_check_error", error=repr(exc))
 
         # Swap player
         self.current_player = self.current_player.opponent
@@ -1529,7 +1551,8 @@ class GameState:
         if targets:
             target_pos = random.choice(targets)
             self.enthralled_pending[target_pos] = pawn_pos
-            self.log_event("enthrall_applied", target_pos=target_pos, signet_pos=pawn_pos)
+            self.log_event("enthrall_applied", target=repr(self.board.get(*target_pos)),
+                           target_pos=target_pos, signet_pos=pawn_pos)
             return True
         return False
 
@@ -1649,7 +1672,8 @@ class GameState:
         # Pick random target and restrain it
         target_pos = random.choice(targets)
         self.restrained_pending.add(target_pos)
-        self.log_event("sic_em", target_pos=target_pos, detail="Restrained for next turn")
+        self.log_event("sic_em", target=repr(self.board.get(*target_pos)), target_pos=target_pos,
+                       detail="Restrained for next turn")
         return True
 
     def try_frozen(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
@@ -1691,7 +1715,8 @@ class GameState:
         else:
             chosen = random.choice(targets)
         self.frozen_pending.add(chosen)
-        self.log_event("frozen", target_pos=chosen, detail="Frozen for next turn")
+        self.log_event("frozen", target=repr(self.board.get(*chosen)), target_pos=chosen,
+                       detail="Frozen for next turn")
         return True
 
     def try_suppress(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
@@ -1728,7 +1753,8 @@ class GameState:
         # Pick random target and suppress it
         target_pos = random.choice(targets)
         self.suppressed_pending.add(target_pos)
-        self.log_event("suppress", target_pos=target_pos, detail="Suppressed for next turn")
+        self.log_event("suppress", target=repr(self.board.get(*target_pos)), target_pos=target_pos,
+                       detail="Suppressed for next turn")
         return True
 
     def try_body_guard(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
@@ -2583,7 +2609,8 @@ class GameState:
         # Pick random friendly piece to blitz
         target_pos = random.choice(friendly_pieces)
         self.blitzed_pieces.add(target_pos)
-        self.log_event("blitzed", target_pos=target_pos, detail="Can skip movement this turn")
+        self.log_event("blitzed", target=repr(self.board.get(*target_pos)), target_pos=target_pos,
+                       detail="Can skip movement this turn")
         return True
 
     def try_miss_me(self, samantha_pos: Tuple[int, int], dice: DungeonDice,
@@ -2763,7 +2790,7 @@ class GameState:
         # Add target to pending (will activate next turn)
         self.she_tank_pending.add(target_pos)
         
-        self.log_event("she_tank", target_pos=target_pos, 
+        self.log_event("she_tank", target=repr(target), target_pos=target_pos,
                       detail="Target cannot move next turn", is_reaction=is_reaction)
         return True
 

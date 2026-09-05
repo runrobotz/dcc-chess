@@ -64,19 +64,19 @@
                 <div class="sidebar-collapsed-label" onclick="Game.toggleSidebar('black')"><span>BLACK</span></div>
                 <div class="player-panel-header black-panel-header">Black</div>
                 <div class="sidebar-section">
-                    <h3>Black's Pieces</h3>
+                    <h3 onclick="Game.toggleSection(this)">Black's Pieces <span class="section-chevron">▾</span></h3>
                     <div id="piece-list-black" class="piece-list"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Abilities</h3>
+                    <h3 onclick="Game.toggleSection(this)">Abilities <span class="section-chevron">▾</span></h3>
                     <div id="ability-grid-black" class="ability-buttons ability-grid"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Status Effects</h3>
+                    <h3 onclick="Game.toggleSection(this)">Status Effects <span class="section-chevron">▾</span></h3>
                     <div id="status-effects-black" class="status-effects"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Black Graveyard</h3>
+                    <h3 onclick="Game.toggleSection(this)">Black Graveyard <span class="section-chevron">▾</span></h3>
                     <div id="captured-pieces-black" class="captured-pieces"></div>
                 </div>
             </div>
@@ -123,6 +123,10 @@
                     <h3>Dungeon Dice</h3>
                     <div id="dice-display" class="dice-display"></div>
                     <div id="placement-pieces" class="ability-buttons"></div>
+                    <div class="battle-log-header">
+                        <h3 class="battle-log-title">Battle Log</h3>
+                        <button id="battle-log-clear-btn" class="battle-log-clear-btn" onclick="Game.clearBattleLogDisplay()" title="Clear the display only — the full log is still kept for the Export Log feature">Clear Log</button>
+                    </div>
                     <div id="battle-log" class="battle-log"></div>
                     <button id="undo-move-btn" class="btn btn-secondary btn-undo hidden" onclick="Game.undoMove()">Undo Last Move</button>
                 </div>
@@ -136,19 +140,19 @@
                 <div class="sidebar-collapsed-label" onclick="Game.toggleSidebar('white')"><span>WHITE</span></div>
                 <div class="player-panel-header white-panel-header">White</div>
                 <div class="sidebar-section">
-                    <h3>White's Pieces</h3>
+                    <h3 onclick="Game.toggleSection(this)">White's Pieces <span class="section-chevron">▾</span></h3>
                     <div id="piece-list-white" class="piece-list"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Abilities</h3>
+                    <h3 onclick="Game.toggleSection(this)">Abilities <span class="section-chevron">▾</span></h3>
                     <div id="ability-grid-white" class="ability-buttons ability-grid"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>Status Effects</h3>
+                    <h3 onclick="Game.toggleSection(this)">Status Effects <span class="section-chevron">▾</span></h3>
                     <div id="status-effects-white" class="status-effects"></div>
                 </div>
                 <div class="sidebar-section">
-                    <h3>White Graveyard</h3>
+                    <h3 onclick="Game.toggleSection(this)">White Graveyard <span class="section-chevron">▾</span></h3>
                     <div id="captured-pieces-white" class="captured-pieces"></div>
                 </div>
             </div>
@@ -220,6 +224,9 @@
 
     <!-- ═══ NOTIFICATION TOAST ═══ -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- ═══ FLOATING EXPORT LOG BUTTON (active gameplay only) ═══ -->
+    <button id="export-log-float-btn" class="export-log-float-btn hidden" onclick="Game.exportGameLog()" title="Download a complete text log of this game">📥 Export Log</button>
 
     <!-- ═══ FLOATING PLAYTEST REPORT BUTTON (active gameplay only) ═══ -->
     <button id="playtest-float-btn" class="playtest-float-btn hidden" onclick="Game.openPlaytestForm()" title="Open the Playtest Report form (new tab)">📋 Report</button>

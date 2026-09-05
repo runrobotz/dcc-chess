@@ -51,6 +51,17 @@ def _kill_piece_at(gs: "GameState", row: int, col: int) -> None:
         return
     gs.log_event("boss_movement_kill", piece=repr(piece), pos=[row, col])
 
+    # A King killed directly by the boss's own movement/push (rather than an
+    # enemy capture, which app.py's _handle_carl_fallen already tracks) must
+    # still be recorded as "fallen" for the boss co-op rules. Without this,
+    # that color's king-death is silently dropped: no player_fallen event
+    # fires, and if both Carls end up gone this way the both-fallen draw
+    # condition can never be reached -- corrupted, unresolvable game state.
+    if piece.is_king and piece.color not in gs.fallen_players:
+        gs.fallen_players.add(piece.color)
+        gs.log_event("player_fallen", color=piece.color.value,
+                     detail="King killed by the boss's own movement")
+
 
 def _squares_in_bounds(squares: List[Tuple[int, int]]) -> bool:
     return all(0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE for r, c in squares)

@@ -14,6 +14,22 @@ const Game = {
     lastMoveTo: null,
     lastEventSeq: 0,      // Highest event `seq` already shown, to detect new auto-ability triggers
 
+    // Full battle log (Feature: expanded scrollable battle log). Accumulated
+    // client-side across polls -- the server only ever returns the last 20
+    // events per response, so this is the only place the complete history
+    // (from the start of the game) lives. Never trimmed during a game; also
+    // doubles as the data source for the Export Log feature.
+    fullEventLog: [],
+    _loggedLogSeqs: null,        // Set of event `seq`s already appended to fullEventLog
+    battleLogClearedBeforeSeq: 0,  // "Clear Log" marker -- hides entries at/below this seq from the DISPLAY only
+    _battleLogRenderedSeq: 0,      // highest seq already accounted for by the last render (drives auto-scroll-to-top)
+    _battleLogScrollTop: 0,        // preserved scroll offset across re-renders that have no new events
+
+    // Snapshot of every piece's starting square, captured once placement completes
+    // (or immediately for Dev Game, which skips placement). Feeds the Export Log
+    // feature; null until captured for the current game.
+    startingPositions: null,
+
     // AI Event Panel (Stage F): persistent record of the last-drawn AI Card,
     // shown below the End Turn / Undo buttons until dismissed or replaced.
     aiEventPanel: null,          // {card, cardType, triggeredBy, affects, effect} or null
@@ -422,6 +438,7 @@ const Game = {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         this.updatePlaytestButton();
+        this.updateExportLogButton();
     },
 
     // ═══ PLAYTEST REPORT ═══
@@ -632,6 +649,15 @@ const Game = {
     toggleSidebar(color) {
         const panel = document.getElementById(`${color}-player-panel`);
         if (panel) panel.classList.toggle('collapsed');
+    },
+
+    // Collapse/expand one section (Pieces, Abilities, Status Effects, Graveyard)
+    // within a sidebar. The open/closed state is stored as a class on that
+    // section's own .sidebar-section element, so each section is independent and
+    // its state persists when the whole sidebar is collapsed and reopened.
+    toggleSection(headerEl) {
+        const section = headerEl.closest('.sidebar-section');
+        if (section) section.classList.toggle('section-collapsed');
     },
 
     // Default: both sidebars expanded on desktop, both collapsed on screens
@@ -939,6 +965,7 @@ const Game = {
             this.lastMoveFrom = null;
             this.lastMoveTo = null;
             this.selectedPieceToPlace = null;  // For placement phase
+            this.resetBattleLog();
             this.showScreen('game-screen');
             this.applyInitialSidebarState();
             this.render();
@@ -1915,108 +1942,622 @@ const Game = {
         return name.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase();
     },
 
-    // ═══ MINI BATTLE LOG ═══
-    // Compact fixed-height log of the last 6 describable game events, newest on
-    // top, colour-coded by kind. Replaces the per-event toast notifications.
+    // ═══ BATTLE LOG ═══
+    // Full, detailed, scrollable record of every game event from the start of
+    // the game, newest entry on top. The server only ever returns the last 20
+    // events per response (see build_game_state_response), so fullEventLog is
+    // the client-side accumulation of everything seen so far this game --
+    // also the data source Export Log (Feature 2) reads from.
 
     _sideWord(c) { return c === 'white' ? 'White' : c === 'black' ? 'Black' : ''; },
 
     // Piece event reprs are "<color>_<name>" (see Piece.__repr__ on the server).
-    _nameFromRepr(r) {
+    _pieceRepr(r) {
         if (!r || typeof r !== 'string') return null;
         const i = r.indexOf('_');
-        return i >= 0 ? r.slice(i + 1) : r;
+        if (i < 0) return { color: null, name: r };
+        return { color: r.slice(0, i), name: r.slice(i + 1) };
     },
 
-    // Turn one game event into { text, kind } for the battle log, or null to skip it.
-    // kind ∈ 'white' | 'black' | 'aicard' | 'boss' | 'neutral'.
-    describeEvent(e) {
-        if (!e || !e.type) return null;
-        const T = (e.turn !== undefined && e.turn !== null) ? `T${e.turn}: ` : '';
-        const moverKind = e.player === 'black' ? 'black' : 'white';
+    // "White Katia (Bishop)" / "Black Zev" / "a piece" for a null repr.
+    // withType adds the traditional-chess-piece parenthetical, but only for
+    // the 5 major piece names -- pawns don't repeat "(Pawn)" on every line.
+    _pieceText(repr, withType) {
+        if (!repr) return 'a piece';
+        const color = this._sideWord(repr.color);
+        const type = withType ? this.CHESS_TYPE_LABELS[repr.name] : null;
+        return `${color ? color + ' ' : ''}${repr.name}${type ? ` (${type})` : ''}`;
+    },
 
-        switch (e.type) {
-            case 'move': {
-                const nm = this._nameFromRepr(e.piece) || 'a piece';
-                const who = this._sideWord(e.player) || 'White';
-                return { kind: moverKind, text: `${T}${who} ${e.captured ? 'captured with' : 'moved'} ${nm}` };
+    resetBattleLog() {
+        this.fullEventLog = [];
+        this._loggedLogSeqs = new Set();
+        this.battleLogClearedBeforeSeq = 0;
+        this._battleLogRenderedSeq = 0;
+        this._battleLogScrollTop = 0;
+        this.startingPositions = null;
+    },
+
+    // Capture each piece's starting square once, the first time we observe the
+    // board past the placement phase (immediately for Dev Game, which starts
+    // at turn 0 with phase "move"/"ability"; after both players finish placing
+    // for pvp/pvai). Never re-captured afterward, even if turn_number is later
+    // 0 again for some other reason.
+    _captureStartingPositionsIfNeeded() {
+        if (this.startingPositions) return;
+        if (!this.state || this.state.phase === 'placement') return;
+        this.startingPositions = this._snapshotBoardPositions();
+    },
+
+    _snapshotBoardPositions() {
+        const board = (this.state && this.state.board) || [];
+        const white = [];
+        const black = [];
+        for (let r = 0; r < board.length; r++) {
+            const row = board[r] || [];
+            for (let c = 0; c < row.length; c++) {
+                const p = row[c];
+                if (!p) continue;
+                const label = `${p.name}${p.type && p.type !== p.name ? ` (${p.type})` : ''} — ${this.squareLabel(r, c)}`;
+                (p.color === 'white' ? white : black).push(label);
             }
-            case 'ai_move': {
-                let nm = null;
-                try {
-                    const p = e.to_pos && this.state.board[e.to_pos[0]][e.to_pos[1]];
-                    if (p) nm = p.name;
-                } catch (_) { /* board shifted since — fall back to generic */ }
-                return { kind: 'black', text: `${T}AI moved ${nm || 'a piece'}${e.captured ? ' (capture)' : ''}` };
-            }
-            case 'ability_roll': {
-                if (!e.ability) return null;
-                const who = this._sideWord(e.player);
-                return { kind: moverKind, text: `${T}${who} used ${e.ability}${e.result === 'fail' ? ' (failed)' : ''}` };
-            }
-            case 'ability_auto':
-                return { kind: 'neutral', text: `${T}${[e.piece, e.ability].filter(Boolean).join(' ')}`.trim() };
-            case 'ai_summon_trigger':
-                return { kind: 'aicard', text: `${T}AI summon triggered` };
-            case 'ai_card_drawn':
-                return { kind: 'aicard', text: `${T}AI drew ${e.card}` };
-            case 'ai_card_resolved':
-                return { kind: 'aicard', text: `${T}${e.card}: ${e.outcome || 'resolved'}` };
-            case 'ai_card_deck_empty':
-                return { kind: 'aicard', text: `${T}AI summon — deck empty` };
-            case 'boss_summoned':
-                return { kind: 'boss', text: `${T}${e.boss} summoned` };
-            case 'boss_moved':
-                return { kind: 'boss', text: `${T}Boss moved ${e.direction || ''}`.trim() };
-            case 'boss_no_movement':
-                return { kind: 'boss', text: `${T}Boss held position` };
-            case 'boss_turn_begin':
-                return { kind: 'boss', text: `${T}Boss Turn` };
-            case 'boss_damaged':
-                return { kind: 'boss', text: `${T}${e.boss} hit — ${e.boss_hp} HP left` };
-            case 'boss_damage_blocked':
-                return { kind: 'boss', text: `${T}Feral Goose shrugs off the attack` };
-            case 'boss_defeated':
-                return { kind: 'boss', text: `${T}${e.boss} defeated!` };
-            case 'feral_goose_puzzle_solved':
-                return { kind: 'boss', text: `${T}Feral Goose puzzle solved!` };
-            case 'player_fallen':
-                return { kind: 'boss', text: `${T}${this._sideWord(e.color)} has fallen` };
-            case 'bank_die':
-                return { kind: moverKind, text: `${T}${this._sideWord(e.player)} banked a die` };
-            case 'dice_roll':
-                return { kind: moverKind, text: `${T}${this._sideWord(e.player)} rolled ${(e.values || []).join(' + ')}` };
-            default:
-                return null;
         }
+        return { white, black };
+    },
+
+    clearBattleLogDisplay() {
+        // Display-only: hides everything logged so far, but fullEventLog itself
+        // (and therefore Export Log) is untouched. New events keep appending below.
+        const highest = this.fullEventLog.length
+            ? this.fullEventLog[this.fullEventLog.length - 1].seq || 0
+            : 0;
+        this.battleLogClearedBeforeSeq = Math.max(this.battleLogClearedBeforeSeq, highest);
+        this.renderBattleLog();
+    },
+
+    // Pull any events in this.state.events not already captured into fullEventLog.
+    // `seq` is a stable, ever-increasing id per event (the server's rolling
+    // 20-event window means a plain index/length cursor would miss entries).
+    _accumulateBattleLog() {
+        if (!this._loggedLogSeqs) this._loggedLogSeqs = new Set();
+        const events = (this.state && this.state.events) || [];
+        let added = false;
+        for (const e of events) {
+            const seq = e.seq || 0;
+            if (seq > 0 && !this._loggedLogSeqs.has(seq)) {
+                this._loggedLogSeqs.add(seq);
+                this.fullEventLog.push(e);
+                added = true;
+            }
+        }
+        if (added) this.fullEventLog.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        return added;
+    },
+
+    // Event types that are purely internal/diagnostic and never get their own
+    // battle log line (either folded into a combined neighboring line, or of
+    // no interest to a player -- e.g. dev tooling, or a per-turn diagnostic
+    // check that would otherwise spam a line every single turn of a boss fight).
+    _BATTLE_LOG_SKIP_TYPES: new Set([
+        'ai_summon_trigger', 'lottery_ticket_roll', 'matts_drunk_again',
+        'feral_goose_puzzle_check', 'feral_goose_puzzle_check_error',
+        'boss_movement_resolve_error', 'boss_turn_begin', 'boss_turn_roll',
+        'dev_die_override',
+        // boss_pushed/boss_push_blocked are always immediately followed by the
+        // richer i_need_my_space event (push_boss() is only ever called from
+        // try_i_need_my_space) -- that one line covers both.
+        'boss_pushed', 'boss_push_blocked',
+        // mediation_rolloff always immediately precedes the ability_auto
+        // Quasar Mediation line, which already reports the roll-off outcome.
+        'mediation_rolloff',
+        // Lottery Ticket's Fireball sub-events are redundant with the
+        // ai_card_resolved outcome text already folded into ai_card_drawn.
+        'fireball_target', 'fireball_kill',
+    ]),
+
+    // If events[i-1] is an un-consumed ability_roll/ability_reaction, mark it
+    // consumed and return {piece, ability, dieValue} for the calling formatter
+    // to fold into its own line; otherwise null.
+    _precedingAbilityRoll(events, i, consumed) {
+        const prev = i > 0 ? events[i - 1] : null;
+        if (!prev || consumed.has(prev.seq)) return null;
+        if (prev.type !== 'ability_roll' && prev.type !== 'ability_reaction') return null;
+        consumed.add(prev.seq);
+        return { piece: prev.piece, ability: prev.ability, dieValue: prev.die_value };
+    },
+
+    // If events[i+1] is an un-consumed boss_damaged/boss_damage_blocked, mark
+    // it consumed and return a short " — Boss hit! HP x/y" style suffix.
+    _followingBossDamage(events, i, consumed) {
+        const next = i < events.length - 1 ? events[i + 1] : null;
+        if (!next || consumed.has(next.seq)) return '';
+        if (next.type === 'boss_damaged') {
+            consumed.add(next.seq);
+            const maxHp = (this.state && this.state.boss_max_hp != null) ? this.state.boss_max_hp : next.boss_hp;
+            return ` — Boss hit! HP ${next.boss_hp}/${maxHp}`;
+        }
+        if (next.type === 'boss_damage_blocked') {
+            consumed.add(next.seq);
+            return ' — Feral Goose is immune to all attacks!';
+        }
+        return '';
+    },
+
+    // Build the ordered (ascending by seq) list of {seq, turn, kind, text}
+    // battle log entries from fullEventLog, combining tightly-related event
+    // pairs (an ability_roll with the concrete effect it produced, a boss
+    // move with the kills it caused, an AI card draw with its resolution)
+    // into single detailed lines.
+    // `eventsOverride`, when passed, is used verbatim instead of the normal
+    // "Clear Log"-filtered view -- Export Log passes the full fullEventLog so
+    // the exported file always covers the complete game from turn 0, even if
+    // the on-screen log has been cleared.
+    _buildBattleLogEntries(eventsOverride) {
+        const events = eventsOverride || this.fullEventLog.filter(e => (e.seq || 0) > this.battleLogClearedBeforeSeq);
+        const consumed = new Set();
+        const entries = [];
+        const push = (e, kind, text) => entries.push({ seq: e.seq || 0, turn: e.turn, kind, text });
+
+        for (let i = 0; i < events.length; i++) {
+            const e = events[i];
+            if (!e || !e.type || consumed.has(e.seq)) continue;
+            if (this._BATTLE_LOG_SKIP_TYPES.has(e.type)) continue;
+
+            const T = `T${e.turn ?? '?'}`;
+            const moverKind = e.player === 'black' ? 'black' : 'white';
+            const who = this._sideWord(e.player) || 'White';
+
+            switch (e.type) {
+                // ── Piece moves / captures ──────────────────────────────
+                case 'move': {
+                    const mover = this._pieceRepr(e.piece);
+                    if (e.captured) {
+                        const cap = this._pieceRepr(e.captured);
+                        push(e, moverKind, `${T} ${who}: ${mover ? mover.name : 'A piece'} captured ${this._pieceText(cap, false)}`);
+                    } else {
+                        const sq = e.to_pos ? this.squareLabel(e.to_pos[0], e.to_pos[1]) : '?';
+                        push(e, moverKind, `${T} ${who}: ${this._pieceText(mover, true)} moved to ${sq}`);
+                    }
+                    break;
+                }
+                case 'ai_move': {
+                    const mover = this._pieceRepr(e.piece);
+                    if (e.captured) {
+                        const cap = this._pieceRepr(e.captured);
+                        push(e, 'black', `${T} AI: ${mover ? mover.name : 'A piece'} captured ${this._pieceText(cap, false)}`);
+                    } else {
+                        const sq = e.to_pos ? this.squareLabel(e.to_pos[0], e.to_pos[1]) : '?';
+                        push(e, 'black', `${T} AI: ${this._pieceText(mover, true)} moved to ${sq}`);
+                    }
+                    break;
+                }
+
+                // ── Bare ability attempt (only shown standalone when it
+                //    failed, or when no concrete-effect event follows it) ──
+                case 'ability_roll':
+                case 'ability_reaction': {
+                    if (!e.ability) break;
+                    if (e.result === 'fail') {
+                        push(e, moverKind, `${T} ${who}: ${e.piece} used ${e.ability} — failed`);
+                        break;
+                    }
+                    // A successful roll is immediately followed, with nothing in
+                    // between, by the concrete event describing its effect (see
+                    // every try_* ability method) -- when that's the case, defer
+                    // to it instead of also pushing a standalone line here; it
+                    // will look back at this event for the actor/ability text.
+                    // (Only "One ability per turn" is allowed, so the next event
+                    // being ability-shaped can only mean this ability's own
+                    // follow-up, never an unrelated later ability.)
+                    const next = i < events.length - 1 ? events[i + 1] : null;
+                    const NON_FOLLOWUP_TYPES = new Set([
+                        'ability_roll', 'ability_reaction', 'move', 'ai_move',
+                        'dice_roll', 'bank_die', 'pull_from_bank',
+                    ]);
+                    const hasFollowUp = next && !this._BATTLE_LOG_SKIP_TYPES.has(next.type)
+                        && !NON_FOLLOWUP_TYPES.has(next.type);
+                    if (hasFollowUp) break; // handled when the loop reaches that event
+                    push(e, moverKind, `${T} ${who}: ${e.piece} used ${e.ability}`);
+                    break;
+                }
+                case 'ability_auto': {
+                    // Quasar's Mediation (and Juice Box's copy of it) is the one
+                    // auto-triggered defense with its own richer follow-up events
+                    // -- fold them into a single line instead of three.
+                    if (e.piece === 'Quasar' && e.ability === 'Mediation') {
+                        let reversalDetail = null, capturedRepr = null;
+                        for (let k = i + 1; k < events.length && k < i + 4; k++) {
+                            if (events[k].type === 'mediation_reversal' && !consumed.has(events[k].seq)) {
+                                reversalDetail = events[k].detail;
+                                consumed.add(events[k].seq);
+                            } else if (events[k].type === 'mediation_capture' && !consumed.has(events[k].seq)) {
+                                capturedRepr = events[k].captured;
+                                consumed.add(events[k].seq);
+                            }
+                        }
+                        if (reversalDetail) {
+                            const cap = this._pieceRepr(capturedRepr);
+                            const capText = cap ? `, capturing ${this._pieceText(cap, false)} instead` : '';
+                            push(e, 'neutral', `${T} Auto: Quasar's Mediation — ${reversalDetail}${capText}`);
+                        } else {
+                            push(e, 'neutral', `${T} Auto: Quasar's Mediation — attacker wins, capture proceeds`);
+                        }
+                        break;
+                    }
+                    const bits = [e.piece, e.ability].filter(Boolean).join(' ');
+                    const detail = e.detail ? ` — ${e.detail}` : '';
+                    push(e, 'neutral', `${T} Auto: ${bits}${detail}`.trim());
+                    break;
+                }
+
+                // ── Status-effect abilities: "used X on Y (duration)" ───
+                case 'frozen': case 'suppress': case 'suppression_applied':
+                case 'sic_em': case 'sicced_applied': case 'she_tank': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const targetRepr = this._pieceRepr(e.target) || null;
+                    const targetPos = e.target_pos ? this.squareLabel(e.target_pos[0], e.target_pos[1]) : null;
+                    const targetLabel = targetRepr ? this._pieceText(targetRepr, false) : (targetPos || 'a piece');
+                    const DURATION = { frozen: '1 turn', suppress: '1 turn', suppression_applied: '1 turn',
+                                        sic_em: '1 turn', sicced_applied: '1 turn', she_tank: '1 turn' }[e.type];
+                    const abilityName = ctx ? ctx.ability : e.type.replace(/_.*/, '');
+                    const actor = ctx ? ctx.piece : (e.piece || 'A piece');
+                    push(e, moverKind, `${T} ${who}: ${actor} used ${abilityName} on ${targetLabel} (${DURATION})`);
+                    break;
+                }
+                case 'enthrall_applied': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const targetRepr = this._pieceRepr(e.target) || null;
+                    const targetLabel = targetRepr ? this._pieceText(targetRepr, false) : 'a piece';
+                    const actor = ctx ? ctx.piece : 'Signet';
+                    push(e, moverKind, `${T} ${who}: ${actor} used Enthrall on ${targetLabel} — pulled toward Signet`);
+                    break;
+                }
+                case 'blitzed': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const targetRepr = this._pieceRepr(e.target) || null;
+                    const targetLabel = targetRepr ? this._pieceText(targetRepr, false)
+                        : (e.target_pos ? this.squareLabel(e.target_pos[0], e.target_pos[1]) : 'a piece');
+                    const actor = ctx ? ctx.piece : 'Katia';
+                    push(e, moverKind, `${T} ${who}: ${actor} used Blitzed on ${targetLabel} — can skip movement this turn`);
+                    break;
+                }
+
+                // ── Boss events ──────────────────────────────────────────
+                case 'boss_summoned': {
+                    const hp = e.hp ? ` (${e.hp} HP)` : '';
+                    push(e, 'boss', `${T} Boss: ${e.boss} summoned${hp}`);
+                    break;
+                }
+                case 'boss_spawn_kill': {
+                    const p = this._pieceRepr(e.piece);
+                    push(e, 'boss', `${T} Boss: spawn destroyed ${this._pieceText(p, false)}`);
+                    break;
+                }
+                case 'boss_moved': {
+                    // Fold in every immediately-preceding, un-consumed
+                    // boss_movement_kill (the sweep's kills are logged right
+                    // before the boss_moved event that reports the move itself).
+                    const killed = [];
+                    let j = i - 1;
+                    while (j >= 0 && events[j].type === 'boss_movement_kill' && !consumed.has(events[j].seq)) {
+                        const p = this._pieceRepr(events[j].piece);
+                        if (p) killed.unshift(this._pieceText(p, false));
+                        consumed.add(events[j].seq);
+                        j--;
+                    }
+                    const killText = killed.length ? ` — killed ${killed.join(', ')}` : '';
+                    push(e, 'boss', `${T} Boss: ${e.boss} moved ${e.direction || ''}${killText}`.trim());
+                    break;
+                }
+                case 'boss_movement_kill': {
+                    // A run of these is always immediately followed by the
+                    // boss_moved event reporting the move itself (see
+                    // resolve_boss_movement / push_boss) -- defer to it so the
+                    // kill isn't rendered both standalone AND folded into that
+                    // combined line. Only push here if that pattern doesn't hold
+                    // (defensive fallback -- shouldn't normally happen).
+                    const next = i < events.length - 1 ? events[i + 1] : null;
+                    if (next && (next.type === 'boss_movement_kill' || next.type === 'boss_moved')) break;
+                    const p = this._pieceRepr(e.piece);
+                    push(e, 'boss', `${T} Boss: killed ${this._pieceText(p, false)}`);
+                    break;
+                }
+                case 'boss_no_movement':
+                    push(e, 'boss', `${T} Boss: held position`);
+                    break;
+                case 'i_need_my_space': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const actor = ctx ? ctx.piece : 'Katia';
+                    const moved = e.result && e.result.moved;
+                    const suffix = moved ? `boss pushed back ${e.result.distance} square${e.result.distance === 1 ? '' : 's'}` : 'the boss is already at the edge';
+                    push(e, moverKind, `${T} ${who}: ${actor} used I Need My Space — ${suffix}`);
+                    break;
+                }
+                case 'jug_o_boom': case 'magic_missile': case 'gorefest': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const abilityName = { jug_o_boom: 'Jug-o-Boom', magic_missile: 'Magic Missile', gorefest: 'Gorefest' }[e.type];
+                    const actor = ctx ? ctx.piece : abilityName;
+                    const dmgSuffix = e.hit ? this._followingBossDamage(events, i, consumed) : ' — Miss!';
+                    push(e, moverKind, `${T} ${who}: ${actor} used ${abilityName}${dmgSuffix || (e.hit ? ' — Boss hit!' : '')}`);
+                    break;
+                }
+                case 'boss_damaged':
+                    // Only reached standalone if no attack event preceded it.
+                    push(e, 'boss', `${T} Boss: ${e.boss} hit — HP ${e.boss_hp}/${(this.state && this.state.boss_max_hp) || e.boss_hp}`);
+                    break;
+                case 'boss_damage_blocked':
+                    push(e, 'boss', `${T} Boss: Feral Goose shrugs off the attack`);
+                    break;
+                case 'boss_defeated': {
+                    const prev = i > 0 ? events[i - 1] : null;
+                    if (prev && prev.type === 'feral_goose_puzzle_solved' && !consumed.has(prev.seq)) break; // avoid duplicate line
+                    push(e, 'boss', `${T} Boss: ${e.boss} defeated!`);
+                    break;
+                }
+                case 'feral_goose_puzzle_solved':
+                    push(e, 'boss', `${T} Boss: Feral Goose puzzle solved — defeated!`);
+                    break;
+                case 'queued_boss_spawned':
+                    push(e, 'boss', `${T} Boss: ${e.boss} spawned`);
+                    break;
+                case 'player_fallen': {
+                    const survivor = e.surviving_color ? ` — ${this._sideWord(e.surviving_color)} continues alone` : (e.detail ? ` — ${e.detail}` : '');
+                    push(e, 'boss', `${T} Boss: ${this._sideWord(e.color)} has fallen${survivor}`);
+                    break;
+                }
+                case 'iwkym_activated': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const actor = ctx ? ctx.piece : 'Samantha';
+                    push(e, moverKind, `${T} ${who}: ${actor} used IWKYM — holds the boss still`);
+                    break;
+                }
+                case 'iwkym_broken':
+                    push(e, 'boss', `${T} Boss: Katia's push broke Samantha's IWKYM hold`);
+                    break;
+                case 'iwkym_release':
+                    push(e, 'boss', `${T} Boss: Samantha releases her hold and returns to the back rank`);
+                    break;
+
+                // ── AI cards ─────────────────────────────────────────────
+                case 'ai_card_drawn': {
+                    let outcomeText = e.description || '';
+                    for (let k = i + 1; k < events.length && k < i + 12; k++) {
+                        if (events[k].type === 'ai_card_resolved' && events[k].card === e.card && !consumed.has(events[k].seq)) {
+                            outcomeText = events[k].outcome || outcomeText;
+                            consumed.add(events[k].seq);
+                            break;
+                        }
+                    }
+                    push(e, 'aicard', `${T} AI: ${e.card} drawn — ${outcomeText}`.trim());
+                    break;
+                }
+                case 'ai_card_resolved':
+                    // Only reached standalone if no matching ai_card_drawn preceded it.
+                    push(e, 'aicard', `${T} AI: ${e.card} — ${e.outcome || 'resolved'}`);
+                    break;
+                case 'ai_card_deck_empty':
+                    push(e, 'aicard', `${T} AI: summon triggered — deck empty, nothing drawn`);
+                    break;
+                case 'too_boring_eliminate': {
+                    const p = this._pieceRepr(e.piece);
+                    push(e, 'aicard', `${T} AI: Too Boring — ${this._pieceText(p, false)} permanently eliminated`);
+                    break;
+                }
+                case 'too_boring_skip':
+                    push(e, 'aicard', `${T} AI: Too Boring — ${this._sideWord(e.color)} had no pawns to eliminate`);
+                    break;
+                case 'custard_reset':
+                    push(e, 'aicard', `${T} AI: Lottery Ticket (Custard) — ${this._sideWord(e.player)} reset ${e.choice}`);
+                    break;
+                case 'matts_drunk_again_ended':
+                    push(e, 'aicard', `${T} AI: Matt's Drunk Again control swap ended`);
+                    break;
+
+                // ── Turn/dice bookkeeping ───────────────────────────────
+                case 'dice_roll':
+                    push(e, moverKind, `${T} ${who}: rolled ${(e.values || []).join(' + ')}`);
+                    break;
+                case 'bank_die':
+                    push(e, moverKind, `${T} ${who}: banked a die (${e.value})`);
+                    break;
+                case 'pull_from_bank':
+                    push(e, moverKind, `${T} ${who}: pulled the banked die`);
+                    break;
+                case 'move_blocked':
+                    push(e, 'neutral', `${T} ${e.reason || 'Move blocked'}`);
+                    break;
+
+                // ── Everything else: generic but still detailed fallback ─
+                default: {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const actor = ctx ? `${ctx.piece} used ${ctx.ability}` : (e.piece && e.ability ? `${e.piece} used ${e.ability}` : e.type.replace(/_/g, ' '));
+                    const bits = [];
+                    if (e.detail) bits.push(e.detail);
+                    if (e.target) { const t = this._pieceRepr(e.target); if (t) bits.push(this._pieceText(t, false)); }
+                    if (e.captured) { const t = this._pieceRepr(e.captured); if (t) bits.push(`captured ${this._pieceText(t, false)}`); }
+                    if (e.recruited) { const t = this._pieceRepr(e.recruited); if (t) bits.push(`recruited ${this._pieceText(t, false)}`); }
+                    if (e.converted) { const t = this._pieceRepr(e.converted); if (t) bits.push(`converted ${this._pieceText(t, false)}`); }
+                    if (e.swallowed) { const t = this._pieceRepr(e.swallowed); if (t) bits.push(`swallowed ${this._pieceText(t, false)}`); }
+                    if (e.sacrificed) { const t = this._pieceRepr(e.sacrificed); if (t) bits.push(`sacrificed ${this._pieceText(t, false)}`); }
+                    if (e.resurrected) { const t = this._pieceRepr(e.resurrected); if (t) bits.push(`resurrected ${this._pieceText(t, false)}`); }
+                    if (e.piece_resurrected) { const t = this._pieceRepr(e.piece_resurrected); if (t) bits.push(`resurrected ${this._pieceText(t, false)}`); }
+                    const suffix = bits.length ? ` — ${bits.join(', ')}` : '';
+                    push(e, moverKind, `${T} ${who}: ${actor}${suffix}`);
+                    break;
+                }
+            }
+        }
+
+        return entries;
     },
 
     renderBattleLog() {
         const el = document.getElementById('battle-log');
         if (!el) return;
-        const events = (this.state && this.state.events) || [];
 
-        const lines = [];
-        for (let i = events.length - 1; i >= 0 && lines.length < 6; i--) {
-            const line = this.describeEvent(events[i]);
-            if (line) lines.push(line);
-        }
+        const hadNewEvents = this._accumulateBattleLog();
+        this._captureStartingPositionsIfNeeded();
+        const entries = this._buildBattleLogEntries();
+
+        // Preserve the reader's scroll position across re-renders that carry no
+        // new events (e.g. a UI-only re-render); only snap back to the top
+        // (newest entry) when fresh events actually arrived.
+        const prevScrollTop = el.scrollTop;
 
         el.innerHTML = '';
-        if (lines.length === 0) {
+        if (entries.length === 0) {
             const d = document.createElement('div');
             d.className = 'battle-log-entry battle-log-empty';
             d.textContent = 'No events yet';
             el.appendChild(d);
             return;
         }
-        for (const ln of lines) {
+
+        // Newest first, with a "--- Turn N ---" divider above the first
+        // (i.e. most recent) entry of each turn.
+        let lastTurnSeen = null;
+        for (let i = entries.length - 1; i >= 0; i--) {
+            const ln = entries[i];
+            if (ln.turn !== undefined && ln.turn !== lastTurnSeen) {
+                lastTurnSeen = ln.turn;
+                const div = document.createElement('div');
+                div.className = 'battle-log-divider';
+                div.textContent = `— Turn ${ln.turn} —`;
+                el.appendChild(div);
+            }
             const d = document.createElement('div');
             d.className = `battle-log-entry battle-log-${ln.kind}`;
-            d.textContent = ln.text.length > 60 ? ln.text.slice(0, 59) + '…' : ln.text;
+            d.textContent = ln.text;
             el.appendChild(d);
         }
-        el.scrollTop = 0; // newest is on top
+
+        const newestSeq = entries.length ? entries[entries.length - 1].seq : 0;
+        if (hadNewEvents && newestSeq > this._battleLogRenderedSeq) {
+            el.scrollTop = 0; // newest is on top
+        } else {
+            el.scrollTop = prevScrollTop;
+        }
+        this._battleLogRenderedSeq = Math.max(this._battleLogRenderedSeq, newestSeq);
+    },
+
+    // ═══ EXPORT LOG ═══
+
+    _exportSectionHeader(title) {
+        return [`── ${title} ──`];
+    },
+
+    // Builds and downloads a plain-text snapshot of the whole game: metadata,
+    // rosters, starting positions, the complete (unfiltered) event log, the
+    // current board state, active status effects, and every AI card drawn.
+    exportGameLog() {
+        if (!this.state) return;
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+
+        const lines = [];
+        lines.push('═══════════════════════════════════════');
+        lines.push('  DCC CHESS — GAME LOG EXPORT');
+        lines.push('═══════════════════════════════════════');
+        lines.push(`Exported: ${now.toLocaleString()}`);
+        lines.push(`Mode: ${this.state.mode}`);
+        lines.push(`Turn: ${this.state.turn_number}`);
+        lines.push(`Game Over: ${this.state.game_over
+            ? `Yes — ${this.state.result_reason || 'unknown'}, winner: ${this.state.winner ? this._sideWord(this.state.winner) : 'Draw'}`
+            : 'No'}`);
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('ROSTERS'));
+        lines.push(`White: ${(this.state.white_pawns || []).join(', ') || '(none)'}`);
+        lines.push(`Black: ${(this.state.black_pawns || []).join(', ') || '(none)'}`);
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('STARTING POSITIONS'));
+        const start = this.startingPositions || this._snapshotBoardPositions();
+        for (const color of ['white', 'black']) {
+            lines.push(`${color === 'white' ? 'White' : 'Black'}:`);
+            const list = start[color] || [];
+            if (list.length === 0) lines.push('  (none recorded)');
+            else for (const entry of list) lines.push(`  ${entry}`);
+        }
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('COMPLETE EVENT LOG'));
+        const entries = this._buildBattleLogEntries(this.fullEventLog);
+        if (entries.length === 0) {
+            lines.push('No events recorded.');
+        } else {
+            let lastTurn = null;
+            for (const ln of entries) {
+                if (ln.turn !== lastTurn) {
+                    lastTurn = ln.turn;
+                    lines.push(`--- Turn ${ln.turn} ---`);
+                }
+                lines.push(ln.text);
+            }
+        }
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('CURRENT BOARD STATE'));
+        const boardNow = this._snapshotBoardPositions();
+        for (const color of ['white', 'black']) {
+            lines.push(`${color === 'white' ? 'White' : 'Black'}:`);
+            const list = boardNow[color] || [];
+            if (list.length === 0) lines.push('  (no pieces remaining)');
+            else for (const entry of list) lines.push(`  ${entry}`);
+        }
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('STATUS EFFECTS'));
+        const se = this.state.status_effects || { white: [], black: [] };
+        for (const color of ['white', 'black']) {
+            lines.push(`${color === 'white' ? 'White' : 'Black'}:`);
+            const list = se[color] || [];
+            if (list.length === 0) {
+                lines.push('  (none)');
+            } else {
+                for (const eff of list) {
+                    const turnsSuffix = eff.turns != null ? ` (${eff.turns} turn${eff.turns === 1 ? '' : 's'})` : '';
+                    lines.push(`  ${eff.piece} — ${eff.effect}${turnsSuffix}`);
+                }
+            }
+        }
+        lines.push('');
+
+        lines.push(...this._exportSectionHeader('AI CARDS DRAWN'));
+        const aiCards = this.fullEventLog.filter(e => e.type === 'ai_card_drawn');
+        if (aiCards.length === 0) {
+            lines.push('None drawn.');
+        } else {
+            for (const e of aiCards) {
+                lines.push(`T${e.turn} — ${e.card} (drawn by ${this._sideWord(e.player) || e.player})`);
+            }
+        }
+        lines.push(`AI Deck Remaining: ${this.state.ai_deck_remaining != null ? this.state.ai_deck_remaining : '?'}`);
+        lines.push('');
+
+        const content = lines.join('\n');
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dcc-chess-log-${dateStr}-${timeStr}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    // Floating Export Log button: visible any time the game screen is active
+    // (including placement and after the game is over -- unlike the Playtest
+    // Report button, exporting the finished game's log is exactly what a
+    // playtester wants to do right after the game ends).
+    updateExportLogButton() {
+        const btn = document.getElementById('export-log-float-btn');
+        if (!btn) return;
+        const onGameScreen = document.getElementById('game-screen')?.classList.contains('active');
+        btn.classList.toggle('hidden', !(onGameScreen && !!this.state));
     },
 
     renderDicePanel() {
@@ -3946,6 +4487,7 @@ const Game = {
             this.legalMoves = [];
             this.lastMoveFrom = null;
             this.lastMoveTo = null;
+            this.resetBattleLog();
             this.showScreen('game-screen');
             this.applyInitialSidebarState();
             this.render();
