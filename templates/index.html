@@ -123,11 +123,19 @@
                     <h3>Dungeon Dice</h3>
                     <div id="dice-display" class="dice-display"></div>
                     <div id="placement-pieces" class="ability-buttons"></div>
-                    <div class="battle-log-header">
-                        <h3 class="battle-log-title">Battle Log</h3>
-                        <button id="battle-log-clear-btn" class="battle-log-clear-btn" onclick="Game.clearBattleLogDisplay()" title="Clear the display only — the full log is still kept for the Export Log feature">Clear Log</button>
+                    <div class="battle-log-section">
+                        <div class="battle-log-header">
+                            <h3 class="battle-log-title" onclick="Game.toggleBattleLog(this)">Battle Log <span class="section-chevron">▾</span></h3>
+                            <button id="battle-log-clear-btn" class="battle-log-clear-btn" onclick="Game.clearBattleLogDisplay()" title="Clear the display only — the full log is still kept for the Export Log feature">Clear Log</button>
+                        </div>
+                        <div class="battle-log-collapse-wrap">
+                            <div id="battle-log" class="battle-log"></div>
+                            <div id="battle-log-actions" class="battle-log-actions">
+                                <button id="export-log-float-btn" class="btn-log-action hidden" onclick="Game.exportGameLog()" title="Download a complete text log of this game">📥 Export Log</button>
+                                <button id="playtest-float-btn" class="btn-log-action hidden" onclick="Game.openPlaytestForm()" title="Open the Playtest Report form (new tab)">📋 Report</button>
+                            </div>
+                        </div>
                     </div>
-                    <div id="battle-log" class="battle-log"></div>
                     <button id="undo-move-btn" class="btn btn-secondary btn-undo hidden" onclick="Game.undoMove()">Undo Last Move</button>
                 </div>
                 <!-- AI Event Panel: persistent record of the last AI Card drawn -->
@@ -224,12 +232,6 @@
 
     <!-- ═══ NOTIFICATION TOAST ═══ -->
     <div id="toast" class="toast hidden"></div>
-
-    <!-- ═══ FLOATING EXPORT LOG BUTTON (active gameplay only) ═══ -->
-    <button id="export-log-float-btn" class="export-log-float-btn hidden" onclick="Game.exportGameLog()" title="Download a complete text log of this game">📥 Export Log</button>
-
-    <!-- ═══ FLOATING PLAYTEST REPORT BUTTON (active gameplay only) ═══ -->
-    <button id="playtest-float-btn" class="playtest-float-btn hidden" onclick="Game.openPlaytestForm()" title="Open the Playtest Report form (new tab)">📋 Report</button>
 
     <script src="/static/game.js"></script>
 </body>

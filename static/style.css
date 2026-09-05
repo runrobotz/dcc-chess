@@ -2106,42 +2106,18 @@ body {
     transform: translateY(-1px);
 }
 
-/* Floating "Playtest Report" button — shown only during active gameplay */
-.playtest-float-btn {
-    position: fixed;
-    bottom: 12px;
-    left: 12px;
-    z-index: 150;
-    padding: 5px 9px;
-    font-size: calc(0.78rem + 2px);
-    font-weight: 600;
-    line-height: 1.1;
-    background: rgba(30, 30, 60, 0.9);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    cursor: pointer;
-    opacity: 0.85;
-    min-height: 44px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+/* "Export Log" + "Playtest Report" — a compact row directly below the Battle
+   Log, inside its collapsible wrapper so they hide/show together with the log. */
+.battle-log-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
 }
-.playtest-float-btn:hover {
-    opacity: 1;
-    background: var(--bg-medium);
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-    transform: translateY(-1px);
-}
-
-/* Floating "Export Log" button — sits directly above the Playtest Report
-   button, shown any time the game screen is active. */
-.export-log-float-btn {
-    position: fixed;
-    bottom: 50px;
-    left: 12px;
-    z-index: 150;
-    padding: 5px 9px;
+.btn-log-action {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 40px;
+    padding: 6px 8px;
     font-size: 0.78rem;
     font-weight: 600;
     line-height: 1.1;
@@ -2150,16 +2126,42 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
-    opacity: 0.6;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
 }
-.export-log-float-btn:hover {
-    opacity: 1;
+.btn-log-action:hover {
     background: var(--bg-medium);
     color: var(--accent-gold);
     border-color: var(--accent-gold);
     transform: translateY(-1px);
+}
+
+/* Battle Log vertical collapse — mirrors the .sidebar-section pattern */
+.battle-log-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+.battle-log-title .section-chevron {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    color: var(--accent-gold);
+    transition: transform 0.2s ease;
+}
+.battle-log-collapse-wrap {
+    overflow: hidden;
+    max-height: 500px;
+    opacity: 1;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+.battle-log-section.battle-log-collapsed .battle-log-title .section-chevron {
+    transform: rotate(-90deg);
+}
+.battle-log-section.battle-log-collapsed .battle-log-collapse-wrap {
+    max-height: 0;
+    opacity: 0;
 }
 
 .tutorial-overlay {
@@ -2380,4 +2382,28 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-dim);
+}
+
+/* ═══ MOBILE LANDSCAPE — fit the full 11×11 board without scrolling ═══ */
+@media (max-height: 500px) and (orientation: landscape) {
+    .board {
+        grid-template-columns: repeat(11, 36px);
+        grid-template-rows: repeat(11, 36px);
+    }
+    .square {
+        width: 36px;
+        height: 36px;
+    }
+    .piece {
+        width: 32px;
+        height: 32px;
+        font-size: 0.46rem;
+    }
+    .row-labels span {
+        height: 36px;
+        width: 16px;
+    }
+    .col-labels span {
+        width: 36px;
+    }
 }

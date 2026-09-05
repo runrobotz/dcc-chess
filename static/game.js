@@ -660,10 +660,21 @@ const Game = {
         if (section) section.classList.toggle('section-collapsed');
     },
 
+    // Collapse/expand the Battle Log, mirroring toggleSection() for the sidebars.
+    // The Export Log / Report action row lives inside the same collapse wrapper,
+    // so it hides and shows together with the log.
+    toggleBattleLog(headerEl) {
+        const section = headerEl.closest('.battle-log-section');
+        if (section) section.classList.toggle('battle-log-collapsed');
+    },
+
     // Default: both sidebars expanded on desktop, both collapsed on screens
-    // narrower than 768px so the board takes full width. Called when a game starts.
+    // narrower than 768px (and in mobile landscape, where vertical room is
+    // scarce) so the board takes full width. Called when a game starts.
     applyInitialSidebarState() {
-        const collapse = window.matchMedia('(max-width: 767px)').matches;
+        const collapse = window.matchMedia(
+            '(max-width: 767px), (max-height: 500px) and (orientation: landscape)'
+        ).matches;
         for (const color of ['black', 'white']) {
             const panel = document.getElementById(`${color}-player-panel`);
             if (panel) panel.classList.toggle('collapsed', collapse);
