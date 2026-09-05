@@ -2406,4 +2406,10 @@ body {
     .col-labels span {
         width: 36px;
     }
+    /* Let the whole sidebar scroll vertically instead of overflowing the short
+       landscape viewport — individual section collapse toggles still work. */
+    .player-panel {
+        max-height: 100vh;
+        overflow-y: auto;
+    }
 }
