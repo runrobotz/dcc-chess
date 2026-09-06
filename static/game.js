@@ -378,6 +378,9 @@ const Game = {
 
         panel.classList.remove('hidden');
         panel.className = `ai-event-panel ${ev.cardType}`;
+        // Never let the banner spill past its container's width.
+        panel.style.maxWidth = '100%';
+        panel.style.boxSizing = 'border-box';
         panel.innerHTML = `
             <button class="ai-event-panel-dismiss" title="Dismiss">✕</button>
             <div class="ai-event-panel-header ${ev.cardType}">
@@ -668,13 +671,13 @@ const Game = {
         if (section) section.classList.toggle('battle-log-collapsed');
     },
 
-    // Default: both sidebars expanded on desktop, both collapsed on screens
-    // narrower than 768px (and in mobile landscape, where vertical room is
-    // scarce) so the board takes full width. Called when a game starts.
+    // Default: both sidebars expanded on desktop, both collapsed on narrow
+    // portrait screens (< 768px wide) so the board takes full width. In
+    // landscape the whole UI is scaled down as one unit, so the sidebars stay
+    // expanded there — players can still collapse them manually. Called when a
+    // game starts.
     applyInitialSidebarState() {
-        const collapse = window.matchMedia(
-            '(max-width: 767px), (max-height: 500px) and (orientation: landscape)'
-        ).matches;
+        const collapse = window.matchMedia('(max-width: 767px)').matches;
         for (const color of ['black', 'white']) {
             const panel = document.getElementById(`${color}-player-panel`);
             if (panel) panel.classList.toggle('collapsed', collapse);

@@ -2384,58 +2384,17 @@ body {
     background: var(--text-dim);
 }
 
-/* ═══ MOBILE LANDSCAPE — fit the full 11×11 board without scrolling ═══ */
+/* ═══ MOBILE LANDSCAPE — scale the whole interface down as one unit ═══ */
 @media (max-height: 500px) and (orientation: landscape) {
-    /* Shrink the whole interface to 65% at once; width compensates so the
-       scaled content isn't clipped (100 / 0.65 ≈ 154). */
     #game-screen {
-        transform: scale(0.65);
+        transform: scale(0.55);
         transform-origin: top left;
-        width: 154%;
+        width: 182%;
+        height: 182%;
     }
 
     body {
         overflow-y: auto;
         overflow-x: hidden;
-    }
-
-    .game-layout {
-        align-items: flex-start;
-        gap: 4px;
-    }
-
-    .player-panel {
-        height: 100dvh;
-        max-height: 100dvh;
-        overflow-y: auto;
-        align-self: flex-start;
-        position: sticky;
-        top: 0;
-    }
-
-    /* Horizontal-scroll fallback so every square stays reachable */
-    .board-section {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-    .board {
-        grid-template-columns: repeat(11, 28px);
-        grid-template-rows: repeat(11, 28px);
-    }
-    .square {
-        width: 28px;
-        height: 28px;
-    }
-    .piece {
-        width: 24px;
-        height: 24px;
-        font-size: 0.4rem;
-    }
-    .row-labels span {
-        height: 28px;
-        width: 16px;
-    }
-    .col-labels span {
-        width: 28px;
     }
 }
