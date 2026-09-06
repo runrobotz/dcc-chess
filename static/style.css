@@ -2392,7 +2392,11 @@ body {
         transform: scale(0.65);
         transform-origin: top left;
         width: 154%;
-        overflow: hidden;
+    }
+
+    body {
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .game-layout {
