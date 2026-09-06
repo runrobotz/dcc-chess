@@ -2398,12 +2398,18 @@ body {
         overflow-x: hidden;
     }
 
-    .player-panel {
-        min-width: 160px;
-        max-width: 180px;
+    .game-layout {
+        height: auto;
+        min-height: 100vh;
+        align-items: stretch;
     }
 
-    .game-layout {
-        justify-content: center;
+    .player-panel {
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-width: 280px;
+        max-width: 300px;
+        height: auto;
+        max-height: none;
     }
 }
