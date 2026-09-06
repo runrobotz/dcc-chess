@@ -2386,21 +2386,29 @@ body {
 
 /* ═══ MOBILE LANDSCAPE — fit the full 11×11 board without scrolling ═══ */
 @media (max-height: 500px) and (orientation: landscape) {
-    /* Scale the entire game screen down in landscape */
+    /* Shrink the whole interface to 65% at once; width compensates so the
+       scaled content isn't clipped (100 / 0.65 ≈ 154). */
     #game-screen {
-        font-size: 0.7rem;
-        padding: 4px;
+        transform: scale(0.65);
+        transform-origin: top left;
+        width: 154%;
+        overflow: hidden;
     }
-    /* Make the turn header smaller */
-    #turn-header {
-        padding: 4px 8px;
-        font-size: 0.75rem;
-    }
-    /* Make the game layout tighter and don't stretch sidebars to board height */
+
     .game-layout {
-        gap: 4px;
         align-items: flex-start;
+        gap: 4px;
     }
+
+    .player-panel {
+        height: 100dvh;
+        max-height: 100dvh;
+        overflow-y: auto;
+        align-self: flex-start;
+        position: sticky;
+        top: 0;
+    }
+
     /* Horizontal-scroll fallback so every square stays reachable */
     .board-section {
         overflow-x: auto;
@@ -2425,39 +2433,5 @@ body {
     }
     .col-labels span {
         width: 28px;
-    }
-    /* Fill the full viewport height, stay compact, and scroll internally —
-       individual section collapse toggles still work. */
-    .player-panel {
-        height: 100dvh;
-        max-height: 100dvh;
-        width: 220px;
-        min-width: 220px;
-        max-width: 220px;
-        overflow-y: auto;
-        align-self: flex-start;
-        position: sticky;
-        top: 0;
-        font-size: 0.72rem;
-    }
-    /* Make ability cards smaller */
-    .ability-card {
-        padding: 4px 6px;
-        font-size: 0.68rem;
-    }
-    /* Make piece list items smaller */
-    .piece-list-item {
-        padding: 4px;
-        font-size: 0.7rem;
-    }
-    /* Make sidebar section headers smaller */
-    .sidebar-section h3 {
-        font-size: 0.78rem;
-        padding: 4px 8px;
-    }
-    /* Dice panel smaller */
-    #dice-panel {
-        font-size: 0.75rem;
-        padding: 4px;
     }
 }
