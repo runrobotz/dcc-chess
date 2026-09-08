@@ -2405,7 +2405,8 @@ body {
     }
 
     .player-panel {
-        overflow-y: auto;
+        overflow: visible !important;
+        overflow-y: auto !important;
         overflow-x: hidden;
         min-width: 280px;
         max-width: 300px;
@@ -2413,15 +2414,32 @@ body {
         max-height: none;
     }
 
-    .sidebar-section {
-        max-height: 250px;
-        overflow-y: auto;
-        flex-shrink: 0;
+    .sidebar-section.pieces-section {
+        flex: 1 1 auto !important;
+        min-height: 180px;
+        max-height: 350px;
+        overflow-y: auto !important;
     }
 
-    .sidebar-section.pieces-section {
-        min-height: 200px;
-        max-height: 350px;
-        flex: 1;
+    .sidebar-section ~ .sidebar-section {
+        flex: 0 0 auto !important;
+        max-height: 200px;
+        overflow-y: auto;
     }
+
+    .sidebar-section {
+        flex-shrink: 0;
+    }
+}
+
+/* ═══ VERSION TAG ═══ */
+#version-tag {
+    position: fixed;
+    bottom: 4px;
+    right: 8px;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.25);
+    pointer-events: none;
+    z-index: 9999;
+    font-family: monospace;
 }
