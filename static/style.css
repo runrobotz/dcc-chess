@@ -2412,4 +2412,16 @@ body {
         height: auto;
         max-height: none;
     }
+
+    .sidebar-section {
+        max-height: 250px;
+        overflow-y: auto;
+        flex-shrink: 0;
+    }
+
+    .sidebar-section.pieces-section {
+        min-height: 200px;
+        max-height: 350px;
+        flex: 1;
+    }
 }
