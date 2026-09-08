@@ -2427,6 +2427,19 @@ body {
     .sidebar-section {
         flex-shrink: 0;
     }
+
+    /* The per-section collapse wrapper (.sidebar-section > h3 + div, e.g.
+       #piece-list-*) carries `overflow: hidden; max-height: 60vh` from the base
+       CSS purely to drive the collapse animation. Under the landscape `zoom`
+       that 60vh (~234px) is far shorter than the Pieces list, so the list was
+       hard-clipped with no scrollable ancestor — invisible and untappable
+       below the cut. Let the content flow to full height here so the section's
+       own `overflow-y: auto` becomes the real scroll container. Collapsed
+       sections are excluded, so the collapse toggle still hides them. */
+    .sidebar-section:not(.section-collapsed) > h3 + div {
+        overflow: visible;
+        max-height: none;
+    }
 }
 
 /* ═══ VERSION TAG ═══ */
