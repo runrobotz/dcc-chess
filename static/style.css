@@ -2387,10 +2387,7 @@ body {
 /* ═══ MOBILE LANDSCAPE — scale the whole interface down as one unit ═══ */
 @media (max-height: 500px) and (orientation: landscape) {
     #game-screen {
-        transform: scale(0.55);
-        transform-origin: top left;
-        width: 182%;
-        height: 182%;
+        zoom: 0.55;
     }
 
     body {
