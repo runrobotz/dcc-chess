@@ -486,7 +486,9 @@ const Game = {
         const btn = document.getElementById('playtest-float-btn');
         if (!btn) return;
         const onGameScreen = document.getElementById('game-screen')?.classList.contains('active');
-        const activePhases = ['move', 'ability', 'boss_turn'];
+        // Includes 'game_over' so the Report button stays reachable after the
+        // game ends -- the old full-screen overlay used to cover it.
+        const activePhases = ['move', 'ability', 'boss_turn', 'game_over'];
         const show = !!onGameScreen && !!this.state && activePhases.includes(this.state.phase);
         btn.classList.toggle('hidden', !show);
     },
@@ -1103,6 +1105,8 @@ const Game = {
                     white_pawns: this.whitePawns,
                     black_pawns: this.blackPawns,
                     ai_enabled: !!this.gameSettings.aiSummon,
+                    pawns_enabled: !!this.gameSettings.pawnAbilities,
+                    major_abilities_enabled: !!this.gameSettings.majorAbilities,
                 }),
             });
             this.state = await resp.json();
@@ -3541,29 +3545,42 @@ const Game = {
         }
     },
 
+    // Game over is shown as a top-of-board banner (styled like the check
+    // banner) plus a "Play Again" button below the battle log's Export/Report
+    // row -- nothing overlays the board, so Export Log / Report stay reachable.
     checkGameOver() {
-        if (!this.state.game_over) {
-            document.getElementById('game-over-overlay').classList.add('hidden');
+        const banner = document.getElementById('game-over-banner');
+        const playAgainBtn = document.getElementById('play-again-btn');
+
+        if (!this.state || !this.state.game_over) {
+            if (banner) banner.classList.add('hidden');
+            if (playAgainBtn) playAgainBtn.classList.add('hidden');
             return;
         }
-        const overlay = document.getElementById('game-over-overlay');
-        const title = document.getElementById('game-over-title');
-        const msg = document.getElementById('game-over-message');
 
-        overlay.classList.remove('hidden');
-        if (this.state.winner) {
-            title.textContent = `${this.state.winner === 'white' ? 'White' : 'Black'} Wins!`;
-            msg.textContent = `Victory by ${this.state.result_reason}`;
+        let text, cls;
+        if (this.state.winner === 'white') {
+            cls = 'white-wins';
+            text = `⚔️ White Wins! Victory by ${this.state.result_reason}`;
+        } else if (this.state.winner === 'black') {
+            cls = 'black-wins';
+            text = `⚔️ Black Wins! Victory by ${this.state.result_reason}`;
         } else {
-            title.textContent = 'Draw';
+            cls = 'draw';
             if (this.state.result_reason === 'stalemate') {
-                msg.textContent = 'Stalemate — no legal moves';
+                text = '🤝 Draw — Stalemate';
             } else if (this.state.result_reason === 'both_fallen') {
-                msg.textContent = 'Both players have fallen — the boss remains undefeated.';
+                text = '🤝 Draw — Both players have fallen, the boss remains undefeated';
             } else {
-                msg.textContent = `Draw: ${this.state.result_reason}`;
+                text = `🤝 Draw — ${this.state.result_reason}`;
             }
         }
+
+        if (banner) {
+            banner.textContent = text;
+            banner.className = `game-over-banner ${cls}`;
+        }
+        if (playAgainBtn) playAgainBtn.classList.remove('hidden');
     },
 
     // ═══ BOARD INTERACTION ═══
@@ -4533,7 +4550,8 @@ const Game = {
     // ═══ NAVIGATION ═══
 
     backToStart() {
-        document.getElementById('game-over-overlay').classList.add('hidden');
+        document.getElementById('game-over-banner')?.classList.add('hidden');
+        document.getElementById('play-again-btn')?.classList.add('hidden');
         this.state = null;
         this.showScreen('start-screen');
     },
@@ -4646,6 +4664,8 @@ const Game = {
                     white_pawns: whitePawns,
                     black_pawns: blackPawns,
                     ai_enabled: !!this.gameSettings.aiSummon,
+                    pawns_enabled: !!this.gameSettings.pawnAbilities,
+                    major_abilities_enabled: !!this.gameSettings.majorAbilities,
                     ...(this.devSettings && this.devSettings.boardLayout
                         ? { board_layout: this.devSettings.boardLayout }
                         : {}),

@@ -202,6 +202,12 @@ class GameState:
         # Game Settings (start-screen ⚙️ modal): when False, dice rolls never
         # trigger an AI Card draw. Set from /new_game's `ai_enabled` body field.
         self.ai_summon_enabled: bool = True
+        # Game Settings: global ability toggles. When False, that whole class of
+        # ability cannot be activated by EITHER player -- the frontend hides the
+        # human's cards, and the AI (smart_abilities / random_abilities) skips
+        # the matching pieces. Set from /new_game's body fields.
+        self.pawns_enabled: bool = True
+        self.major_abilities_enabled: bool = True
 
         # System Reset -- no abilities activatable by anyone, for the rest of this turn
         self.system_reset_active: bool = False
@@ -714,6 +720,28 @@ class GameState:
         self.log_event("ability_auto", piece="Elle McGib", ability="Frozen Immunity",
                        result="success", detail="Capture negated")
 
+    def _piece_is_checking_opponent_carl(self, piece_pos: Tuple[int, int], piece: Piece) -> bool:
+        """True when the piece at `piece_pos` is currently delivering check to the
+        OPPONENT's Carl -- i.e. lifting it off the board would relieve that check.
+
+        Quasar's Mediation cannot be used to defend such a piece: saving an
+        attacker that is threatening the enemy Carl would otherwise let it
+        capture Carl on the following move.
+        """
+        victim_color = piece.color.opponent
+        if self.board.find_king(victim_color) is None:
+            return False
+        if not is_in_check(self.board, victim_color):
+            return False
+        pr, pc = piece_pos
+        saved = self.board.get(pr, pc)
+        self.board.set(pr, pc, None)
+        try:
+            still_in_check = is_in_check(self.board, victim_color)
+        finally:
+            self.board.set(pr, pc, saved)
+        return not still_in_check
+
     def attempt_capture(
         self, attacker_pos: Tuple[int, int], defender_pos: Tuple[int, int]
     ) -> str:
@@ -772,13 +800,16 @@ class GameState:
             defender.is_pawn and defender.pawn_name == "Juice Box"
             and "Mediation" in self.juice_box_captured.get(self.juice_box_key(defender), [])
         )
-        # Mediation can never protect Carl himself, and cannot fire while the
-        # defending side's Carl is in check.
+        # Mediation can never protect Carl himself, cannot fire while the
+        # defending side's Carl is in check, and cannot rescue a piece that is
+        # itself currently checking the enemy Carl (that would just let it take
+        # Carl next move).
         mediation_available = (
             (quasar_alive or juice_box_has_mediation)
             and self.quasar_uses[defender.color] < 2
             and not defender.is_king
             and not is_in_check(self.board, defender.color)
+            and not self._piece_is_checking_opponent_carl(defender_pos, defender)
         )
         if mediation_available:
             self.quasar_uses[defender.color] += 1
@@ -2705,6 +2736,10 @@ class GameState:
             return None
         # Cannot be declared while the defending side's Carl is in check.
         if is_in_check(self.board, defender.color):
+            return None
+        # Cannot rescue a piece that is itself currently checking the enemy Carl
+        # -- saving it would just let it capture Carl on the next move.
+        if self._piece_is_checking_opponent_carl(defender_pos, defender):
             return None
 
         # Check uses remaining

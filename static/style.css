@@ -470,6 +470,41 @@ body.light-theme .board .square.dark { background: #8b7355; }
     letter-spacing: 0.02em;
 }
 
+/* Game over banner (top of board — same shape as the check banner, colored
+   by result: gold for a White win, red for a Black win, grey for a draw).
+   Stays visible until "Play Again" is clicked. */
+.game-over-banner {
+    font-size: 1.35rem;
+    font-weight: 800;
+    text-align: center;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+}
+.game-over-banner.white-wins {
+    background: var(--accent-gold);
+    color: var(--bg-darkest);
+}
+.game-over-banner.black-wins {
+    background: var(--accent-red);
+    color: #fff;
+}
+.game-over-banner.draw {
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+/* "Play Again" — full width of the battle log container, below the Export /
+   Report row. Only shown once the game is over. */
+.play-again-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 14px;
+    font-size: 1.05rem;
+}
+
 /* Matt's Drunk Again swap banner */
 .swap-banner {
     background: linear-gradient(90deg, #7c3aed, #db2777);

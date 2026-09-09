@@ -567,6 +567,11 @@ def new_game():
     gs = GameState(board)
     gs.init_pawn_ability_tracking()
     gs.ai_summon_enabled = bool(data.get("ai_enabled", True))
+    # Game Settings toggles are global -- these gate ability use for BOTH players
+    # (the frontend hides the human's ability cards; the AI reads these in
+    # smart_abilities / random_abilities to skip the matching ability activation).
+    gs.pawns_enabled = bool(data.get("pawns_enabled", True))
+    gs.major_abilities_enabled = bool(data.get("major_abilities_enabled", True))
 
     dice = DungeonDice()
 

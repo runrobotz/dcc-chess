@@ -67,6 +67,12 @@ def random_abilities(game_state: GameState, dice: DungeonDice, color: Color):
         if game_state.is_piece_suppressed(row, col):
             continue
 
+        # Global Game Settings toggles apply to the AI too.
+        if piece.is_pawn and not getattr(game_state, "pawns_enabled", True):
+            continue
+        if not piece.is_pawn and not getattr(game_state, "major_abilities_enabled", True):
+            continue
+
         # Major piece abilities
         if piece.piece_type == PieceType.CARL:
             _try_carl_abilities(game_state, dice, (row, col), piece)
@@ -429,6 +435,12 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
 
     for row, col, piece in pieces:
         if game_state.is_piece_suppressed(row, col):
+            continue
+
+        # Global Game Settings toggles apply to the AI too.
+        if piece.is_pawn and not getattr(game_state, "pawns_enabled", True):
+            continue
+        if not piece.is_pawn and not getattr(game_state, "major_abilities_enabled", True):
             continue
 
         if piece.piece_type == PieceType.MONGO:

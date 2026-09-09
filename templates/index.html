@@ -95,6 +95,7 @@
                     <button id="dev-draw-ai-card-btn" class="btn btn-secondary dev-tool-btn hidden" onclick="Game.devDrawAiCard()">DEV: Draw AI Card</button>
                 </div>
                 <div id="check-banner" class="check-banner hidden">⚠️ CARL IS IN CHECK — You must move Carl or block the threat!</div>
+                <div id="game-over-banner" class="game-over-banner hidden"></div>
                 <div id="swap-banner" class="swap-banner hidden"></div>
                 <div id="fallen-banner" class="fallen-banner hidden"></div>
                 <div id="boss-health-bar" class="boss-health-bar hidden"></div>
@@ -136,6 +137,7 @@
                                 <button id="export-log-float-btn" class="btn-log-action hidden" onclick="Game.exportGameLog()" title="Download a complete text log of this game">📥 Export Log</button>
                                 <button id="playtest-float-btn" class="btn-log-action hidden" onclick="Game.openPlaytestForm()" title="Open the Playtest Report form (new tab)">📋 Report</button>
                             </div>
+                            <button id="play-again-btn" class="btn btn-primary play-again-btn hidden" onclick="Game.backToStart()">Play Again</button>
                         </div>
                     </div>
                     <button id="undo-move-btn" class="btn btn-secondary btn-undo hidden" onclick="Game.undoMove()">Undo Last Move</button>
@@ -166,15 +168,6 @@
                     <div id="captured-pieces-white" class="captured-pieces"></div>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- ═══ GAME OVER OVERLAY ═══ -->
-    <div id="game-over-overlay" class="overlay hidden">
-        <div class="overlay-content">
-            <h2 id="game-over-title">Game Over</h2>
-            <p id="game-over-message"></p>
-            <button class="btn btn-primary" onclick="Game.backToStart()">Play Again</button>
         </div>
     </div>
 
@@ -249,7 +242,7 @@
     <div id="toast" class="toast hidden"></div>
 
     <!-- ═══ VERSION TAG (subtle, always visible) — bump manually on each push ═══ -->
-    <div id="version-tag">v0.54</div>
+    <div id="version-tag">v0.55</div>
 
     <script src="/static/game.js"></script>
 </body>
