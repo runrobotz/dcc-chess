@@ -714,7 +714,8 @@ const Game = {
     // ═══ GAME SETTINGS ═══
 
     loadGameSettings() {
-        let lightTheme = true;
+        // First visit (no stored value) defaults to the dark dungeon theme.
+        let lightTheme = false;
         try {
             const saved = localStorage.getItem(this.LIGHT_THEME_STORAGE_KEY);
             if (saved !== null) lightTheme = saved === 'true';
