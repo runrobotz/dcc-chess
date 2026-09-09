@@ -443,23 +443,6 @@ def test_titan_stride():
     print("  ✓ test_titan_stride passed")
 
 
-def test_elle_mcgib_frozen_immunity():
-    """Elle McGib should survive one capture attempt."""
-    b = make_empty_board()
-    place(b, 4, 4, PieceType.PAWN, Color.WHITE, "Elle McGib")
-    place(b, 4, 5, PieceType.SAMANTHA, Color.BLACK)
-    place(b, 0, 0, PieceType.CARL, Color.WHITE)
-    place(b, 9, 9, PieceType.CARL, Color.BLACK)
-
-    gs = GameState(b)
-    gs.pawn_ability_uses["white_Elle McGib"] = {"Frozen Immunity": 1}
-
-    result = gs.attempt_capture((4, 5), (4, 4))
-    assert result == "defended_elle", f"Should be defended, got {result}"
-    assert b.get(4, 4) is not None, "Elle should still be on the board"
-    print("  ✓ test_elle_mcgib_frozen_immunity passed")
-
-
 def test_mordecai_haunt():
     """Mordecai's Haunt should leave ghost token on capture."""
     b = make_empty_board()
@@ -470,7 +453,8 @@ def test_mordecai_haunt():
     captured = Piece(PieceType.PAWN, Color.BLACK, pawn_name="Mordecai")
     gs.process_post_capture(captured, (4, 4), attacker, (4, 5))
     assert (4, 4) in gs.ghost_tokens, "Ghost token should be placed"
-    assert gs.ghost_tokens[(4, 4)] == 2
+    assert gs.ghost_tokens[(4, 4)] == 3
+    assert gs.mordecai_respawn_pending[0]["turns_left"] == 3
     print("  ✓ test_mordecai_haunt passed")
 
 
@@ -622,7 +606,6 @@ def run_all():
     test_recruit()
     test_smoke_bomb()
     test_titan_stride()
-    test_elle_mcgib_frozen_immunity()
     test_mordecai_haunt()
 
     print("\n[Status Effects]")

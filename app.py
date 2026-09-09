@@ -854,8 +854,6 @@ def _resolve_capture_result(gs, cap_result, from_pos, to_pos):
         if captured:
             attacker = gs.board.get(*to_pos)
             gs.process_post_capture(captured, to_pos, attacker, from_pos)
-    elif cap_result == "defended_elle":
-        gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
     elif cap_result == "defended_orthrus":
         gs.log_event("move_blocked", reason="Orthrus can only be captured by major pieces")
     elif cap_result == "defended_quasar":
@@ -975,8 +973,6 @@ def make_move():
         return jsonify({"error": "Game is over"}), 400
     if game_data.get("phase") != "ability":
         return jsonify({"error": "Not in ability phase - must roll dice first"}), 400
-    if game_data.get("pending_elle_decision"):
-        return jsonify({"error": "Resolve the Elle McGib Frozen Immunity decision first"}), 400
 
     data = request.get_json(force=True)
     fr = data.get("from_row")
@@ -1021,16 +1017,6 @@ def make_move():
         and from_pos == piece_at_from.orthrus_head_pos
     )
 
-    if (not is_orthrus_move and target is not None and target.is_pawn
-            and target.pawn_name == "Elle McGib" and gs.elle_immunity_available(to_pos)):
-        # Pause and let Elle's owner decide whether to spend her once-per-game
-        # immunity, instead of it auto-triggering at the first opportunity.
-        # Nothing has mutated yet, so no undo snapshot is taken here.
-        game_data["pending_elle_decision"] = {"from_pos": list(from_pos), "to_pos": list(to_pos)}
-        resp = build_game_state_response()
-        resp["pending_elle_decision"] = game_data["pending_elle_decision"]
-        return jsonify(resp)
-
     if is_orthrus_move:
         # Orthrus never captures -- his own moves (forward or rotate) always
         # land on an empty square, and shift/pivot his 2-square body.
@@ -1047,45 +1033,6 @@ def make_move():
     else:
         _snapshot_for_undo()
         captured = gs.board.make_move(from_pos, to_pos)
-
-    _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured)
-    return jsonify(build_game_state_response())
-
-
-@app.route("/resolve_elle_decision", methods=["POST"])
-def resolve_elle_decision():
-    """Resolve a paused Elle McGib Frozen Immunity decision.
-
-    Body: {use_immunity: bool}
-    """
-    gs = game_data.get("game_state")
-    if gs is None:
-        return jsonify({"error": "No game in progress"}), 400
-    pending = game_data.get("pending_elle_decision")
-    if not pending:
-        return jsonify({"error": "No pending Elle McGib decision"}), 400
-
-    data = request.get_json(force=True)
-    use_immunity = bool(data.get("use_immunity"))
-
-    from_pos = tuple(pending["from_pos"])
-    to_pos = tuple(pending["to_pos"])
-    _snapshot_for_undo()
-    game_data["pending_elle_decision"] = None
-    color = gs.current_player
-
-    if use_immunity:
-        gs.consume_elle_immunity(to_pos)
-        gs.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
-        captured = None
-    else:
-        # Player declined -- let this one capture attempt through without
-        # re-triggering the immunity, but leave it available for next time.
-        defender = gs.board.get(*to_pos)
-        key = f"{defender.color.value}_{to_pos[0]}_{to_pos[1]}"
-        gs.elle_immunity_skip_once.add(key)
-        cap_result = gs.attempt_capture(from_pos, to_pos)
-        captured = _resolve_capture_result(gs, cap_result, from_pos, to_pos)
 
     _finish_move_and_check_game_over(gs, color, from_pos, to_pos, captured)
     return jsonify(build_game_state_response())
@@ -2239,8 +2186,6 @@ def _play_ai_turn():
             if captured:
                 attacker = gs.board.get(*to_pos)
                 gs.process_post_capture(captured, to_pos, attacker, from_pos)
-        elif cap_result == "defended_elle":
-            pass
         elif cap_result == "defended_orthrus":
             pass
         elif cap_result == "defended_quasar":

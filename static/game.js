@@ -1771,15 +1771,6 @@ const Game = {
                 this.showAutoAbilityNotification(event);
             } else if (event.type === 'mediation_reversal') {
                 this.showMediationReversalNotification(event);
-            } else if (event.type === 'move_blocked') {
-                if (event.reason === 'Elle McGib Frozen Immunity') {
-                    this.showAutoAbilityNotification({
-                        piece: 'Elle McGib',
-                        ability: 'Frozen Immunity',
-                        result: 'success',
-                        detail: 'Capture negated'
-                    });
-                }
             } else if (event.type === 'ai_summon_trigger') {
                 // Game Settings: "AI Summon" off -- ignore the trigger entirely.
                 // (The server also suppresses it via `ai_enabled`; this is a guard
@@ -3723,15 +3714,6 @@ const Game = {
             this.selectedSquare = null;
             this.legalMoves = [];
 
-            if (data.pending_elle_decision) {
-                // Capture is paused -- Elle's owner must decide whether to spend
-                // her once-per-game Frozen Immunity before the move completes.
-                this._pendingElleMove = { fromRow, fromCol, toRow, toCol };
-                this.render();
-                this.showElleDecisionPrompt();
-                return;
-            }
-
             this.lastMoveFrom = [fromRow, fromCol];
             this.lastMoveTo = [toRow, toCol];
             this.render();
@@ -3739,83 +3721,6 @@ const Game = {
             await this.runTurnTransition();
         } catch (e) {
             this.showToast('Move failed', 'fail');
-        }
-    },
-
-    showElleDecisionPrompt() {
-        const existing = document.getElementById('elle-decision-prompt');
-        if (existing) existing.remove();
-
-        const overlay = document.createElement('div');
-        overlay.id = 'elle-decision-prompt';
-        overlay.className = 'overlay';
-
-        const content = document.createElement('div');
-        content.className = 'overlay-content';
-
-        const title = document.createElement('h2');
-        title.textContent = '⚡ Elle McGib — Frozen Immunity';
-
-        const msg = document.createElement('p');
-        msg.textContent = 'Automatically prevent this capture attempt?';
-
-        const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display: flex; gap: 12px; justify-content: center;';
-
-        const yesBtn = document.createElement('button');
-        yesBtn.className = 'btn btn-primary';
-        yesBtn.textContent = 'YES';
-        yesBtn.addEventListener('click', () => this.resolveElleDecision(true));
-
-        const noBtn = document.createElement('button');
-        noBtn.className = 'btn btn-secondary';
-        noBtn.textContent = 'NO';
-        noBtn.addEventListener('click', () => this.resolveElleDecision(false));
-
-        btnRow.appendChild(yesBtn);
-        btnRow.appendChild(noBtn);
-
-        content.appendChild(title);
-        content.appendChild(msg);
-        content.appendChild(btnRow);
-        overlay.appendChild(content);
-        document.body.appendChild(overlay);
-    },
-
-    async resolveElleDecision(useImmunity) {
-        const prompt = document.getElementById('elle-decision-prompt');
-        if (prompt) prompt.remove();
-
-        const pendingMove = this._pendingElleMove;
-        this._pendingElleMove = null;
-
-        try {
-            const resp = await fetch('/resolve_elle_decision', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ use_immunity: useImmunity }),
-            });
-            const data = await resp.json();
-            if (data.error) {
-                this.showToast(data.error, 'fail');
-                return;
-            }
-            this.state = data;
-            this.selectedSquare = null;
-            this.legalMoves = [];
-            if (pendingMove) {
-                this.lastMoveFrom = [pendingMove.fromRow, pendingMove.fromCol];
-                this.lastMoveTo = [pendingMove.toRow, pendingMove.toCol];
-            }
-            this.render();
-            this.showToast(
-                useImmunity ? "Frozen Immunity negated the capture!" : 'Capture proceeds — immunity held in reserve',
-                useImmunity ? 'success' : ''
-            );
-            // Resolving the Elle decision completes the move, which ended the turn.
-            await this.runTurnTransition();
-        } catch (e) {
-            this.showToast('Failed to resolve decision', 'fail');
         }
     },
 
@@ -4537,9 +4442,6 @@ const Game = {
             this.legalMoves = [];
             this.lastMoveFrom = null;
             this.lastMoveTo = null;
-            this._pendingElleMove = null;
-            const ellePrompt = document.getElementById('elle-decision-prompt');
-            if (ellePrompt) ellePrompt.remove();
             this.render();
             this.showToast('Move undone', 'success');
         } catch (e) {

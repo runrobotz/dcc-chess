@@ -304,9 +304,13 @@ def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
     """Pick a move using positional priorities.
 
     Priority 1: Checkmate — always take it.
-    Priority 2: Capture highest-value enemy piece.
-    Priority 3: Avoid squares attacked by lower/equal-value enemies (disabled after turn 80).
-    Priority 4: Advance toward opponent's side.
+    Priority 2: A move that delivers check AND captures — best victim value.
+    Priority 3: Capture a high-value piece (>= Samantha) — outranks a bare check.
+    Priority 4: Deliver check — preferred over capturing a low-value piece (pawn,
+                Mongo, Katia). Among checking moves, one that also grabs material wins.
+    Priority 5: Any remaining capture — sorted by victim value descending.
+    Priority 6: Avoid squares attacked by lower/equal-value enemies (disabled after turn 80).
+    Priority 7: Advance toward opponent's side.
 
     After turn 80: aggression escalation — skip safety filter, take any capture.
     After turn 150: add randomness to break repetition loops.
@@ -318,12 +322,18 @@ def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
     desperate = turn >= 80
     very_desperate = turn >= 150
 
+    # Value at/above which a capture is worth more than delivering check.
+    # Below it (pawn, Mongo, Katia) a checking move is preferred instead --
+    # this is what stops the AI endlessly recapturing a respawning pawn while
+    # it already has the enemy Carl boxed in.
+    CHECK_BEATS_CAPTURE_BELOW = PIECE_VALUES[PieceType.SAMANTHA]  # 5
+
     # Priority 1: Checkmate
     for move in legal_moves:
         if _is_checkmate_move(board, move, opponent):
             return move
 
-    # Priority 2: Captures — sorted by victim value descending
+    # Classify every move: capture value (0 if not a capture) + whether it checks.
     captures = []
     non_captures = []
     for move in legal_moves:
@@ -334,6 +344,36 @@ def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
         else:
             non_captures.append(move)
 
+    checking_moves = [m for m in legal_moves if _is_check_move(board, m, opponent)]
+    checking_set = set(checking_moves)
+
+    # Priority 2: a checking move that also captures — take the richest one.
+    checking_captures = sorted(
+        [(m, v) for (m, v) in captures if m in checking_set],
+        key=lambda x: x[1], reverse=True,
+    )
+    if checking_captures:
+        return checking_captures[0][0]
+
+    # Priority 3: a high-value capture outranks a bare (non-capturing) check.
+    high_value_captures = sorted(
+        [(m, v) for (m, v) in captures if v >= CHECK_BEATS_CAPTURE_BELOW],
+        key=lambda x: x[1], reverse=True,
+    )
+    if high_value_captures:
+        return high_value_captures[0][0]
+
+    # Priority 4: deliver check — preferred over capturing a low-value piece.
+    # Prefer a checking move that also picks up material along the way.
+    if checking_moves:
+        def _cap_value(m):
+            (_, _), (tr, tc) = m
+            t = board.get(tr, tc)
+            return PIECE_VALUES.get(t.piece_type, 1) if (t is not None and t.color == opponent) else 0
+        checking_moves.sort(key=_cap_value, reverse=True)
+        return checking_moves[0]
+
+    # Priority 5: remaining captures (all low-value now) — richest first.
     if captures:
         captures.sort(key=lambda x: x[1], reverse=True)
         return captures[0][0]
@@ -389,6 +429,31 @@ def _is_checkmate_move(board: Board, move: Tuple, opponent: Color) -> bool:
 
     captured = board.make_move((fr, fc), (tr, tc))
     result = is_checkmate(board, opponent)
+    board.undo_move((fr, fc), (tr, tc), captured, is_ep, old_ep,
+                    old_moved, is_promo, piece if is_promo else None)
+    return result
+
+
+def _is_check_move(board: Board, move: Tuple, opponent: Color) -> bool:
+    """Test if a move leaves the opponent's Carl in check (but not mate)."""
+    (fr, fc), (tr, tc) = move
+    piece = board.get(fr, fc)
+    if piece is None:
+        return False
+    # A missing king makes is_in_check() report True for every move -- guard so
+    # a kingless boss-co-op opponent doesn't make the AI think it checks always.
+    if board.find_king(opponent) is None:
+        return False
+
+    old_ep = board.en_passant_target
+    old_moved = piece.has_moved
+    target = board.get(tr, tc)
+    is_ep = (piece.is_pawn and (tr, tc) == board.en_passant_target and target is None)
+    promotion_rank = BOARD_SIZE - 1 if piece.color == Color.WHITE else 0
+    is_promo = piece.is_pawn and tr == promotion_rank
+
+    captured = board.make_move((fr, fc), (tr, tc))
+    result = is_in_check(board, opponent)
     board.undo_move((fr, fc), (tr, tc), captured, is_ep, old_ep,
                     old_moved, is_promo, piece if is_promo else None)
     return result

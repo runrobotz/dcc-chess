@@ -87,12 +87,6 @@ class Game:
                 if captured:
                     attacker = self.board.get(*to_pos)
                     self.state.process_post_capture(captured, to_pos, attacker, from_pos)
-            elif cap_result == "defended_elle":
-                # Elle survived — attacker doesn't move to that square
-                # Move attacker back (they attempted but failed)
-                self.state.log_event("move_blocked", reason="Elle McGib Frozen Immunity")
-                # Still counts as the player's move for the turn
-                pass
             elif cap_result == "defended_quasar":
                 # Quasar mediation — attacker is captured instead!
                 attacker = self.board.get(*from_pos)

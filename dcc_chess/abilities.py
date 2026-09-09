@@ -97,8 +97,13 @@ class GameState:
         # Zev — Biggest Fan: +1 to all dice next turn
         self.zev_buff_active: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         
-        # Mordecai — Manager Benefit: ghost zones and respawn
-        self.mordecai_respawn_pending: List[Dict] = []  # [{piece: Piece, turns_left: int, color: Color}]
+        # Mordecai — Manager Benefit: ghost zones and respawn.
+        # `turns_left` counts down 3 -> 0 over the 3 full turns that follow the
+        # capture. The end_turn() that fires on the capturing player's own turn
+        # must NOT count (no full turn has elapsed yet), so both the respawn
+        # entry and its ghost square get one `skip_first_tick` grace tick.
+        self.mordecai_respawn_pending: List[Dict] = []  # [{piece, turns_left, color, skip_first_tick}]
+        self.mordecai_ghost_fresh: Set[Tuple[int, int]] = set()  # ghost squares awaiting their grace tick
         
         # Elle McGib — Frozen: frozen pieces
         self.frozen_pieces: Set[Tuple[int, int]] = set()  # active this turn
@@ -165,13 +170,6 @@ class GameState:
         self.enthralled_pending: Dict[Tuple[int, int], Tuple[int, int]] = {}
         self.succubus_pending: Set[Tuple[int, int]] = set()
 
-        # Elle McGib — Frozen Immunity one-time-use tracking (attempt_capture reads this)
-        self.elle_immunity_used: Dict[str, bool] = {}
-        # Keys the player has explicitly declined to auto-trigger for the capture
-        # currently being resolved (set by /resolve_elle_decision, consumed by the
-        # very next attempt_capture call so it doesn't loop back and re-trigger).
-        self.elle_immunity_skip_once: Set[str] = set()
-
         # Captured pieces (ability methods use self.captured_pieces in addition to board.captured)
         self.captured_pieces: Dict[Color, List] = {Color.WHITE: [], Color.BLACK: []}
 
@@ -217,9 +215,9 @@ class GameState:
         self.insta_kill_card: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
 
         # Lottery Ticket (Custard) / Too Boring -- a card that needs the player to pick a
-        # target pauses here instead of resolving immediately. Mirrors the pending_elle_decision
-        # pattern: normal gameplay is blocked (see route guards in app.py) until it's resolved
-        # via /ai_card/custard_choice or /ai_card/too_boring_choice.
+        # target pauses here instead of resolving immediately: normal gameplay is
+        # blocked (see route guards in app.py) until it's resolved via
+        # /ai_card/custard_choice or /ai_card/too_boring_choice.
         self.pending_ai_card_decision: Optional[Dict] = None
 
         # Matt's Drunk Again -- while active, each player controls the OTHER color's
@@ -473,9 +471,14 @@ class GameState:
         # Raul's Group Climax buff is scoped to the single turn it applied on.
         self.group_climax_active = {Color.WHITE: False, Color.BLACK: False}
 
-        # Tick ghost tokens
+        # Tick ghost tokens. A Mordecai ghost square placed this turn skips its
+        # first tick -- the capture turn's own end_turn() shouldn't burn a turn
+        # off it (keeps it in sync with the 3-full-turn respawn timer).
         expired_ghosts = []
         for pos, turns in self.ghost_tokens.items():
+            if pos in self.mordecai_ghost_fresh:
+                self.mordecai_ghost_fresh.discard(pos)
+                continue
             self.ghost_tokens[pos] = turns - 1
             if self.ghost_tokens[pos] <= 0:
                 expired_ghosts.append(pos)
@@ -536,9 +539,12 @@ class GameState:
                         self.log_event("pawn_respawn", piece=repr(piece), pos=(nr, nc))
                         break
         
-        # Mordecai respawn
+        # Mordecai respawn. Skip the grace tick on the capture turn's own
+        # end_turn() so exactly 3 full turns pass between death and respawn.
         mordecai_respawned = []
         for i, mord_data in enumerate(self.mordecai_respawn_pending):
+            if mord_data.pop("skip_first_tick", False):
+                continue
             mord_data["turns_left"] -= 1
             if mord_data["turns_left"] <= 0:
                 mordecai_respawned.append(i)
@@ -629,9 +635,12 @@ class GameState:
         """Check if a piece at this position cannot be captured."""
         if (row, col) in self.iron_wall_pieces:
             return True
-        # Garret is indestructible — cannot be captured by normal means
+        # Garret is indestructible — cannot be captured by normal means.
+        # Skipped when pawn abilities are disabled via Game Settings: Garret
+        # then behaves as a normal capturable pawn.
         piece = self.board.get(row, col)
-        if piece and piece.is_pawn and piece.pawn_name == "Garret":
+        if (self.pawns_enabled and piece and piece.is_pawn
+                and piece.pawn_name == "Garret"):
             return True
         return False
 
@@ -668,14 +677,20 @@ class GameState:
             # board highlights only non-capture destinations.
             if self.boss_active and target is not None:
                 continue
-            # Garret cannot capture enemy pieces
-            if piece.is_pawn and piece.pawn_name == "Garret" and target is not None:
+            # Garret cannot capture enemy pieces (skipped when pawn abilities
+            # are disabled -- he then moves and captures as a normal pawn).
+            if (self.pawns_enabled and piece.is_pawn
+                    and piece.pawn_name == "Garret" and target is not None):
                 continue
-            # Orthrus cannot capture pieces
-            if piece.is_pawn and piece.pawn_name == "Orthrus" and target is not None:
+            # Orthrus cannot capture pieces (skipped when pawn abilities are
+            # disabled -- he is then treated as a normal capturable pawn).
+            if (self.pawns_enabled and piece.is_pawn
+                    and piece.pawn_name == "Orthrus" and target is not None):
                 continue
-            # Only major pieces can capture Orthrus
-            if target and target.is_pawn and target.pawn_name == "Orthrus" and piece.is_pawn:
+            # Only major pieces can capture Orthrus (skipped when pawn abilities
+            # are disabled).
+            if (self.pawns_enabled and target and target.is_pawn
+                    and target.pawn_name == "Orthrus" and piece.is_pawn):
                 continue
             filtered.append(((fr, fc), (tr, tc)))
 
@@ -688,37 +703,6 @@ class GameState:
         return enthrall_filtered if enthrall_filtered else filtered
 
     # ── Capture Interception ──────────────────────────────────────
-
-    def elle_immunity_available(self, defender_pos: Tuple[int, int]) -> bool:
-        """Check (without consuming) whether the Elle McGib at defender_pos can
-        still use her once-per-game Frozen Immunity. Used to decide whether to
-        pause and prompt her owner before resolving a capture against her.
-        """
-        dr, dc = defender_pos
-        defender = self.board.get(dr, dc)
-        if not (defender and defender.is_pawn and defender.pawn_name == "Elle McGib"):
-            return False
-        key = f"{defender.color.value}_{dr}_{dc}"
-        if key in self.elle_immunity_used:
-            return False
-        pawn_key = f"{defender.color.value}_Elle McGib"
-        uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
-        return uses > 0
-
-    def consume_elle_immunity(self, defender_pos: Tuple[int, int]):
-        """Mark Elle McGib's Frozen Immunity as used for the rest of the game."""
-        dr, dc = defender_pos
-        defender = self.board.get(dr, dc)
-        if defender is None:
-            return
-        key = f"{defender.color.value}_{dr}_{dc}"
-        pawn_key = f"{defender.color.value}_Elle McGib"
-        uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
-        self.elle_immunity_used[key] = True
-        if pawn_key in self.pawn_ability_uses:
-            self.pawn_ability_uses[pawn_key]["Frozen Immunity"] = uses - 1
-        self.log_event("ability_auto", piece="Elle McGib", ability="Frozen Immunity",
-                       result="success", detail="Capture negated")
 
     def _piece_is_checking_opponent_carl(self, piece_pos: Tuple[int, int], piece: Piece) -> bool:
         """True when the piece at `piece_pos` is currently delivering check to the
@@ -747,7 +731,7 @@ class GameState:
     ) -> str:
         """Process capture with possible interceptions.
 
-        Returns: "captured", "defended_quasar", "defended_elle", "defended_narrators_favor", "defended_garret"
+        Returns: "captured", "defended_quasar", "defended_orthrus", "defended_garret"
         """
         dr, dc = defender_pos
         defender = self.board.get(dr, dc)
@@ -755,8 +739,13 @@ class GameState:
         if defender is None:
             return "captured"
 
+        # Every pawn-ability capture interception below (Garret, Orthrus, Quasar)
+        # is skipped when pawn abilities are disabled via Game Settings -- those
+        # pawns are then treated as ordinary capturable pieces.
+        pawn_abilities_on = self.pawns_enabled
+
         # Check Garret's Indestructible (auto-trigger)
-        if defender.is_pawn and defender.pawn_name == "Garret":
+        if pawn_abilities_on and defender.is_pawn and defender.pawn_name == "Garret":
             # Garret can only be captured by enemy Carl or Blood Magic
             if not self.check_garret_special_capture(attacker_pos, defender_pos):
                 self.log_event("ability_auto", piece="Garret", ability="Indestructible",
@@ -765,25 +754,11 @@ class GameState:
 
         # Orthrus can only be captured by major pieces (defense in depth --
         # get_legal_moves_with_status already keeps non-majors from reaching here)
-        if defender.is_pawn and defender.pawn_name == "Orthrus":
+        if pawn_abilities_on and defender.is_pawn and defender.pawn_name == "Orthrus":
             if not self.check_orthrus_capturable(attacker):
                 self.log_event("ability_auto", piece="Orthrus", ability="Only Majors Can Capture",
                                result="success", detail="Cannot be captured by non-major pieces")
                 return "defended_orthrus"
-
-        # Check Elle McGib's Frozen Immunity (auto-trigger, unless the player
-        # already decided against it for this specific capture attempt via
-        # /resolve_elle_decision)
-        if defender.is_pawn and defender.pawn_name == "Elle McGib":
-            key = f"{defender.color.value}_{dr}_{dc}"
-            if key in self.elle_immunity_skip_once:
-                self.elle_immunity_skip_once.discard(key)
-            else:
-                pawn_key = f"{defender.color.value}_Elle McGib"
-                uses = self.pawn_ability_uses.get(pawn_key, {}).get("Frozen Immunity", 1)
-                if uses > 0 and key not in self.elle_immunity_used:
-                    self.consume_elle_immunity(defender_pos)
-                    return "defended_elle"
 
         # Check Carl's Narrator's Favor
         if defender.is_king and defender.color in self.narrators_favor_used:
@@ -805,7 +780,8 @@ class GameState:
         # itself currently checking the enemy Carl (that would just let it take
         # Carl next move).
         mediation_available = (
-            (quasar_alive or juice_box_has_mediation)
+            pawn_abilities_on
+            and (quasar_alive or juice_box_has_mediation)
             and self.quasar_uses[defender.color] < 2
             and not defender.is_king
             and not is_in_check(self.board, defender.color)
@@ -832,10 +808,15 @@ class GameState:
         if captured_piece is None:
             return
 
+        # Every post-capture pawn auto-trigger below is skipped when pawn
+        # abilities are disabled via Game Settings.
+        if not self.pawns_enabled:
+            return
+
         # Mordecai's Manager Benefit (Chunk 2)
         if captured_piece.is_pawn and captured_piece.pawn_name == "Mordecai":
             self.process_mordecai_capture(capture_pos, captured_piece)
-        
+
         # Orthrus permanent death: only majors can capture him, and it's final
         if captured_piece.is_pawn and captured_piece.pawn_name == "Orthrus":
             if self.check_orthrus_capturable(attacker):
@@ -844,7 +825,7 @@ class GameState:
                 # Orthrus cannot be captured by non-majors -- this shouldn't
                 # happen since get_legal_moves_with_status already filters it out
                 pass
-        
+
         # Juice Box Shapeshift (Chunk 2)
         if attacker.is_pawn and attacker.pawn_name == "Juice Box":
             if captured_piece.is_pawn:
@@ -2133,14 +2114,18 @@ class GameState:
         Creates a single-square ghost zone on his captured square and
         schedules respawn after 3 turns.
         """
-        # Single ghost square on exactly the square where Mordecai was captured
+        # Single ghost square on exactly the square where Mordecai was captured.
+        # It gets one grace tick (see end_turn) so it lasts 3 full turns AFTER
+        # the capture turn, staying in sync with the respawn timer below.
         self.ghost_tokens[mordecai_pos] = 3
+        self.mordecai_ghost_fresh.add(mordecai_pos)
 
-        # Schedule Mordecai respawn after 3 turns
+        # Schedule Mordecai respawn 3 full turns after the capture turn.
         self.mordecai_respawn_pending.append({
             "piece": mordecai_piece,
             "turns_left": 3,
-            "color": mordecai_piece.color
+            "color": mordecai_piece.color,
+            "skip_first_tick": True,
         })
 
         self.log_event("mordecai_manager_benefit", pos=mordecai_pos,
