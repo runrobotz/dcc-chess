@@ -87,6 +87,10 @@ def maybe_trigger_ai_card(gs: "GameState", d1: int, d2: int, triggering_color: "
 
     if not is_ai_summon_roll(d1, d2):
         return None
+    if not getattr(gs, "ai_summon_enabled", True):
+        # Disabled via the start-screen Game Settings modal -- ignore the
+        # trigger entirely: no summon event is logged and no card is drawn.
+        return None
     if _ai_summon_blocked(gs):
         # Another event is already in progress -- ignore the trigger silently
         # rather than stacking a card draw on top of it.

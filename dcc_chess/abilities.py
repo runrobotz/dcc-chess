@@ -199,6 +199,10 @@ class GameState:
         self.ai_cards_drawn: List[str] = []
         self.ai_card_active: Optional[Dict] = None  # currently-resolving/last-drawn card, or None
 
+        # Game Settings (start-screen ⚙️ modal): when False, dice rolls never
+        # trigger an AI Card draw. Set from /new_game's `ai_enabled` body field.
+        self.ai_summon_enabled: bool = True
+
         # System Reset -- no abilities activatable by anyone, for the rest of this turn
         self.system_reset_active: bool = False
         # Main Character Syndrome -- no pawns can move, for the rest of this turn

@@ -550,7 +550,8 @@ def get_roster():
 def new_game():
     """Start a new game with placement phase or instant start for dev mode.
 
-    Body: {mode: "pvp"|"pvai"|"dev", white_pawns: [...], black_pawns: [...]}
+    Body: {mode: "pvp"|"pvai"|"dev", white_pawns: [...], black_pawns: [...],
+           ai_enabled: bool (optional, default True -- Game Settings "AI Summon" toggle)}
     """
     data = request.get_json(force=True)
     mode = data.get("mode", "pvp")
@@ -565,6 +566,7 @@ def new_game():
     board = Board()
     gs = GameState(board)
     gs.init_pawn_ability_tracking()
+    gs.ai_summon_enabled = bool(data.get("ai_enabled", True))
 
     dice = DungeonDice()
 

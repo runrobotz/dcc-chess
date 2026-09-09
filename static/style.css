@@ -42,6 +42,21 @@ body {
     overflow-x: hidden;
 }
 
+/* ═══ LIGHT THEME (Game Settings toggle — remembered in localStorage) ═══ */
+body.light-theme {
+    --bg-dark: #f0f0f5;
+    --bg-medium: #ffffff;
+    --bg-light: #e8e8f0;
+    --bg-panel: #f5f5fa;
+    --text-primary: #1a1a2e;
+    --text-secondary: #444466;
+    --border-color: #ccccdd;
+    --accent-gold: #8B6914;
+    --accent-red: #cc2200;
+}
+body.light-theme .board .square.light { background: #d4c9b0; }
+body.light-theme .board .square.dark { background: #8b7355; }
+
 /* ═══ SCREENS ═══ */
 .screen {
     display: none;
@@ -2440,6 +2455,86 @@ body {
         overflow: visible;
         max-height: none;
     }
+}
+
+/* ═══ GAME SETTINGS MODAL ═══ */
+.game-settings-modal {
+    max-width: 460px;
+    width: 100%;
+    padding: 32px 36px;
+    text-align: left;
+}
+.game-settings-modal h2 {
+    text-align: center;
+}
+.game-settings-list {
+    display: flex;
+    flex-direction: column;
+    margin: 20px 0 4px;
+}
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 2px;
+    border-bottom: 1px solid var(--border-color);
+}
+.setting-row:last-child {
+    border-bottom: none;
+}
+.setting-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.setting-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.setting-hint {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+.setting-switch {
+    flex: 0 0 auto;
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: 13px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-dark);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+.setting-switch.on {
+    background: var(--accent-gold);
+    border-color: var(--accent-gold);
+}
+.setting-switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform 0.15s ease, background 0.15s;
+}
+.setting-switch.on .setting-switch-knob {
+    transform: translateX(20px);
+    background: var(--bg-darkest);
+}
+
+/* Start-screen "Custom Rules Active" note (non-default gameplay toggles) */
+.custom-rules-indicator {
+    margin: 6px 0 0;
+    font-size: 0.8rem;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
 }
 
 /* ═══ VERSION TAG ═══ */

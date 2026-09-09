@@ -19,10 +19,12 @@
                 <button class="btn btn-secondary" onclick="Game.selectMode('pvp')">Player vs Player</button>
                 <button class="btn btn-dev" onclick="Game.selectMode('dev')">Dev Game</button>
             </div>
+            <div id="custom-rules-indicator" class="custom-rules-indicator hidden"></div>
             <div class="dev-controls">
                 <button class="btn btn-settings" onclick="Game.openDevSettings()" title="Dev Settings">⚙️ Dev Settings</button>
                 <div id="dev-status" class="dev-status">Dev: Random Roster</div>
                 <button class="btn btn-tutorial" onclick="Game.openTutorial()">📖 How to Play</button>
+                <button class="btn btn-tutorial" onclick="Game.openGameSettings()">⚙️ Game Settings</button>
                 <button class="btn btn-tutorial" onclick="Game.openPlaytestForm()">📋 Playtest Report</button>
             </div>
         </div>
@@ -211,6 +213,19 @@
         </div>
     </div>
 
+    <!-- ═══ GAME SETTINGS MODAL ═══ -->
+    <div id="game-settings-modal" class="overlay hidden">
+        <div class="overlay-content game-settings-modal">
+            <h2>⚙️ Game Settings</h2>
+            <p class="modal-subtitle">Gameplay toggles reset when the page reloads. Light Theme is remembered.</p>
+            <div id="game-settings-list" class="game-settings-list"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="Game.resetGameSettings()">Reset to Defaults</button>
+                <button class="btn btn-primary" onclick="Game.closeGameSettings()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ HOW TO PLAY TUTORIAL MODAL ═══ -->
     <div id="tutorial-modal" class="tutorial-overlay hidden">
         <div class="tutorial-modal">
@@ -234,7 +249,7 @@
     <div id="toast" class="toast hidden"></div>
 
     <!-- ═══ VERSION TAG (subtle, always visible) — bump manually on each push ═══ -->
-    <div id="version-tag">v0.53</div>
+    <div id="version-tag">v0.54</div>
 
     <script src="/static/game.js"></script>
 </body>

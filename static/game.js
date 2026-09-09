@@ -43,6 +43,29 @@ const Game = {
     zoneHoverTopLeft: null,    // [row, col] top-left of current 2×2 hover preview
     _boardZoneLeaveHandler: null, // Cached mouseleave handler for zone mode cleanup
     
+    // ═══ GAME SETTINGS (start-screen ⚙️ modal) ═══
+    // Gameplay toggles always reset to ON on every page load (no persistence).
+    // Light Theme is the one exception: a personal display preference, so it is
+    // remembered in localStorage across refreshes.
+    LIGHT_THEME_STORAGE_KEY: 'dcc_light_theme',
+    GAME_SETTINGS_META: [
+        { key: 'aiSummon',       label: 'AI Summon',            hint: 'AI trigger rolls draw cards' },
+        { key: 'pawnAbilities',  label: 'Pawn Abilities',       hint: 'Pawn ability buttons are available' },
+        { key: 'majorAbilities', label: 'Major Piece Abilities', hint: 'Major-piece ability buttons are available' },
+        { key: 'bossEvents',     label: 'Boss Events',          hint: 'Summon cards can spawn a boss' },
+        { key: 'lightTheme',     label: 'Light Theme',          hint: 'Switch the game to a light color palette' },
+    ],
+    // Toggles that count as a "custom rule" for the start-screen indicator.
+    // Light Theme is a display preference, not a rule, so it is excluded.
+    GAMEPLAY_SETTING_KEYS: ['aiSummon', 'pawnAbilities', 'majorAbilities', 'bossEvents'],
+    gameSettings: {
+        aiSummon: true,
+        pawnAbilities: true,
+        majorAbilities: true,
+        bossEvents: true,
+        lightTheme: true,
+    },
+
     // Dev Game Mode
     DEFAULT_DEV_ROSTER: {
         whitePawns: ['Zev', 'Mordecai', 'Prepotente', 'Elle McGib', 'Sledge', 'Quasar', 'Lucia Mar', 'Louie'],
@@ -433,6 +456,10 @@ const Game = {
         // Load dev settings from localStorage
         this.loadDevSettings();
         this.updateDevStatus();
+
+        // Game settings: gameplay toggles start ON; Light Theme is restored
+        // from localStorage.
+        this.loadGameSettings();
     },
 
     // ═══ SCREEN MANAGEMENT ═══
@@ -684,10 +711,117 @@ const Game = {
         }
     },
 
+    // ═══ GAME SETTINGS ═══
+
+    loadGameSettings() {
+        let lightTheme = true;
+        try {
+            const saved = localStorage.getItem(this.LIGHT_THEME_STORAGE_KEY);
+            if (saved !== null) lightTheme = saved === 'true';
+        } catch (e) { /* localStorage unavailable -- use the default */ }
+        // Gameplay toggles are never persisted -- always back to ON on load.
+        this.gameSettings = {
+            aiSummon: true,
+            pawnAbilities: true,
+            majorAbilities: true,
+            bossEvents: true,
+            lightTheme,
+        };
+        this.applyLightTheme();
+        this.updateCustomRulesIndicator();
+    },
+
+    persistLightTheme() {
+        try {
+            localStorage.setItem(this.LIGHT_THEME_STORAGE_KEY, String(!!this.gameSettings.lightTheme));
+        } catch (e) { /* ignore -- the setting still applies for this session */ }
+    },
+
+    applyLightTheme() {
+        document.body.classList.toggle('light-theme', !!this.gameSettings.lightTheme);
+    },
+
+    // True when any gameplay toggle is off. Light Theme is a display
+    // preference, not a game rule, so it never counts here.
+    hasCustomRules() {
+        return this.GAMEPLAY_SETTING_KEYS.some(k => !this.gameSettings[k]);
+    },
+
+    updateCustomRulesIndicator() {
+        const el = document.getElementById('custom-rules-indicator');
+        if (!el) return;
+        if (this.hasCustomRules()) {
+            el.textContent = 'Custom Rules Active';
+            el.classList.remove('hidden');
+        } else {
+            el.textContent = '';
+            el.classList.add('hidden');
+        }
+    },
+
+    openGameSettings() {
+        const modal = document.getElementById('game-settings-modal');
+        if (modal) modal.classList.remove('hidden');
+        this.renderGameSettings();
+    },
+
+    closeGameSettings() {
+        const modal = document.getElementById('game-settings-modal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    renderGameSettings() {
+        const list = document.getElementById('game-settings-list');
+        if (!list) return;
+        list.innerHTML = '';
+        for (const meta of this.GAME_SETTINGS_META) {
+            const on = !!this.gameSettings[meta.key];
+            const row = document.createElement('div');
+            row.className = 'setting-row';
+            row.innerHTML = `
+                <div class="setting-text">
+                    <span class="setting-label">${meta.label}</span>
+                    <span class="setting-hint">${meta.hint}</span>
+                </div>
+                <button class="setting-switch ${on ? 'on' : 'off'}" role="switch" aria-checked="${on}" aria-label="${meta.label}">
+                    <span class="setting-switch-knob"></span>
+                </button>
+            `;
+            row.querySelector('.setting-switch').addEventListener('click', () => this.toggleGameSetting(meta.key));
+            list.appendChild(row);
+        }
+    },
+
+    toggleGameSetting(key) {
+        this.gameSettings[key] = !this.gameSettings[key];
+        if (key === 'lightTheme') {
+            this.applyLightTheme();
+            this.persistLightTheme();
+        }
+        this.renderGameSettings();
+        this.updateCustomRulesIndicator();
+    },
+
+    resetGameSettings() {
+        this.gameSettings = {
+            aiSummon: true,
+            pawnAbilities: true,
+            majorAbilities: true,
+            bossEvents: true,
+            lightTheme: true,
+        };
+        this.applyLightTheme();
+        this.persistLightTheme();
+        this.renderGameSettings();
+        this.updateCustomRulesIndicator();
+    },
+
     // ═══ MODE SELECT ═══
 
     selectMode(mode) {
         this.mode = mode;
+        // Snapshot the current toggle states for this game.
+        this.gameSettings = { ...this.gameSettings };
         this.draftPlayer = 1;
         this.draftSelection = [];
         this.whitePawns = [];
@@ -967,6 +1101,7 @@ const Game = {
                     mode: this.mode,
                     white_pawns: this.whitePawns,
                     black_pawns: this.blackPawns,
+                    ai_enabled: !!this.gameSettings.aiSummon,
                 }),
             });
             this.state = await resp.json();
@@ -1641,11 +1776,23 @@ const Game = {
                     });
                 }
             } else if (event.type === 'ai_summon_trigger') {
+                // Game Settings: "AI Summon" off -- ignore the trigger entirely.
+                // (The server also suppresses it via `ai_enabled`; this is a guard
+                // for any stale event already in the batch.)
+                if (this.gameSettings && !this.gameSettings.aiSummon) continue;
                 // Kick off the full dramatic sequence (trigger flash -> card reveal ->
                 // boss announcement if applicable). Fire-and-forget: render() isn't
                 // async, and this shouldn't block subsequent renders.
                 this.runAiCardSequence(newEvents);
             } else if (event.type === 'ai_card_drawn') {
+                if (this.gameSettings && !this.gameSettings.aiSummon) continue;
+                // Game Settings: "Boss Events" off -- a Summon card is ignored:
+                // no persistent AI Event Panel. runAiCardSequence() shows the
+                // "disabled" message and skips the reveal.
+                if (this.gameSettings && !this.gameSettings.bossEvents
+                    && /^Summon /.test(event.card || '')) {
+                    continue;
+                }
                 this.setAiEventPanel(event, newEvents);
             } else if (event.type === 'ai_card_resolved') {
                 console.log(`[AI Card] ${event.card} (${event.player}): ${event.outcome}`);
@@ -1704,6 +1851,13 @@ const Game = {
         if (!drawnEvent) return; // trigger fired but the deck was empty
 
         const cardType = this.aiCardTypeFor(drawnEvent.card, batchEvents);
+
+        // Game Settings: "Boss Events" off -- a drawn Summon card does nothing
+        // here (no card reveal, no boss announcement); just tell the player.
+        if (cardType === 'summon' && this.gameSettings && !this.gameSettings.bossEvents) {
+            this.showToast('⚠️ Boss events are disabled — summon card ignored', 'fail');
+            return;
+        }
         const resolvedEvent = batchEvents.find(e => e.type === 'ai_card_resolved' && e.card === drawnEvent.card);
         const actuallySpawned = cardType === 'summon' && resolvedEvent &&
             /has been summoned/i.test(resolvedEvent.outcome || '');
@@ -2886,7 +3040,9 @@ const Game = {
         const draftOrder = color === 'white' ? (this.state.white_pawns || []) : (this.state.black_pawns || []);
         const orderedPawns = [...pawns].sort((a, b) => draftOrder.indexOf(a.name) - draftOrder.indexOf(b.name));
 
-        if (orderedMajorNames.length > 0) {
+        // Game Settings: "Major Piece Abilities" off hides every major-piece
+        // ability card, so they cannot be activated.
+        if (this.gameSettings.majorAbilities && orderedMajorNames.length > 0) {
             const divider = document.createElement('div');
             divider.className = 'ability-section-divider';
             divider.textContent = 'Major Pieces';
@@ -2918,7 +3074,9 @@ const Game = {
             }
         }
 
-        if (orderedPawns.length > 0) {
+        // Game Settings: "Pawn Abilities" off hides every pawn ability card, so
+        // they cannot be activated.
+        if (this.gameSettings.pawnAbilities && orderedPawns.length > 0) {
             const divider = document.createElement('div');
             divider.className = 'ability-section-divider';
             divider.textContent = 'Pawns';
@@ -4486,6 +4644,7 @@ const Game = {
                     mode: 'dev',
                     white_pawns: whitePawns,
                     black_pawns: blackPawns,
+                    ai_enabled: !!this.gameSettings.aiSummon,
                     ...(this.devSettings && this.devSettings.boardLayout
                         ? { board_layout: this.devSettings.boardLayout }
                         : {}),
