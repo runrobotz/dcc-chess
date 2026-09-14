@@ -7,6 +7,7 @@ Provides two AI implementations:
 """
 
 import random
+from collections import deque
 from typing import List, Tuple, Optional, Dict
 
 from .pieces import Piece, PieceType, Color
@@ -15,6 +16,10 @@ from .dice import DungeonDice
 from .abilities import GameState
 from .pawns import PAWN_CHARACTERS, AbilityTrigger
 from .movement import is_checkmate, is_in_check, is_square_attacked
+
+# How many of the AI's own most-recent resulting board positions smart_move()
+# remembers, for repetition avoidance (see _deprioritize_repeated_positions).
+AI_POSITION_HISTORY_LEN = 6
 
 
 # Piece value table for smart AI
@@ -26,6 +31,26 @@ PIECE_VALUES: Dict[PieceType, int] = {
     PieceType.KATIA: 3,
     PieceType.PAWN: 1,
     PieceType.DUNGEON_BOSS: 9,
+}
+
+# Strategic weight added on top of an ability's floor cost when
+# smart_abilities() ranks major-piece candidates against each other. Positive
+# for abilities only offered when there's a genuine tactical reason to use
+# them (a real precondition, not just affordability); negative for generic
+# filler abilities with little or no precondition, so they act as a last
+# resort rather than a default pick. Absent (0) for every pawn ability --
+# this only re-weights the major-piece set.
+MAJOR_PRIORITY_BONUS: Dict[str, int] = {
+    "plot_armor": 20,   # only offered while Carl is in check
+    "rampage": 6,
+    "she_tank": 6,
+    "slut_shame": 6,
+    "cockroach": 4,
+    "puddle_jump": 3,
+    "pet_carrier": 0,
+    "leader": -3,        # eats every remaining die -- deliberate use only
+    "blitzed": -5,        # no real precondition -- filler
+    "miss_me": -8,         # only offered when dice are already weak -- last resort
 }
 
 
@@ -301,6 +326,16 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
 # ══════════════════════════════════════════════════════════════════
 
 def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
+    """Pick a move using positional priorities (see _select_smart_move), then
+    record its resulting board position in the AI's short-term history so
+    future calls can deprioritize moves that would repeat it.
+    """
+    move = _select_smart_move(game_state, legal_moves)
+    _record_ai_position(game_state, move)
+    return move
+
+
+def _select_smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
     """Pick a move using positional priorities.
 
     Priority 1: Checkmate — always take it.
@@ -310,7 +345,8 @@ def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
                 Mongo, Katia). Among checking moves, one that also grabs material wins.
     Priority 5: Any remaining capture — sorted by victim value descending.
     Priority 6: Avoid squares attacked by lower/equal-value enemies (disabled after turn 80).
-    Priority 7: Advance toward opponent's side.
+    Priority 7: Advance toward opponent's side, deprioritizing moves that would
+                repeat a position from the AI's last 6 recorded moves.
 
     After turn 80: aggression escalation — skip safety filter, take any capture.
     After turn 150: add randomness to break repetition loops.
@@ -398,17 +434,30 @@ def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
     else:
         candidate_moves = non_captures if non_captures else legal_moves
 
-    # Priority 4: Advance toward opponent's side
-    # White prefers higher rows, black prefers lower rows
-    if color == Color.WHITE:
-        candidate_moves.sort(key=lambda m: m[1][0], reverse=True)
-    else:
-        candidate_moves.sort(key=lambda m: m[1][0])
+    # Repetition avoidance: a move landing on a board position already seen in
+    # the AI's last AI_POSITION_HISTORY_LEN recorded positions is deprioritized
+    # -- pushed to the bottom of candidate_moves, never dropped outright, so the
+    # AI still has a legal move if every option happens to repeat. This is what
+    # stops it getting trapped shuffling a piece between the same few squares
+    # (see AI_POSITION_HISTORY_LEN / _record_ai_position).
+    repeated = {move: _would_repeat_position(game_state, board, move) for move in candidate_moves}
 
-    # Pick from the top advancing moves (add slight randomness among top tier)
+    # Priority 7: Advance toward opponent's side
+    # White prefers higher rows, black prefers lower rows. Repetition status is
+    # the primary sort key (non-repeating first) with advancement as the
+    # tiebreaker, so both preferences apply together rather than one undoing
+    # the other.
+    def _sort_key(m):
+        row = m[1][0]
+        return (repeated[m], -row if color == Color.WHITE else row)
+
+    candidate_moves.sort(key=_sort_key)
+
+    # Pick from the top tier (same repetition status + same row as the best
+    # candidate), adding slight randomness among equally-good options.
     if len(candidate_moves) > 3:
-        best_row = candidate_moves[0][1][0]
-        top_tier = [m for m in candidate_moves if m[1][0] == best_row]
+        best_key = _sort_key(candidate_moves[0])
+        top_tier = [m for m in candidate_moves if _sort_key(m) == best_key]
         return random.choice(top_tier)
     return candidate_moves[0]
 
@@ -457,6 +506,72 @@ def _is_check_move(board: Board, move: Tuple, opponent: Color) -> bool:
     board.undo_move((fr, fc), (tr, tc), captured, is_ep, old_ep,
                     old_moved, is_promo, piece if is_promo else None)
     return result
+
+
+# ── Repetition avoidance (Bug 2) ────────────────────────────────────
+
+def _board_position_signature(board: Board) -> tuple:
+    """A hashable snapshot of every occupied square (position, piece type,
+    color, pawn name) -- two calls return equal tuples iff the board is in
+    the same position.
+    """
+    entries = []
+    for r in range(BOARD_SIZE):
+        for c in range(BOARD_SIZE):
+            p = board.get(r, c)
+            if p is not None:
+                entries.append((r, c, p.piece_type, p.color, p.pawn_name))
+    return tuple(entries)
+
+
+def _resulting_position_signature(board: Board, move: Tuple) -> tuple:
+    """The board signature `move` would produce, computed without permanently
+    mutating the board (make_move + undo_move, same as _is_check_move above).
+    """
+    (fr, fc), (tr, tc) = move
+    piece = board.get(fr, fc)
+    if piece is None:
+        return _board_position_signature(board)
+
+    old_ep = board.en_passant_target
+    old_moved = piece.has_moved
+    target = board.get(tr, tc)
+    is_ep = (piece.is_pawn and (tr, tc) == board.en_passant_target and target is None)
+    promotion_rank = BOARD_SIZE - 1 if piece.color == Color.WHITE else 0
+    is_promo = piece.is_pawn and tr == promotion_rank
+
+    captured = board.make_move((fr, fc), (tr, tc))
+    sig = _board_position_signature(board)
+    board.undo_move((fr, fc), (tr, tc), captured, is_ep, old_ep,
+                    old_moved, is_promo, piece if is_promo else None)
+    return sig
+
+
+def _would_repeat_position(game_state: GameState, board: Board, move: Tuple) -> bool:
+    """True if `move` would land on a position already in the AI's recent-
+    position history (see _record_ai_position). No history yet -- e.g. the
+    AI's first move of the game -- means nothing can repeat.
+    """
+    history = getattr(game_state, "_ai_position_history", None)
+    if not history:
+        return False
+    return _resulting_position_signature(board, move) in history
+
+
+def _record_ai_position(game_state: GameState, move: Optional[Tuple]) -> None:
+    """Append the position after the AI's just-chosen move to its short-term
+    history, capped at AI_POSITION_HISTORY_LEN entries (oldest drops off).
+    Lazily attached to the GameState instance itself (rather than a module-
+    level cache) so it stays scoped to this one game and needs no change to
+    GameState's own definition.
+    """
+    if move is None:
+        return
+    history = getattr(game_state, "_ai_position_history", None)
+    if history is None:
+        history = deque(maxlen=AI_POSITION_HISTORY_LEN)
+        game_state._ai_position_history = history
+    history.append(_resulting_position_signature(game_state.board, move))
 
 
 def _is_square_safe(board: Board, row: int, col: int,
@@ -509,40 +624,82 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
             continue
 
         if piece.piece_type == PieceType.MONGO:
-            # Mongo Smash: offensive if enemy in range
-            if _has_enemy_in_range(board, row, col, 2, opponent):
-                offensive_attempts.append(("mongo_smash", (row, col), piece, 3))
-            if not game_state.rampaging_charge_used.get((piece.color, id(piece)), False):
-                if _has_enemy_in_range(board, row, col, 1, opponent):
-                    offensive_attempts.append(("rampaging_charge", (row, col), piece, 4))
+            # Rampage: offensive, only when there's something nearby worth
+            # rampaging through, and the once-per-game charge is unspent.
+            if (_has_enemy_in_range(board, row, col, 2, opponent)
+                    and not game_state.rampaging_charge_used.get((piece.color, id(piece)), False)):
+                offensive_attempts.append(("rampage", (row, col), piece, 8))
+            # Pet Carrier: retreat Mongo to safety when threatened, or release
+            # him once he's already stored — never a routine pick otherwise.
+            key = (piece.color, id(piece))
+            if game_state.mongo_stored.get(key, False):
+                defensive_attempts.append(("pet_carrier", (row, col), piece, 4))
+            elif _has_enemy_in_range(board, row, col, 1, opponent):
+                defensive_attempts.append(("pet_carrier", (row, col), piece, 4))
 
         elif piece.piece_type == PieceType.KATIA:
-            if game_state.katia_last_threats.get((row, col)):
-                defensive_attempts.append(("combat_roll", (row, col), piece, 3))
+            # She Tank: disrupt a nearby enemy while uses remain.
+            if (_has_enemy_in_range(board, row, col, 3, opponent)
+                    and game_state.she_tank_uses.get(piece.color, 2) > 0):
+                offensive_attempts.append(("she_tank", (row, col), piece, 6))
+            # Blitzed has no real precondition -- keep it as filler, not a
+            # default pick (see MAJOR_PRIORITY_BONUS below).
+            defensive_attempts.append(("blitzed", (row, col), piece, 5))
 
         elif piece.piece_type == PieceType.SAMANTHA:
-            if not game_state.mouth_used_this_turn:
-                # The Mouth is always useful — improves dice
-                defensive_attempts.append(("the_mouth", (row, col), piece, 3))
+            # Slut Shame: offensive, once per game, when a pawn is in reach.
+            if (_has_enemy_in_range(board, row, col, 3, opponent)
+                    and not game_state.slut_shame_used.get((piece.color, id(piece)), False)):
+                offensive_attempts.append(("slut_shame", (row, col), piece, 8))
+            # Miss Me? rerolls this turn's whole dice pool -- costs floor 5,
+            # so it's only worth it (and only actually affordable) when one
+            # die is good enough to pay for it (>= 5) but the roll as a whole
+            # is uneven (the other die is weak), i.e. spending the good die
+            # to reroll everything in hopes of two usable dice. This replaces
+            # the old "The Mouth" filler pick with the ability actually shown
+            # to players, and keeps it a last resort rather than a default.
+            available = sorted(dice.dice[i] for i in range(len(dice.dice)) if not dice.used[i])
+            if len(available) >= 2 and available[-1] >= 5 and available[0] <= 3:
+                defensive_attempts.append(("miss_me", (row, col), piece, 5))
 
         elif piece.piece_type == PieceType.DONUT:
+            # Cockroach: resurrect when there's a captured piece to bring back.
             if not game_state.resurrection_used[color] and board.captured[color]:
-                defensive_attempts.append(("resurrect", (row, col), piece, 6))
-            if _has_enemy_in_range(board, row, col, 2, opponent):
-                offensive_attempts.append(("diva", (row, col), piece, 4))
+                defensive_attempts.append(("cockroach", (row, col), piece, 7))
+            # Puddle Jump: offensive reposition/strike when enemies are in reach.
+            if _has_enemy_in_range(board, row, col, 3, opponent):
+                offensive_attempts.append(("puddle_jump", (row, col), piece, 5))
 
         elif piece.piece_type == PieceType.CARL:
-            # Bulldozer is useful when near enemies
-            if _has_enemy_in_range(board, row, col, 2, opponent):
-                offensive_attempts.append(("bulldozer", (row, col), piece, 4))
+            # Plot Armor is an emergency escape -- only worth considering when
+            # Carl is actually in check, never a routine pick.
+            if not game_state.plot_armor_used.get(color, False) and is_in_check(board, color):
+                defensive_attempts.append(("plot_armor", (row, col), piece, 8))
+            # Leader eats every remaining die this turn to reposition a
+            # back-line major -- keep it available but heavily deprioritized
+            # (see MAJOR_PRIORITY_BONUS) so it's not spent casually.
+            if game_state.leader_uses.get(color, 2) > 0:
+                defensive_attempts.append(("leader", (row, col), piece, 0))
 
         elif piece.is_pawn and piece.pawn_name:
             _categorize_pawn_ability(game_state, board, row, col, piece,
                                      opponent, offensive_attempts, defensive_attempts)
 
-    # Sort by floor descending (high-value abilities get best dice first)
-    offensive_attempts.sort(key=lambda x: x[3], reverse=True)
-    defensive_attempts.sort(key=lambda x: x[3], reverse=True)
+    # Sort by strategic priority descending, not raw floor cost. Floor cost
+    # alone let a cheap, always-affordable, no-precondition ability (the old
+    # "The Mouth") dominate over rarer, more valuable, harder-to-afford
+    # abilities (Plot Armor, She Tank, Rampage, Puddle Jump, Leader, Blitzed,
+    # Miss Me?, ...) that were never even being considered. MAJOR_PRIORITY_BONUS
+    # adds a strategic weight on top of floor for majors only (pawns are
+    # unaffected -- the bonus defaults to 0) so genuinely conditioned abilities
+    # (only offered when there's a real reason to use them) rank above generic
+    # filler abilities with no precondition, which become last resorts.
+    def _priority_key(entry):
+        name, _pos, _piece, floor = entry
+        return floor + MAJOR_PRIORITY_BONUS.get(name, 0)
+
+    offensive_attempts.sort(key=_priority_key, reverse=True)
+    defensive_attempts.sort(key=_priority_key, reverse=True)
 
     # Spend dice: offensive first, then defensive; reserve 1 die for movement
     for ability_name, pos, piece, floor in offensive_attempts:
@@ -697,32 +854,55 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
 
 def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     """Execute a specific ability attempt."""
-    if ability_name == "mongo_smash":
-        gs.try_mongo_smash(pos, dice, die_idx)
-    elif ability_name == "rampaging_charge":
-        gs.try_rampaging_charge(pos, dice, die_idx)
-    elif ability_name == "combat_roll":
-        retreats = gs.try_combat_roll(pos, dice, die_idx)
-        if retreats:
-            dest = random.choice(retreats)
+    if ability_name == "rampage":
+        result = gs.try_rampage(pos, dice)
+        if result:
+            dest = random.choice(result)
             gs.board.set(pos[0], pos[1], None)
             gs.board.set(dest[0], dest[1], piece)
-    elif ability_name == "the_mouth":
-        gs.try_the_mouth(pos, dice, die_idx)
-    elif ability_name == "resurrect":
-        gs.try_resurrection(pos, dice, die_idx, color)
-    elif ability_name == "diva":
+    elif ability_name == "pet_carrier":
+        gs.try_pet_carrier(pos, dice, die_idx)
+    elif ability_name == "she_tank":
         r, c = pos
         opponent = color.opponent
-        # Target a square with an enemy nearby
-        adj = [(r + dr, c + dc) for dr in [-1, 0, 1] for dc in [-1, 0, 1]
-               if (dr != 0 or dc != 0) and gs.board.in_bounds(r + dr, c + dc)]
-        enemy_adj = [sq for sq in adj if gs.board.get(*sq) and gs.board.get(*sq).color == opponent]
-        target = random.choice(enemy_adj) if enemy_adj else (random.choice(adj) if adj else None)
-        if target:
-            gs.try_divas_entrance(pos, dice, die_idx, target)
-    elif ability_name == "bulldozer":
-        gs.try_bulldozer(pos, dice, die_idx)
+        enemies = [(er, ec) for er, ec, ep in gs.board.all_pieces(opponent)]
+        if enemies:
+            target_pos = random.choice(enemies)
+            gs.try_she_tank(pos, dice, target_pos, is_reaction=False)
+    elif ability_name == "blitzed":
+        gs.try_blitzed(pos, dice, die_idx)
+    elif ability_name == "slut_shame":
+        gs.try_slut_shame(pos, dice)
+    elif ability_name == "miss_me":
+        gs.try_miss_me(pos, dice, die_idx, is_reaction=False)
+    elif ability_name == "cockroach":
+        gs.try_cockroach(pos, dice)
+    elif ability_name == "puddle_jump":
+        result = gs.try_puddle_jump(pos, dice, die_idx)
+        if result:
+            dest = random.choice(result)
+            gs.board.set(pos[0], pos[1], None)
+            gs.board.set(dest[0], dest[1], piece)
+    elif ability_name == "plot_armor":
+        result = gs.try_plot_armor(pos, dice)
+        if result:
+            dest = random.choice(result)
+            captured = gs.board.make_move(pos, dest)
+            if captured:
+                gs.process_post_capture(captured, dest, piece, pos)
+    elif ability_name == "leader":
+        total = gs.try_leader(pos, dice, color.value)
+        if total:
+            eligible = gs.leader_eligible_pieces(color)
+            random.shuffle(eligible)
+            for epos in eligible:
+                destinations = gs.leader_pull_destinations(epos, pos, total)
+                if destinations:
+                    dest = random.choice(destinations)
+                    pulled = gs.board.get(*epos)
+                    gs.board.set(epos[0], epos[1], None)
+                    gs.board.set(dest[0], dest[1], pulled)
+                    break
     elif ability_name == "imani":
         gs.try_suppress(pos, dice, die_idx)
     elif ability_name == "elle_mcgib":

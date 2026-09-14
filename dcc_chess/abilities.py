@@ -526,7 +526,7 @@ class GameState:
         for i in reversed(respawned):
             pawn_data = self.swallowed_pawns.pop(i)
             # Find Samantha and respawn pawn adjacent
-            sam_pos = pawn_data["sam_pos"]
+            sam_pos = pawn_data["samantha_pos"]
             piece = pawn_data["piece"]
             # Try to find adjacent empty square
             for dr in [-1, 0, 1]:
@@ -808,23 +808,26 @@ class GameState:
         if captured_piece is None:
             return
 
-        # Every post-capture pawn auto-trigger below is skipped when pawn
-        # abilities are disabled via Game Settings.
+        # Orthrus is a single logical piece occupying two squares (head +
+        # butt). Whichever of the two was just captured here, the OTHER
+        # square must always be cleared together -- this is structural (how
+        # his body is represented on the board), not a pawn ability, so it
+        # runs unconditionally and BEFORE the pawns_enabled gate below. By
+        # the time captured_piece is Orthrus, attempt_capture() has already
+        # legitimately allowed the capture (majors-only when pawns_enabled is
+        # True, any attacker when it's False -- see attempt_capture), so no
+        # further check_orthrus_capturable() re-check is needed here.
+        if captured_piece.is_pawn and captured_piece.pawn_name == "Orthrus":
+            self.process_orthrus_permanent_death(captured_piece, capture_pos)
+
+        # Every other post-capture pawn auto-trigger below is skipped when
+        # pawn abilities are disabled via Game Settings.
         if not self.pawns_enabled:
             return
 
         # Mordecai's Manager Benefit (Chunk 2)
         if captured_piece.is_pawn and captured_piece.pawn_name == "Mordecai":
             self.process_mordecai_capture(capture_pos, captured_piece)
-
-        # Orthrus permanent death: only majors can capture him, and it's final
-        if captured_piece.is_pawn and captured_piece.pawn_name == "Orthrus":
-            if self.check_orthrus_capturable(attacker):
-                self.process_orthrus_permanent_death(captured_piece, capture_pos)
-            else:
-                # Orthrus cannot be captured by non-majors -- this shouldn't
-                # happen since get_legal_moves_with_status already filters it out
-                pass
 
         # Juice Box Shapeshift (Chunk 2)
         if attacker.is_pawn and attacker.pawn_name == "Juice Box":
