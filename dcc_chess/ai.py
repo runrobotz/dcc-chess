@@ -6,7 +6,9 @@ Provides two AI implementations:
   and context-aware ability spending.
 """
 
+import copy
 import random
+import time
 from collections import deque
 from typing import List, Tuple, Optional, Dict
 
@@ -15,7 +17,8 @@ from .board import Board, BOARD_SIZE, PAWN_ROSTER
 from .dice import DungeonDice
 from .abilities import GameState
 from .pawns import PAWN_CHARACTERS, AbilityTrigger
-from .movement import is_checkmate, is_in_check, is_square_attacked
+from .movement import (is_checkmate, is_in_check, is_square_attacked, is_stalemate,
+                       all_legal_moves, pseudo_legal_moves_for_piece)
 
 # How many of the AI's own most-recent resulting board positions smart_move()
 # remembers, for repetition avoidance (see _deprioritize_repeated_positions).
@@ -325,14 +328,190 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
 # Smart Positional AI
 # ══════════════════════════════════════════════════════════════════
 
+# Minimax search depth and wall-clock budget for smart_move(). If a search
+# blows through the time limit (a busy midgame position with many legal
+# moves per ply), smart_move falls back to the older priority-ladder logic
+# for that turn rather than let the game hang.
+MINIMAX_DEPTH = 3
+MINIMAX_TIME_LIMIT_SECONDS = 5.0
+
+CENTER_SQUARES = {
+    (4, 4), (4, 5), (4, 6),
+    (5, 4), (5, 5), (5, 6),
+    (6, 4), (6, 5), (6, 6),
+}
+
+
+class _MinimaxTimeout(Exception):
+    """Raised internally when a minimax search exceeds its time budget."""
+
+
 def smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
-    """Pick a move using positional priorities (see _select_smart_move), then
-    record its resulting board position in the AI's short-term history so
-    future calls can deprioritize moves that would repeat it.
+    """Pick a move via minimax search (see _select_minimax_move), falling back
+    to the older positional priority ladder if the search times out or finds
+    nothing, then record its resulting board position in the AI's short-term
+    history so future calls can deprioritize moves that would repeat it.
     """
-    move = _select_smart_move(game_state, legal_moves)
+    move = _select_minimax_move(game_state, legal_moves)
+    if move is None:
+        move = _select_smart_move(game_state, legal_moves)
     _record_ai_position(game_state, move)
     return move
+
+
+def evaluate_board(board: Board, gs: GameState, color: Color) -> float:
+    """Score `board` from `color`'s perspective -- higher is better for `color`.
+
+    Combines material (own pieces minus enemy pieces, by PIECE_VALUES) with
+    positional bonuses: check/checkmate status for both kings, mobility,
+    center-square occupation, and pawn advancement.
+    """
+    opponent = color.opponent
+    score = 0.0
+
+    for r in range(BOARD_SIZE):
+        for c in range(BOARD_SIZE):
+            piece = board.get(r, c)
+            if piece is None:
+                continue
+
+            sign = 1 if piece.color == color else -1
+            score += sign * PIECE_VALUES.get(piece.piece_type, 1)
+
+            if (r, c) in CENTER_SQUARES:
+                score += sign * 0.2
+
+            if piece.piece_type == PieceType.PAWN:
+                if piece.color == Color.WHITE and r > 2:
+                    score += sign * (r - 2) * 0.1
+                elif piece.color == Color.BLACK and r < 9:
+                    score += sign * (9 - r) * 0.1
+
+    if is_in_check(board, color):
+        score -= 50
+    if is_checkmate(board, color):
+        score -= 10000
+    if is_in_check(board, opponent):
+        score += 30
+    if is_checkmate(board, opponent):
+        score += 10000
+
+    # Mobility uses pseudo-legal move counts (no per-move legality/check
+    # simulation) -- evaluate_board runs at every minimax leaf, and the fully
+    # legal count (all_legal_moves) is ~10x more expensive at this piece
+    # density. Close enough as a mobility signal; see _quick_mobility.
+    score += 0.1 * _quick_mobility(board, color)
+
+    return score
+
+
+def _quick_mobility(board: Board, color: Color) -> int:
+    """Cheap mobility proxy: total pseudo-legal destination squares across
+    all of `color`'s pieces, skipping the make_move/undo_move legality check
+    that all_legal_moves does for every candidate move.
+    """
+    return sum(len(pseudo_legal_moves_for_piece(board, r, c))
+               for r, c, _piece in board.all_pieces(color))
+
+
+def _order_moves_for_search(board: Board, moves: List[Tuple], color: Color) -> List[Tuple]:
+    """Sort moves to try captures (richest first) and center-square landings
+    before quiet moves, without simulating anything -- this is what lets
+    alpha-beta prune effectively instead of scanning near the full tree.
+    """
+    def key(move):
+        (_fr, _fc), (tr, tc) = move
+        target = board.get(tr, tc)
+        capture_value = (PIECE_VALUES.get(target.piece_type, 1)
+                         if target is not None and target.color != color else 0)
+        center_bonus = 1 if (tr, tc) in CENTER_SQUARES else 0
+        return (-capture_value, -center_bonus)
+
+    return sorted(moves, key=key)
+
+
+def minimax(board: Board, gs: GameState, depth: int, alpha: float, beta: float,
+            maximizing_color: Color, root_color: Color, deadline: float) -> float:
+    """Minimax search with alpha-beta pruning, evaluating leaves from
+    `root_color`'s perspective. `deadline` is a time.monotonic() timestamp;
+    exceeding it raises _MinimaxTimeout so the caller can abandon the search.
+    """
+    if time.monotonic() > deadline:
+        raise _MinimaxTimeout()
+
+    if (depth == 0
+            or is_checkmate(board, maximizing_color)
+            or is_stalemate(board, maximizing_color)):
+        return evaluate_board(board, gs, root_color)
+
+    legal_moves = all_legal_moves(board, maximizing_color)
+    if not legal_moves:
+        return evaluate_board(board, gs, root_color)
+    legal_moves = _order_moves_for_search(board, legal_moves, maximizing_color)
+
+    opponent_color = maximizing_color.opponent
+
+    if maximizing_color == root_color:
+        max_eval = -float('inf')
+        for move in legal_moves:
+            board_copy = copy.deepcopy(board)
+            board_copy.make_move(*move)
+            eval_score = minimax(board_copy, gs, depth - 1, alpha, beta,
+                                 opponent_color, root_color, deadline)
+            max_eval = max(max_eval, eval_score)
+            alpha = max(alpha, eval_score)
+            if beta <= alpha:
+                break
+        return max_eval
+    else:
+        min_eval = float('inf')
+        for move in legal_moves:
+            board_copy = copy.deepcopy(board)
+            board_copy.make_move(*move)
+            eval_score = minimax(board_copy, gs, depth - 1, alpha, beta,
+                                 opponent_color, root_color, deadline)
+            min_eval = min(min_eval, eval_score)
+            beta = min(beta, eval_score)
+            if beta <= alpha:
+                break
+        return min_eval
+
+
+def _select_minimax_move(game_state: GameState, legal_moves: List[Tuple]) -> Optional[Tuple]:
+    """Search `legal_moves` with minimax at MINIMAX_DEPTH and return the best
+    one, skipping past a top pick that would repeat a recent position (same
+    intent as the priority ladder's repetition avoidance). Returns None if
+    there are no legal moves or the search times out, signaling smart_move
+    to fall back to the priority ladder.
+    """
+    if not legal_moves:
+        return None
+
+    board = game_state.board
+    color = game_state.current_player
+    deadline = time.monotonic() + MINIMAX_TIME_LIMIT_SECONDS
+    ordered_moves = _order_moves_for_search(board, legal_moves, color)
+
+    scored_moves = []
+    try:
+        for move in ordered_moves:
+            board_copy = copy.deepcopy(board)
+            board_copy.make_move(*move)
+            score = minimax(board_copy, game_state, MINIMAX_DEPTH - 1,
+                            -float('inf'), float('inf'),
+                            color.opponent, color, deadline)
+            scored_moves.append((score, move))
+    except _MinimaxTimeout:
+        print("Warning: minimax search exceeded the 5s time limit; "
+              "falling back to the priority-ladder AI for this turn.")
+        return None
+
+    scored_moves.sort(key=lambda sm: sm[0], reverse=True)
+
+    for _score, move in scored_moves:
+        if not _would_repeat_position(game_state, board, move):
+            return move
+    return scored_moves[0][1]
 
 
 def _select_smart_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
