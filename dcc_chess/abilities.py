@@ -3004,7 +3004,14 @@ class GameState:
                     self.captured_pieces[cap_piece.color] = []
                 self.captured_pieces[cap_piece.color].append(cap_piece)
                 self.log_event("rampage_capture", pos=cap_pos, piece=repr(cap_piece))
-        
+                # Orthrus is a single logical piece occupying two squares (head +
+                # butt). Rampage captures directly rather than going through
+                # process_post_capture, so without this his other square would
+                # be left behind as an unremovable ghost piece -- same fix as
+                # the standard capture path (see attempt_capture / process_post_capture).
+                if cap_piece.is_pawn and cap_piece.pawn_name == "Orthrus":
+                    self.process_orthrus_permanent_death(cap_piece, cap_pos)
+
         return valid_moves if valid_moves else None
 
     def try_slut_shame(self, samantha_pos: Tuple[int, int], dice: DungeonDice) -> bool:
