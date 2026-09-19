@@ -845,9 +845,11 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
             # Cockroach: resurrect when there's a captured piece to bring back.
             if not game_state.resurrection_used[color] and board.captured[color]:
                 defensive_attempts.append(("cockroach", (row, col), piece, 7))
-            # Puddle Jump: offensive reposition/strike when enemies are in reach.
-            if _has_enemy_in_range(board, row, col, 3, opponent):
-                offensive_attempts.append(("puddle_jump", (row, col), piece, 5))
+            # Puddle Jump: offensive reposition when enemies are in reach and
+            # off cooldown (it can no longer capture -- see try_puddle_jump).
+            if (game_state.puddle_jump_cooldown <= 0
+                    and _has_enemy_in_range(board, row, col, 3, opponent)):
+                offensive_attempts.append(("puddle_jump", (row, col), piece, 7))
 
         elif piece.piece_type == PieceType.CARL:
             # Plot Armor is an emergency escape -- only worth considering when
@@ -1057,11 +1059,10 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     elif ability_name == "cockroach":
         gs.try_cockroach(pos, dice)
     elif ability_name == "puddle_jump":
-        result = gs.try_puddle_jump(pos, dice, die_idx)
-        if result:
-            dest = random.choice(result)
-            gs.board.set(pos[0], pos[1], None)
-            gs.board.set(dest[0], dest[1], piece)
+        destinations = gs.puddle_jump_destinations(pos)
+        if destinations:
+            dest = random.choice(destinations)
+            gs.try_puddle_jump(pos, dice, dest)
     elif ability_name == "plot_armor":
         result = gs.try_plot_armor(pos, dice)
         if result:

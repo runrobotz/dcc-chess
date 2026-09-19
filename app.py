@@ -79,7 +79,7 @@ MAJOR_ABILITIES = {
         {"name": "Jug-o-Boom", "floor": 4, "description": "Carl tosses a bomb up to 3 squares in any direction to attack a summoned boss.", "is_boss_only": True},
     ],
     "Donut": [
-        {"name": "Puddle Jump", "floor": 5, "description": "Donut moves like a Queen but can pass through or jump past any pieces in her path to reach her destination. She cannot harm pieces she passes through."},
+        {"name": "Puddle Jump", "floor": 7, "description": "Donut hops unlimited squares in any Queen direction, passing harmlessly over any pieces in her path. The destination must be a completely empty square -- she can never capture with this ability. 10-turn cooldown after use.", "requires_combined": True},
         {"name": "Cockroach", "floor": 7, "description": "Resurrect one captured friendly piece and place it on any open square adjacent to Donut.", "uses_per_game": 1, "requires_combined": True},
         {"name": "Magic Missile", "floor": 5, "description": "Shoots a magic missile 5 squares in any direction to damage a summoned boss.", "is_boss_only": True},
     ],
@@ -402,6 +402,7 @@ def build_game_state_response():
         "system_reset_active": gs.system_reset_active,
         "main_character_syndrome_active": gs.main_character_syndrome_active,
         "juice_box_cooldown": {c.value: v for c, v in gs.juice_box_cooldown.items()},
+        "puddle_jump_cooldown": gs.puddle_jump_cooldown,
         "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
         "pending_ai_card_decision": gs.pending_ai_card_decision,
         "swap_active": gs.swap_active,
@@ -1241,25 +1242,9 @@ def get_ability_targets():
             message = "Select destination (up to 3 squares, any King direction)"
 
         elif ability_name == "Puddle Jump":
-            if effective_die_value(die_index) >= 5:
-                r, c = piece_row, piece_col
-                directions = [(-1, 0), (1, 0), (0, -1), (0, 1),
-                              (-1, -1), (-1, 1), (1, -1), (1, 1)]
-                for dr, dc in directions:
-                    for dist in range(1, BOARD_SIZE):
-                        nr, nc = r + dr * dist, c + dc * dist
-                        if not gs.board.in_bounds(nr, nc):
-                            break
-                        if gs.is_square_blocked(nr, nc):
-                            break
-                        t = gs.board.get(nr, nc)
-                        if t is None:
-                            valid_targets.append([nr, nc])
-                        elif t.color != piece.color:
-                            valid_targets.append([nr, nc])
-                            break
-                        # friendly piece — pass through, continue scanning
-            message = "Select destination (queen movement, pass through friendlies)"
+            if gs.puddle_jump_cooldown <= 0 and dice.can_combine_for_cost(7):
+                valid_targets = [list(pos) for pos in gs.puddle_jump_destinations((piece_row, piece_col))]
+            message = "Select destination (unlimited Queen movement, must be a completely empty square)"
         
         elif ability_name == "Pet Carrier":
             # Check if Mongo is stored
@@ -1295,7 +1280,9 @@ def get_ability_targets():
                     nr, nc = r + dr, c + dc
                     if gs.board.in_bounds(nr, nc) and not gs.is_square_blocked(nr, nc):
                         t = gs.board.get(nr, nc)
-                        if t is None or t.color != piece.color:
+                        # The enemy King is never a valid Rampage target (see
+                        # try_rampage's matching target.is_king check).
+                        if t is None or (t.color != piece.color and not t.is_king):
                             valid_targets.append([nr, nc])
             message = "Select destination after capturing all in path"
         
@@ -1579,16 +1566,10 @@ def use_ability():
 
         # Donut abilities
         elif ability_name == "Puddle Jump" and piece.piece_type == PieceType.DONUT:
-            result = gs.try_puddle_jump((piece_row, piece_col), dice, die_index)
-            success = result is not None
-            if success and result:
-                if target_pos and target_pos in result:
-                    dest = target_pos
-                else:
-                    dest = random.choice(result) if result else None
-                if dest:
-                    gs.board.set(piece_row, piece_col, None)
-                    gs.board.set(dest[0], dest[1], piece)
+            if target_pos is None:
+                return jsonify({"error": "Puddle Jump needs a target square"}), 400
+            dest = gs.try_puddle_jump((piece_row, piece_col), dice, target_pos)
+            success = dest is not None
             result_msg = "Puddle jump!" if success else "Failed"
 
         elif ability_name == "Diva's Entrance" and piece.piece_type == PieceType.DONUT:
@@ -1794,6 +1775,21 @@ def use_ability():
     # One ability per turn: lock all remaining dice regardless of which was spent
     for i in range(len(dice.used)):
         dice.used[i] = True
+
+    # Safety net: unlike a normal /move, several abilities move or remove
+    # pieces directly on the board (e.g. Rampage, or the pre-rework Puddle
+    # Jump) without going through attempt_capture/_finish_move_and_check_game_over.
+    # Carl should never actually be capturable this way -- legal move
+    # generation already keeps a player from leaving their own king en prise
+    # -- but if an ability's own targeting ever lets that happen anyway, the
+    # game must still end correctly here instead of continuing with a Carl
+    # missing from the board.
+    opponent_color = color.opponent
+    if not game_data.get("game_over") and gs.board.find_king(opponent_color) is None:
+        if _handle_carl_fallen(gs, color, opponent_color):
+            resp = build_game_state_response()
+            resp["ability_result"] = {"success": success, "message": result_msg}
+            return jsonify(resp)
 
     resp = build_game_state_response()
     resp["ability_result"] = {"success": success, "message": result_msg}
@@ -2240,6 +2236,15 @@ def _play_ai_turn():
     gs.promote_group_climax(dice)
     gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color, dice=dice)
     smart_abilities(gs, dice, color)
+
+    # Safety net: an ability the AI just used may have moved or removed a
+    # piece directly on the board without going through the normal
+    # move-capture flow (see the matching check in use_ability()). If
+    # White's Carl is now gone as a result, end the game here instead of
+    # continuing to play out a turn with no king on the board.
+    if gs.board.find_king(opponent) is None:
+        if _handle_carl_fallen(gs, color, opponent):
+            return build_game_state_response()
 
     # End AI turn
     gs.end_turn()

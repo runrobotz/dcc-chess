@@ -67,6 +67,8 @@ class GameState:
 
         # Donut
         self.cockroach_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
+        # Puddle Jump: shared 10-turn cooldown after use, ticked down in end_turn().
+        self.puddle_jump_cooldown: int = 0
         
         # Mongo
         self.mongo_stored: Dict[Tuple[Color, int], bool] = {}  # (color, piece_id) -> is_stored
@@ -509,6 +511,10 @@ class GameState:
 
         # Tick air strike zones
         self.air_strike_zones = {pos: t - 1 for pos, t in self.air_strike_zones.items() if t - 1 > 0}
+
+        # Tick Puddle Jump cooldown
+        if self.puddle_jump_cooldown > 0:
+            self.puddle_jump_cooldown -= 1
         
         # Tick lava spit zones
         self.lava_spit_zones = [
@@ -2498,48 +2504,70 @@ class GameState:
                        detail=f"Combined total {total}", result="success")
         return total
 
+    def puddle_jump_destinations(self, donut_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Pure computation of Donut's legal Puddle Jump destinations: unlimited
+        distance in any Queen direction, hopping harmlessly over every piece
+        (friendly or enemy) in the path. Only a completely empty square is a
+        valid destination -- Puddle Jump can never land on or affect an
+        occupied square.
+        """
+        piece = self.board.get(*donut_pos)
+        if piece is None or piece.piece_type != PieceType.DONUT:
+            return []
+
+        r, c = donut_pos
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
+        destinations = []
+        for dr, dc in directions:
+            for distance in range(1, BOARD_SIZE):
+                nr, nc = r + dr * distance, c + dc * distance
+                if not self.board.in_bounds(nr, nc):
+                    break
+                if self.is_square_blocked(nr, nc):
+                    break
+                if self.board.get(nr, nc) is None:
+                    destinations.append((nr, nc))
+                # An occupied square (friendly or enemy) is ignored entirely --
+                # Puddle Jump never touches pieces in its path, so scanning
+                # continues past it instead of stopping on it or capturing it.
+        return destinations
+
     def try_puddle_jump(self, donut_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Donut's Puddle Jump (Floor 5): Move like Queen but can pass through pieces."""
+                        target_square: Tuple[int, int]) -> Optional[Tuple[int, int]]:
+        """Donut's Puddle Jump (Cost 7, requires combined dice, 10-turn cooldown):
+        hop unlimited squares in any Queen direction, passing harmlessly over
+        every piece along the way, to land on a completely empty square.
+        Never captures. Returns the destination on success, or None if the
+        attempt was never valid (nothing is spent in that case).
+        """
+        # Hard check first: an occupied destination is never valid, no matter
+        # what else is true -- this is what makes it impossible for Puddle
+        # Jump to ever capture Carl (or anything else), even if the
+        # reachable-squares computation above were ever wrong.
+        if self.board.get(*target_square) is not None:
+            return None
+
         piece = self.board.get(*donut_pos)
         if piece is None or piece.piece_type != PieceType.DONUT:
             return None
         if self.is_piece_suppressed(*donut_pos):
             return None
-
-        success = dice.spend_die(die_index, 5)
-        self.log_event("ability_roll", piece="Donut", ability="Puddle Jump",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if not success:
+        if self.puddle_jump_cooldown > 0:
+            return None
+        if target_square not in self.puddle_jump_destinations(donut_pos):
+            return None
+        if not dice.can_combine_for_cost(7):
             return None
 
-        r, c = donut_pos
-        moves = []
-        # Queen moves in 8 directions (orthogonal + diagonal)
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-        
-        for dr, dc in directions:
-            # Check all squares in this direction
-            for distance in range(1, BOARD_SIZE):
-                nr, nc = r + (dr * distance), c + (dc * distance)
-                if not self.board.in_bounds(nr, nc):
-                    break
-                if self.is_square_blocked(nr, nc):
-                    break
-                
-                target = self.board.get(nr, nc)
-                if target is None:
-                    # Empty square - can move here
-                    moves.append((nr, nc))
-                elif target.color != piece.color:
-                    # Enemy piece - can capture here but can't pass through
-                    moves.append((nr, nc))
-                    break
-                else:
-                    # Friendly piece - can pass through but can't land here
-                    continue
-        
-        return moves if moves else None
+        dice.spend_combined(7)
+        self.puddle_jump_cooldown = 10
+        self.log_event("ability_roll", piece="Donut", ability="Puddle Jump",
+                       detail="Combined dice for cost 7", result="success")
+
+        self.board.set(donut_pos[0], donut_pos[1], None)
+        self.board.set(target_square[0], target_square[1], piece)
+        self.log_event("puddle_jump", from_pos=donut_pos, to_pos=target_square)
+        return target_square
 
     def try_pet_carrier(self, mongo_pos: Tuple[int, int], dice: DungeonDice,
                         die_index: int) -> bool:
@@ -2991,6 +3019,11 @@ class GameState:
             if target is None:
                 valid_moves.append((nr, nc))
             elif target.color != piece.color:
+                if target.is_king:
+                    # The enemy King is never a valid Rampage target -- as in
+                    # standard chess, Carl is never directly capturable (same
+                    # rule as plot_armor_destinations's target.is_king check).
+                    continue
                 # Enemy piece - can capture
                 valid_moves.append((nr, nc))
                 captured_pieces.append((nr, nc))

@@ -879,7 +879,7 @@ const Game = {
             { name: 'Jug-o-Boom', floor: 4, boss_only: true, description: 'Carl tosses a bomb up to 3 squares in any direction to attack a summoned boss.' },
         ] },
         { name: 'Donut', type: 'Queen', abilities: [
-            { name: 'Puddle Jump', floor: 5, description: 'Donut moves like a Queen but can pass through or jump past any pieces in her path. She cannot harm pieces she passes through.' },
+            { name: 'Puddle Jump', floor: 7, requires_combined: true, description: 'Donut hops unlimited squares in any Queen direction, passing harmlessly over any pieces in her path. The destination must be a completely empty square — she can never capture with this ability. 10-turn cooldown after use.' },
             { name: 'Cockroach', floor: 7, requires_combined: true, uses_per_game: 1, description: 'Resurrect one captured friendly piece and place it on any open square adjacent to Donut.' },
             { name: 'Magic Missile', floor: 5, boss_only: true, description: 'Shoots a magic missile 5 squares in any direction to damage a summoned boss.' },
         ] },
@@ -3167,8 +3167,11 @@ const Game = {
         let useCombined = false;
 
         const floor = this.effectiveFloor(ab.floor);
+        const onPuddleJumpCooldown = ab.name === 'Puddle Jump' && (this.state.puddle_jump_cooldown || 0) > 0;
 
         if (this.state.system_reset_active) {
+            status = 'grey';
+        } else if (onPuddleJumpCooldown) {
             status = 'grey';
         } else if (ab.is_boss_only && !this.state.boss_active) {
             status = 'purple';
@@ -3201,13 +3204,17 @@ const Game = {
         const card = document.createElement('div');
         card.className = `ability-card status-${status}`;
 
-        const abLabel = ab.juice_box_source_pawn ? `${ab.name} (${ab.juice_box_source_pawn})` : ab.name;
+        const abLabel = onPuddleJumpCooldown
+            ? `Puddle Jump — available in ${this.state.puddle_jump_cooldown} turns`
+            : (ab.juice_box_source_pawn ? `${ab.name} (${ab.juice_box_source_pawn})` : ab.name);
         const discounted = floor < (ab.floor || 0);
         const manaLabel = this.state.system_reset_active
             ? '🔒 System Reset'
-            : (ab.is_boss_only && !this.state.boss_active)
-                ? '🔒 Boss Event Only'
-                : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
+            : onPuddleJumpCooldown
+                ? '🔒 Cooldown'
+                : (ab.is_boss_only && !this.state.boss_active)
+                    ? '🔒 Boss Event Only'
+                    : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
 
         card.innerHTML = `
             <span class="ac-piece-name">${pieceLabel}</span>
