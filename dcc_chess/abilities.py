@@ -160,7 +160,9 @@ class GameState:
         self.group_climax_active: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         
         # Bad Llama — Lava Spit: zones that force movement
-        self.lava_spit_zones: List[Dict] = []  # [{pos: (r,c), turns: int}] (2x2 zones)
+        self.lava_spit_zones: List[Dict] = []  # [{pos: [(r,c),(r,c)], turns: int}] (1x2 horizontal zones)
+        # Bad Llama — Lava Spit: can't move flag (same pattern as louie_cant_move)
+        self.bad_llama_cant_move: Set[Tuple[int, int]] = set()
 
         # ── Additional state referenced by ability methods ────────────
         # Forced retreat (Florin's Suppressing Fire — _apply_forced_retreat reads this)
@@ -472,6 +474,9 @@ class GameState:
         self.main_character_syndrome_active = False
         # Raul's Group Climax buff is scoped to the single turn it applied on.
         self.group_climax_active = {Color.WHITE: False, Color.BLACK: False}
+        # Bad Llama's Lava Spit "cannot move this turn" is scoped to the
+        # single turn it was cast on (same pattern as louie_cant_move).
+        self.bad_llama_cant_move = set()
 
         # Tick ghost tokens. A Mordecai ghost square placed this turn skips its
         # first tick -- the capture turn's own end_turn() shouldn't burn a turn
@@ -599,7 +604,8 @@ class GameState:
     # ── Square Blocking ───────────────────────────────────────────
 
     def is_square_blocked(self, row: int, col: int) -> bool:
-        """Check if a square is blocked by ghost tokens, smoke zones, lava zones, or air strike zones."""
+        """Check if a square is blocked by ghost tokens, smoke zones, lava zones,
+        air strike zones, or Bad Llama's lava spit zones."""
         if (row, col) in self.ghost_tokens:
             return True
         if (row, col) in self.lava_zones:
@@ -609,6 +615,9 @@ class GameState:
         for sz in self.smoke_zones:
             sr, sc = sz["pos"]
             if sr <= row <= sr + 1 and sc <= col <= sc + 1:
+                return True
+        for zone in self.lava_spit_zones:
+            if (row, col) in zone["pos"]:
                 return True
         return False
 
@@ -626,6 +635,8 @@ class GameState:
         if (row, col) in self.iron_wall_pieces:
             return False
         if (row, col) in self.louie_cant_move:
+            return False
+        if (row, col) in self.bad_llama_cant_move:
             return False
         if (row, col) in self.chris_stuck:
             return False
@@ -1604,65 +1615,6 @@ class GameState:
         self.log_event("meditative_strike_active", detail="Next die treated as 6")
         return True
 
-    def try_lava_spit(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                      die_index: int) -> bool:
-        """Bad Llama's Lava Spit (Floor 4): force piece off a square or capture it."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Bad Llama":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Bad Llama", ability="Lava Spit",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        # Find target squares within 2 that have a piece
-        targets = []
-        for dr in range(-2, 3):
-            for dc in range(-2, 3):
-                if dr == 0 and dc == 0:
-                    continue
-                if abs(dr) + abs(dc) > 2:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and not self.is_piece_invulnerable(nr, nc):
-                        targets.append((nr, nc, t))
-
-        if not targets:
-            return False
-
-        tr, tc, target = random.choice(targets)
-        # Try to find adjacent open square for the displaced piece
-        escaped = False
-        adj_squares = []
-        for dr2 in [-1, 0, 1]:
-            for dc2 in [-1, 0, 1]:
-                if dr2 == 0 and dc2 == 0:
-                    continue
-                er, ec = tr + dr2, tc + dc2
-                if (self.board.in_bounds(er, ec) and self.board.get(er, ec) is None
-                        and not self.is_square_blocked(er, ec)):
-                    adj_squares.append((er, ec))
-
-        if adj_squares:
-            dest = random.choice(adj_squares)
-            self.board.set(tr, tc, None)
-            self.board.set(dest[0], dest[1], target)
-            self.log_event("lava_spit_displace", target=repr(target),
-                           from_pos=(tr, tc), to_pos=dest)
-        else:
-            # Can't move — captured
-            self.board.set(tr, tc, None)
-            self.board.captured[target.color].append(target)
-            self.log_event("lava_spit_capture", captured=repr(target), pos=(tr, tc))
-        return True
-
     # ── Chunk 2 Abilities: Priority Group 1 (Simple Status Effects) ──
 
     def try_sic_em(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
@@ -2077,9 +2029,12 @@ class GameState:
 
     def try_lava_spit_chunk2(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                              die_index: int, target_pos: Optional[Tuple[int, int]] = None) -> bool:
-        """Bad Llama's Lava Spit (Floor 4): Create 2x2 zone that forces movement.
+        """Bad Llama's Lava Spit (Floor 4): 1x2 horizontal lava strip within 4
+        squares, for 3 full turns. No piece can enter the zone while it's
+        active (see is_square_blocked).
 
-        `target_pos`, if given, is the top-left corner of the 2x2 zone.
+        `target_pos`, if given, is the left square of the strip -- it extends
+        right, or left if that would run off the board.
         """
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name not in ("Bad Llama", "Juice Box"):
@@ -2093,27 +2048,38 @@ class GameState:
         if not success:
             return False
 
-        def zone_valid(zone_r, zone_c):
-            return self.board.in_bounds(zone_r, zone_c) and self.board.in_bounds(zone_r + 1, zone_c + 1)
+        def strip_squares(zr, zc):
+            """The 1x2 horizontal pair anchored at (zr, zc), extending right,
+            or left if that would run off the board. None if neither fits."""
+            if not self.board.in_bounds(zr, zc):
+                return None
+            if self.board.in_bounds(zr, zc + 1):
+                return [(zr, zc), (zr, zc + 1)]
+            if self.board.in_bounds(zr, zc - 1):
+                return [(zr, zc - 1), (zr, zc)]
+            return None
 
         r, c = pawn_pos
-        # Find valid 2x2 zones within 4 squares
-        valid_zones = []
+        # Find valid strip anchors within 4 squares
+        valid_anchors = []
         for dr in range(-4, 5):
             for dc in range(-4, 5):
-                zone_r, zone_c = r + dr, c + dc
-                if zone_valid(zone_r, zone_c):
-                    valid_zones.append((zone_r, zone_c))
+                zr, zc = r + dr, c + dc
+                if strip_squares(zr, zc) is not None:
+                    valid_anchors.append((zr, zc))
 
-        if target_pos is not None and zone_valid(target_pos[0], target_pos[1]):
-            zone_pos = tuple(target_pos)
-        elif valid_zones:
-            zone_pos = random.choice(valid_zones)
+        if target_pos is not None and strip_squares(target_pos[0], target_pos[1]) is not None:
+            anchor = tuple(target_pos)
+        elif valid_anchors:
+            anchor = random.choice(valid_anchors)
         else:
             return False
 
-        self.lava_spit_zones.append({"pos": zone_pos, "turns": 1})
-        self.log_event("lava_spit_chunk2", zone_pos=zone_pos, detail="2x2 zone forces movement")
+        zone_squares = strip_squares(*anchor)
+        self.lava_spit_zones.append({"pos": zone_squares, "turns": 3})
+        self.bad_llama_cant_move.add(pawn_pos)
+        self.log_event("lava_spit_chunk2", zone=zone_squares,
+                       detail="1x2 lava strip for 3 turns")
         return True
 
     # ── Chunk 2 Abilities: Priority Group 4 (Auto Triggers) ──
@@ -2263,19 +2229,30 @@ class GameState:
 
         key = self.juice_box_key(juice_box_pos)
 
-        # Add captured pawn to Juice Box's list
-        if key not in self.juice_box_captured:
-            self.juice_box_captured[key] = []
+        # Only floor-roll abilities are usable through Shapeshift's manual
+        # trigger (mirrors the filter ai.py's _try_pawn_ability and
+        # _categorize_pawn_ability already apply) -- auto/passive/no-roll
+        # abilities like Garret's Indestructible, Quasar's Mediation, or
+        # Mordecai's Manager Benefit have no active effect for her to fire,
+        # so they must never be added as a usable entry.
+        captured_char = PAWN_CHARACTERS.get(captured_pawn.pawn_name)
+        gained_ability = (captured_char is not None
+                          and captured_char.ability.trigger == AbilityTrigger.FLOOR_ROLL)
 
-        if captured_pawn.pawn_name not in self.juice_box_captured[key]:
-            self.juice_box_captured[key].append(captured_pawn.pawn_name)
+        if gained_ability:
+            if key not in self.juice_box_captured:
+                self.juice_box_captured[key] = []
+            if captured_pawn.pawn_name not in self.juice_box_captured[key]:
+                self.juice_box_captured[key].append(captured_pawn.pawn_name)
 
-        # Mark that Juice Box can't use ability this turn
+        # Mark that Juice Box can't use ability this turn -- applies to any
+        # capture, regardless of whether an ability was actually gained above.
         self.juice_box_used_this_turn.add(juice_box_pos)
 
         self.log_event("juice_box_shapeshift", pos=juice_box_pos,
                        captured=captured_pawn.pawn_name,
-                       detail="Gained ability, cannot use this turn")
+                       detail=("Gained ability, cannot use this turn" if gained_ability
+                               else "Captured pawn's ability isn't usable via Shapeshift"))
 
     def find_captured_ability(self, juice_box_pos: Tuple[int, int], ability_name: str):
         """Look up the PawnCharacter behind one of Juice Box's currently-acquired abilities."""

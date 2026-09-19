@@ -281,7 +281,7 @@ PAWN_CHARACTERS = {
         name="Bad Llama",
         ability=PawnAbility(
             name="Lava Spit",
-            description="Target any 2x2 zone within 4 squares. Any piece in that zone must move out on their next turn or be captured. Mark with tokens.",
+            description="Places a 1x2 horizontal lava strip anywhere within 4 squares of Bad Llama for 3 full turns. Any piece currently in the zone when placed must move out on their next turn or be captured. No piece can enter the lava zone while active. Bad Llama cannot move this turn.",
             floor_number=4,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),

@@ -158,7 +158,7 @@ def get_piece_abilities(piece, game_state, row, col):
         captured_list = game_state.juice_box_captured.get(game_state.juice_box_key((row, col)), [])
         for captured_name in captured_list:
             cchar = PAWN_CHARACTERS.get(captured_name)
-            if not cchar:
+            if not cchar or cchar.ability.trigger != AbilityTrigger.FLOOR_ROLL:
                 continue
             cab = cchar.ability
             abilities.append({
@@ -379,6 +379,7 @@ def build_game_state_response():
         "black_pieces_to_place": game_data.get("black_pieces_to_place"),
         "air_strike_zones": [[r, c] for r, c in gs.air_strike_zones.keys()],
         "lava_zones": [[r, c] for r, c in gs.lava_zones.keys()],
+        "lava_spit_zones": [[r, c] for zone in gs.lava_spit_zones for (r, c) in zone["pos"]],
         "frozen_pieces": [[r, c] for r, c in gs.frozen_pieces],
         "suppressed_pieces": [[r, c] for r, c in gs.suppressed_pieces],
         "restrained_pieces": [[r, c] for r, c in gs.restrained_pieces],
@@ -1208,7 +1209,18 @@ def get_ability_targets():
             for dr in range(-4, 5):
                 for dc in range(-4, 5):
                     nr, nc = piece_row + dr, piece_col + dc
-                    if gs.board.in_bounds(nr, nc):
+                    if not gs.board.in_bounds(nr, nc):
+                        continue
+                    # Anchor + one square right, or left at the board edge --
+                    # same rule try_lava_spit_chunk2 uses -- and both squares
+                    # of the resulting strip must be completely empty.
+                    if gs.board.in_bounds(nr, nc + 1):
+                        pair = [(nr, nc), (nr, nc + 1)]
+                    elif gs.board.in_bounds(nr, nc - 1):
+                        pair = [(nr, nc - 1), (nr, nc)]
+                    else:
+                        continue
+                    if all(gs.board.get(pr, pc) is None for (pr, pc) in pair):
                         valid_targets.append([nr, nc])
             message = "Click a square — lava strip extends right"
 
@@ -1965,29 +1977,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         success = gs.try_group_climax(pos, dice)
         msg = "Group climax activated!" if success else "Failed"
     elif name == "Bad Llama" and ability_name == "Lava Spit":
-        if target_pos:
-            r, c = target_pos[0], target_pos[1]
-            # 1×2 horizontal: extend right, or left if at board edge
-            c2 = c + 1 if c < 10 else c - 1
-            spend_success = dice.spend_die(die_index, 5)
-            gs.log_event("ability_roll", piece="Bad Llama", ability="Lava Spit",
-                         die_value=dice.dice[die_index], floor=5,
-                         result="success" if spend_success else "fail")
-            if spend_success:
-                zone = []
-                for nc in (c, c2):
-                    if gs.board.in_bounds(r, nc):
-                        gs.lava_zones[(r, nc)] = 3  # 3 turns duration
-                        zone.append([r, nc])
-                gs.log_event("lava_spit_zone", zone=zone, detail="Lava zone for 3 turns")
-                success = True
-                msg = "Lava spit!"
-            else:
-                success = False
-                msg = "Failed"
-        else:
-            success = gs.try_lava_spit_chunk2(pos, dice, die_index)
-            msg = "Lava spit!" if success else "Failed"
+        success = gs.try_lava_spit_chunk2(pos, dice, die_index, target_pos=target_pos)
+        msg = "Lava spit!" if success else "Failed"
     else:
         msg = f"Unknown pawn ability: {ability_name}"
 

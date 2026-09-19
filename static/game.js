@@ -1473,6 +1473,7 @@ const Game = {
         // Persistent zone overlay sets
         const airStrikeSet = new Set((this.state.air_strike_zones || []).map(z => `${z[0]},${z[1]}`));
         const lavaZoneSet = new Set((this.state.lava_zones || []).map(z => `${z[0]},${z[1]}`));
+        const lavaSpitZoneSet = new Set((this.state.lava_spit_zones || []).map(z => `${z[0]},${z[1]}`));
         const bossSquareSet = new Set((this.state.boss_squares || []).map(z => `${z[0]},${z[1]}`));
         const feralGoosePuzzleActive = this.state.boss_active && this.state.active_boss === 'Feral Goose';
         const feralGooseSquareSet = feralGoosePuzzleActive
@@ -1694,6 +1695,12 @@ const Game = {
                     sq.appendChild(overlay);
                 }
                 if (lavaZoneSet.has(sqKey)) {
+                    const overlay = document.createElement('div');
+                    overlay.className = 'zone-overlay lava-zone-overlay';
+                    overlay.textContent = '🔥';
+                    sq.appendChild(overlay);
+                }
+                if (lavaSpitZoneSet.has(sqKey)) {
                     const overlay = document.createElement('div');
                     overlay.className = 'zone-overlay lava-zone-overlay';
                     overlay.textContent = '🔥';
@@ -3332,6 +3339,12 @@ const Game = {
         // render() from pc.abilities, so tiles appear/disappear as she gains or
         // loses acquired abilities.
         for (const ab of abilities) {
+            // Only floor-roll abilities have a manual trigger to fire (mirrors
+            // the server-side filter in process_juice_box_capture /
+            // get_piece_abilities) -- an auto/passive/no-roll entry would just
+            // burn the turn's dice for zero effect if it were ever clickable.
+            if (ab.trigger !== 'floor_roll') continue;
+
             // Chunk 4 balance: acquired abilities cost Juice Box 1 more than the
             // source pawn's base cost, then AI-Card / Group Climax modifiers apply
             // on top (matches the server-side +1 bump).
