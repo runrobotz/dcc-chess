@@ -255,6 +255,18 @@ body.light-theme .board .square.dark { background: #8b7355; }
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 8px 10px;
+    overflow: hidden;
+}
+/* Portrait strip bleeding to the card's top edge (cancels the card padding) */
+.major-ref-art {
+    position: relative;
+    overflow: hidden;
+    height: 110px;
+    margin: -8px -10px 8px;
+    border-radius: 5px 5px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .major-ref-name {
     font-weight: 700;
@@ -342,13 +354,38 @@ body.light-theme .board .square.dark { background: #8b7355; }
     letter-spacing: 0.2px;
 }
 .pawn-card-art {
-    height: 82px;
+    position: relative;
+    overflow: hidden;
+    height: 120px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
     box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+}
+/* Character portrait layered over the gradient/glyph fallback (attachPortrait) */
+.portrait-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center;
+    border: none;
+    outline: none;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+    user-select: none;
+}
+.portrait-img.loaded { opacity: 1; }
+.portrait-img.instant { transition: none; }
+.pawn-card-art.has-portrait {
+    border-color: transparent;
+    box-shadow: none;
 }
 .pawn-card-art-glyph {
     font-size: 2.2rem;

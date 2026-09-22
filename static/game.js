@@ -870,6 +870,59 @@ const Game = {
         'Bad Llama':         { grad: 'linear-gradient(160deg, #3a2e0a, #181304)', accent: '#eab308', emoji: '🦙' },
     },
 
+    // Character portraits: /static/portraits/<Key>-Head.png. Characters whose
+    // file doesn't exist yet keep their gradient + glyph fallback (see
+    // attachPortrait), so new art only needs dropping into the folder.
+    PORTRAIT_KEYS: {
+        'Carl': 'Carl', 'Donut': 'Donut', 'Mongo': 'Mongo', 'Katia': 'Katia', 'Samantha': 'Samantha',
+        'Mordecai': 'Mordecai', 'Prepotente': 'Prepotente', 'Quasar': 'Quasar',
+        'Zev': 'Zev', 'Elle McGib': 'Elle', 'Lucia Mar': 'Lucia', 'Juice Box': 'Juice',
+        'Bad Llama': 'BadLlama', 'Stripper Anaconda': 'Anaconda', 'Raul the Crab': 'Raul',
+        'Miriam Dom': 'Miriam', 'Imani': 'Imani', 'Slugalo': 'Slugalo', 'Louie': 'Louie',
+        'Sledge': 'Sledge', 'Florin': 'Florin', 'Garret': 'Garret', 'Signet': 'Signet',
+        'Orthrus': 'Orthrus', 'Chris': 'Chris',
+    },
+    _loadedPortraits: new Set(),   // srcs known to load -- shown instantly on re-render
+    _missingPortraits: new Set(),  // srcs known to 404 -- never re-requested
+
+    portraitSrc(name) {
+        const key = this.PORTRAIT_KEYS[name];
+        return key ? `/static/portraits/${key}-Head.png` : null;
+    },
+
+    // Layers a portrait <img> over an art box that already shows its fallback
+    // (gradient + glyph). The img fades in on load; on error it's removed and
+    // the fallback stays. renderDraft() rebuilds every card on each click, so
+    // already-loaded portraits skip the fade to avoid flicker.
+    attachPortrait(artEl, name) {
+        const src = this.portraitSrc(name);
+        if (!src || this._missingPortraits.has(src)) return;
+
+        const img = document.createElement('img');
+        img.className = 'portrait-img';
+        img.alt = name;
+        img.decoding = 'async';
+        img.draggable = false;
+        if (this._loadedPortraits.has(src)) {
+            img.classList.add('loaded', 'instant');
+            artEl.classList.add('has-portrait');
+        }
+        img.addEventListener('load', () => {
+            this._loadedPortraits.add(src);
+            img.classList.add('loaded');
+            artEl.classList.add('has-portrait');
+        });
+        img.addEventListener('error', () => {
+            this._missingPortraits.add(src);
+            img.remove();
+        });
+        img.src = src;
+        artEl.appendChild(img);
+    },
+
+    // Fallback glyphs for the Major Pieces panel art when a portrait is missing.
+    MAJOR_REF_GLYPHS: { King: '♔', Queen: '♕', Knight: '♘', Bishop: '♗', Rook: '♖' },
+
     // Static reference data for the collapsible Major Pieces panel. Mirrors
     // MAJOR_ABILITIES in app.py (display only — no game state involved here).
     MAJOR_REF: [
@@ -966,14 +1019,15 @@ const Game = {
 
             card.innerHTML = `
                 <div class="pawn-card-check">✓</div>
-                <div class="pawn-card-name">${pawn.name}</div>
                 <div class="pawn-card-art" style="background: ${theme.grad};">
                     <span class="pawn-card-art-glyph">${glyph}</span>
                 </div>
+                <div class="pawn-card-name">${pawn.name}</div>
                 <div class="pawn-card-ability">${pawn.ability_name}</div>
                 <div class="pawn-card-mana">${this.draftManaBadge(pawn)}</div>
                 <div class="pawn-card-desc">${this.shortDesc(pawn.ability_description)}</div>
             `;
+            this.attachPortrait(card.querySelector('.pawn-card-art'), pawn.name);
 
             card.addEventListener('click', () => this.toggleDraftPawn(pawn.name));
             card.addEventListener('mouseenter', () => this.showDraftCardTooltip(card, pawn));
@@ -1042,7 +1096,12 @@ const Game = {
                         <span class="mrc-ability-name">${ab.name}${tagHtml}</span>${right}
                     </div>`;
                 }).join('');
-                card.innerHTML = `<div class="major-ref-name">${mp.name} <span class="mrc-type">(${mp.type})</span></div>${rows}`;
+                card.innerHTML = `
+                    <div class="major-ref-art" style="background: ${this.DEFAULT_PAWN_THEME.grad};">
+                        <span class="pawn-card-art-glyph">${this.MAJOR_REF_GLYPHS[mp.type] || mp.name.slice(0, 2)}</span>
+                    </div>
+                    <div class="major-ref-name">${mp.name} <span class="mrc-type">(${mp.type})</span></div>${rows}`;
+                this.attachPortrait(card.querySelector('.major-ref-art'), mp.name);
                 grid.appendChild(card);
             }
             this._majorRefBuilt = true;
