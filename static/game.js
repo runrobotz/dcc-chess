@@ -1073,6 +1073,85 @@ const Game = {
         tt.style.top = `${top}px`;
     },
 
+    // Full ability rules for a major piece, shown on Major Pieces panel card
+    // hover. Same #ability-tooltip element/styling as the pawn cards; prefers
+    // above the card, flips below near the top, and is clamped to the viewport
+    // and kept off the board (the board isn't on the draft screen today, but
+    // the check matches showAbilityTooltip's so the rule holds if that changes).
+    showMajorRefTooltip(anchorEl, mp) {
+        let tt = document.getElementById('ability-tooltip');
+        if (!tt) {
+            tt = document.createElement('div');
+            tt.id = 'ability-tooltip';
+            tt.className = 'ability-tooltip';
+            document.body.appendChild(tt);
+        }
+
+        const abilityHtml = mp.abilities.map(ab => {
+            let cost;
+            if (ab.name === 'Leader') cost = 'Combined dice ⚄+⚄ — pull distance = total of all available dice';
+            else cost = `${ab.requires_combined ? 'Combined dice ⚄+⚄ — ' : ''}${ab.floor} Mana`;
+            const limits = [];
+            if (ab.boss_only) limits.push('Boss Event Only');
+            if (ab.uses_per_game) limits.push(`${ab.uses_per_game} use${ab.uses_per_game !== 1 ? 's' : ''} per game`);
+            if (ab.reaction) limits.push('Reaction — usable on opponent\'s turn with a banked die');
+            return `
+                <div class="at-ability${ab.boss_only ? ' at-boss-only' : ''}">
+                    <div class="at-ability-name">${ab.name}${ab.boss_only ? ' <span class="at-boss-tag">Boss Event Only</span>' : ''}</div>
+                    <div class="at-mana">${cost}</div>
+                    <div class="at-desc">${ab.description}</div>
+                    ${limits.length ? `<div class="at-limits">${limits.join(' • ')}</div>` : ''}
+                </div>`;
+        }).join('');
+
+        tt.innerHTML = `<div class="at-title">${mp.name} — ${mp.type}</div>${abilityHtml}`;
+        tt.classList.add('visible', 'at-wide');
+
+        const r = anchorEl.getBoundingClientRect();
+        const ttr = tt.getBoundingClientRect();
+        const m = 8;
+        const boardEl = document.getElementById('board');
+        const br = boardEl ? boardEl.getBoundingClientRect() : null;
+        const hasBoard = br && br.width > 0 && br.height > 0;
+        const overlapsBoard = (top, left) => hasBoard &&
+            left < br.right && left + ttr.width > br.left &&
+            top < br.bottom && top + ttr.height > br.top;
+        const maxTop = Math.max(m, window.innerHeight - ttr.height - m);
+
+        let left = r.left + (r.width / 2) - (ttr.width / 2);
+        left = Math.max(m, Math.min(left, window.innerWidth - ttr.width - m));
+
+        const above = r.top - ttr.height - m;
+        const below = r.bottom + m;
+        // Beside the card, vertically aligned with its top (clamped on screen).
+        const sideTop = Math.max(m, Math.min(r.top, maxTop));
+        const rightLeft = r.right + m;
+        const leftLeft = r.left - ttr.width - m;
+        let top;
+        if (above >= m && !overlapsBoard(above, left)) {
+            top = above;
+        } else if (below <= maxTop && !overlapsBoard(below, left)) {
+            top = below;
+        } else if (rightLeft + ttr.width <= window.innerWidth - m && !overlapsBoard(sideTop, rightLeft)) {
+            top = sideTop;
+            left = rightLeft;
+        } else if (leftLeft >= m && !overlapsBoard(sideTop, leftLeft)) {
+            top = sideTop;
+            left = leftLeft;
+        } else {
+            // Neither side fits cleanly: take whichever has more room, clamped
+            // fully on screen, then step sideways off the board if needed.
+            top = Math.max(m, Math.min(r.top >= window.innerHeight - r.bottom ? above : below, maxTop));
+            if (overlapsBoard(top, left)) {
+                left = r.left < br.left
+                    ? Math.max(m, br.left - ttr.width - m)
+                    : Math.min(window.innerWidth - ttr.width - m, br.right + m);
+            }
+        }
+        tt.style.left = `${left}px`;
+        tt.style.top = `${top}px`;
+    },
+
     // Builds the Major Pieces panel once, then only manages its open/closed
     // default (expanded on wide screens, collapsed on narrow). A user toggle
     // afterward is left untouched.
@@ -1092,7 +1171,7 @@ const Game = {
                     const right = ab.boss_only
                         ? '<span class="mrc-boss-label">Boss Event Only</span>'
                         : `<span class="mrc-cost">${ab.requires_combined ? '⚄+⚄ ' : ''}${ab.floor}</span>`;
-                    return `<div class="mrc-ability${ab.boss_only ? ' boss-only' : ''}" title="${this._attr(ab.description)}">
+                    return `<div class="mrc-ability${ab.boss_only ? ' boss-only' : ''}">
                         <span class="mrc-ability-name">${ab.name}${tagHtml}</span>${right}
                     </div>`;
                 }).join('');
@@ -1102,6 +1181,8 @@ const Game = {
                     </div>
                     <div class="major-ref-name">${mp.name} <span class="mrc-type">(${mp.type})</span></div>${rows}`;
                 this.attachPortrait(card.querySelector('.major-ref-art'), mp.name);
+                card.addEventListener('mouseenter', () => this.showMajorRefTooltip(card, mp));
+                card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
                 grid.appendChild(card);
             }
             this._majorRefBuilt = true;
@@ -3083,7 +3164,7 @@ const Game = {
 
     hideAbilityTooltip() {
         const tt = document.getElementById('ability-tooltip');
-        if (tt) tt.classList.remove('visible');
+        if (tt) tt.classList.remove('visible', 'at-wide');
     },
 
     renderAbilityCardGrid(container, availableDice, color) {

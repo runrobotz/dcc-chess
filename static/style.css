@@ -1206,6 +1206,31 @@ body.light-theme .board .square.dark { background: #8b7355; }
     font-size: 0.68rem;
     font-style: italic;
 }
+/* Per-ability sections in the Major Pieces panel tooltip. Wider than the
+   pawn version since it holds three abilities -- at 260px it's too tall to
+   fit above or below the panel cards. */
+.ability-tooltip.at-wide {
+    max-width: 380px;
+}
+.ability-tooltip .at-ability {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(201, 168, 76, 0.25);
+}
+.ability-tooltip .at-ability-name {
+    font-weight: 700;
+    font-size: 0.76rem;
+    margin-bottom: 1px;
+}
+.ability-tooltip .at-boss-tag {
+    color: #b183d6;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-left: 4px;
+}
+.ability-tooltip .at-boss-only .at-limits { color: #b183d6; }
 
 /* Targeting instruction panel docked inside dice panel */
 .targeting-ui-docked {
