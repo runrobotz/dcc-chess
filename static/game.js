@@ -69,7 +69,7 @@ const Game = {
     // Dev Game Mode
     DEFAULT_DEV_ROSTER: {
         whitePawns: ['Zev', 'Mordecai', 'Prepotente', 'Elle McGib', 'Sledge', 'Quasar', 'Lucia Mar', 'Louie'],
-        blackPawns: ['Imani', 'Slugalo', 'Stripper Anaconda', 'Chris', 'Juice Box', 'Florin', 'Signet', 'Miriam Dom'],
+        blackPawns: ['Imani', 'Candy Biggs', 'Stripper Anaconda', 'Chris', 'Juice Box', 'Florin', 'Signet', 'Miriam Dom'],
     },
     devSettings: null,         // {whitePawns: [...], blackPawns: [...], boardLayout?: ...} or null to use DEFAULT_DEV_ROSTER
     devStagingGrid: null,      // 11×11 array of piece objects (or null) for the staging board
@@ -853,7 +853,7 @@ const Game = {
         'Prepotente':        { grad: 'linear-gradient(160deg, #3d2a0f, #1a1206)', accent: '#f59e0b', emoji: '🐎' },
         'Elle McGib':        { grad: 'linear-gradient(160deg, #0e2f42, #08151d)', accent: '#38bdf8', emoji: '❄️' },
         'Imani':             { grad: 'linear-gradient(160deg, #2c1d47, #140d1f)', accent: '#a78bfa', emoji: '🔇' },
-        'Slugalo':           { grad: 'linear-gradient(160deg, #26330d, #111706)', accent: '#84cc16', emoji: '🐌' },
+        'Candy Biggs':       { grad: 'linear-gradient(160deg, #26330d, #111706)', accent: '#84cc16', emoji: '🐌' },
         'Louie':             { grad: 'linear-gradient(160deg, #3d1414, #1a0808)', accent: '#f87171', emoji: '💣' },
         'Sledge':            { grad: 'linear-gradient(160deg, #2b3440, #12171d)', accent: '#cbd5e1', emoji: '🛡️' },
         'Stripper Anaconda': { grad: 'linear-gradient(160deg, #0f3d38, #081917)', accent: '#2dd4bf', emoji: '🐍' },
@@ -878,7 +878,7 @@ const Game = {
         'Mordecai': 'Mordecai', 'Prepotente': 'Prepotente', 'Quasar': 'Quasar',
         'Zev': 'Zev', 'Elle McGib': 'Elle', 'Lucia Mar': 'Lucia', 'Juice Box': 'Juice',
         'Bad Llama': 'BadLlama', 'Stripper Anaconda': 'Anaconda', 'Raul the Crab': 'Raul',
-        'Miriam Dom': 'Miriam', 'Imani': 'Imani', 'Slugalo': 'Slugalo', 'Louie': 'Louie',
+        'Miriam Dom': 'Miriam', 'Imani': 'Imani', 'Candy Biggs': 'Biggs', 'Louie': 'Louis',
         'Sledge': 'Sledge', 'Florin': 'Florin', 'Garret': 'Garret', 'Signet': 'Signet',
         'Orthrus': 'Orthrus', 'Chris': 'Chris',
     },

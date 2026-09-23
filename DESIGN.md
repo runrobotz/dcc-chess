@@ -34,7 +34,7 @@ beyond this note.
 | Prepotente | Special Boy | 4 | FLOOR_ROLL | Unlimited | No |
 | Elle McGib | Frozen | 5 | FLOOR_ROLL | Unlimited | No |
 | Imani | Suppress | 4 | FLOOR_ROLL | Unlimited | No |
-| Slugalo | One Of Us | 10 | FLOOR_ROLL | 1 | Yes |
+| Candy Biggs | One Of Us | 10 | FLOOR_ROLL | 1 | Yes |
 | Louie | Air Strike | 6 | FLOOR_ROLL | Unlimited | Yes |
 | Sledge | Body Guard | 4 | FLOOR_ROLL | Unlimited | No |
 | Stripper Anaconda | Gun Show | 5 | FLOOR_ROLL | Unlimited | No |
@@ -87,13 +87,13 @@ Elle McGib has exactly one ability now, matching the code.
 next turn. Matches `pawns.py`. Target is always chosen randomly — no manual
 targeting UI exists for this ability.
 
-**Slugalo — One Of Us.** Converts one enemy pawn to the caster's side permanently.
+**Candy Biggs — One Of Us.** Converts one enemy pawn to the caster's side permanently.
 **Mismatches:** (1) `pawns.py`'s text states no range restriction at all ("any one
 enemy pawn"), but the shared implementation (used whenever Juice Box hosts it, and
-whenever a human plays Slugalo with no explicit target) restricts targets to within
+whenever a human plays Candy Biggs with no explicit target) restricts targets to within
 2 squares — a number that appears nowhere in the `pawns.py` text. (2) Worse, `app.py`'s
 inline handler for a human explicitly picking a target has *no* range check at all,
-so Slugalo's own targeted use and the shared/Juice-Box path currently enforce two
+so Candy Biggs's own targeted use and the shared/Juice-Box path currently enforce two
 different rules for the same ability. (3) "If captured it returns to original owner"
 is not implemented anywhere — `GameState.recruited_pawns` is declared but never
 written to or read.
@@ -157,7 +157,7 @@ turn (`succubus_pending`). No "pull" mechanic exists in the code for this abilit
 **Miriam Dom — Blood Magic.** Sacrifices an adjacent friendly pawn (does not trigger
 on-capture effects; Garret can be sacrificed) to resurrect a previously-captured
 friendly pawn onto an open back-rank square. Matches `pawns.py`. Note: same pattern
-as Slugalo — `app.py`'s inline handler for a human explicitly picking a sacrifice
+as Candy Biggs — `app.py`'s inline handler for a human explicitly picking a sacrifice
 target does not re-check adjacency the way the shared implementation does; not
 reachable through normal play today since `get_ability_targets` already restricts
 the clickable squares to adjacent ones, but the two code paths disagree in principle.

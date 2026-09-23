@@ -115,8 +115,8 @@ PAWN_CHARACTERS = {
         is_female=True,
     ),
 
-    "Slugalo": PawnCharacter(
-        name="Slugalo",
+    "Candy Biggs": PawnCharacter(
+        name="Candy Biggs",
         ability=PawnAbility(
             name="One Of Us",
             description="Recruit any one enemy pawn to your team for the rest of the match. Recruited pawn keeps its ability. If captured it returns to original owner.",

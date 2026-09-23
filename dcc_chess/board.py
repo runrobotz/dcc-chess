@@ -12,7 +12,7 @@ CENTER_SQUARE = (5, 5)  # Boss spawn point
 # The 21 pawn character names in the roster
 PAWN_ROSTER = [
     "Zev", "The AI", "Mordecai", "Prepotente", "Elle McGib",
-    "Imani", "Slugalo", "Louie", "Sledge", "Stripper Anaconda", "Quasar",
+    "Imani", "Candy Biggs", "Louie", "Sledge", "Stripper Anaconda", "Quasar",
     "Lucia Mar", "Chris", "Juice Box", "Florin", "Garret",
     "Signet", "Miriam Dom", "Orthrus", "Raul the Crab", "Bad Llama",
 ]

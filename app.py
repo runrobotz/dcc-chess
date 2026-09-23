@@ -45,7 +45,7 @@ PAWN_SHORT_NAMES = {
     "Prepotente": "PREP",
     "Elle McGib": "ELLE",
     "Imani": "IMANI",
-    "Slugalo": "SLUG",
+    "Candy Biggs": "BIGGS",
     "Louie": "LOUIE",
     "Sledge": "SLEDGE",
     "Stripper Anaconda": "ANACONDA",
@@ -1831,7 +1831,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             gs.board.set(dest[0], dest[1], piece)
             piece.has_moved = True
         msg = "Special boy!" if success else "Failed"
-    elif name == "Slugalo" and ability_name == "One Of Us":
+    elif name == "Candy Biggs" and ability_name == "One Of Us":
         # One Of Us uses target_pos from request data if available
         # target_pos is passed in as parameter
         if target_pos:
@@ -1839,7 +1839,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             if target_piece and target_piece.is_pawn and target_piece.color != piece.color:
                 if dice.can_combine_for_cost(10):
                     dice.spend_combined(10)
-                    gs.log_event("ability_roll", piece="Slugalo", ability="One Of Us",
+                    gs.log_event("ability_roll", piece="Candy Biggs", ability="One Of Us",
                                  detail="Combined dice for cost 10", result="success")
                     from dcc_chess.pieces import Color
                     target_piece.color = piece.color

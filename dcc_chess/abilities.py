@@ -113,7 +113,7 @@ class GameState:
         
         # Imani — Suppress: suppressed pieces (already tracked above in suppressed_pieces)
         
-        # Slugalo — One Of Us: recruited pawns
+        # Candy Biggs — One Of Us: recruited pawns
         self.recruited_pawns: Dict[Tuple[int, int], Color] = {}  # pos -> original_color
         
         # Louie — Air Strike: can't move flag
@@ -1260,14 +1260,14 @@ class GameState:
 
     def try_recruit(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                     die_index: int) -> bool:
-        """Slugalo's Recruit (Floor 3, 1/game): adjacent enemy pawn switches sides."""
+        """Candy Biggs's Recruit (Floor 3, 1/game): adjacent enemy pawn switches sides."""
         piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Slugalo":
+        if piece is None or not piece.is_pawn or piece.pawn_name != "Candy Biggs":
             return False
         if self.is_piece_suppressed(*pawn_pos):
             return False
 
-        key = f"{piece.color.value}_Slugalo"
+        key = f"{piece.color.value}_Candy Biggs"
         uses = self.pawn_ability_uses.get(key, {}).get("Recruit", 1)
         if uses <= 0:
             return False
@@ -1275,7 +1275,7 @@ class GameState:
         success = dice.spend_die(die_index, 3)
         if key in self.pawn_ability_uses:
             self.pawn_ability_uses[key]["Recruit"] = uses - 1
-        self.log_event("ability_roll", piece="Slugalo", ability="Recruit",
+        self.log_event("ability_roll", piece="Candy Biggs", ability="Recruit",
                        die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
         if not success:
             return False
@@ -2319,7 +2319,7 @@ class GameState:
                 success = self.try_frozen(juice_box_pos, dice, die_index, target_pos=target_pos)
             elif name == "Imani":
                 success = self.try_suppress(juice_box_pos, dice, die_index)
-            elif name == "Slugalo":
+            elif name == "Candy Biggs":
                 success = self.try_one_of_us(juice_box_pos, dice, target_pos=target_pos)
             elif name == "Louie":
                 success = self.try_air_strike(juice_box_pos, dice, die_index, target_pos=target_pos)
@@ -3085,15 +3085,15 @@ class GameState:
                        detail="Will respawn within 1 square of Samantha in 5 turns")
         return True
 
-    def try_one_of_us(self, slugalo_pos: Tuple[int, int], dice: DungeonDice,
+    def try_one_of_us(self, caster_pos: Tuple[int, int], dice: DungeonDice,
                       target_pos: Optional[Tuple[int, int]] = None) -> bool:
-        """Slugalo's One Of Us (Floor 10, requires combined):
+        """Candy Biggs's One Of Us (Floor 10, requires combined):
         Convert enemy pawn within 2 squares to friendly side.
         """
-        piece = self.board.get(*slugalo_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Slugalo", "Juice Box"):
+        piece = self.board.get(*caster_pos)
+        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Candy Biggs", "Juice Box"):
             return False
-        if self.is_piece_suppressed(*slugalo_pos):
+        if self.is_piece_suppressed(*caster_pos):
             return False
 
         # Requires combined dice (total >= 10)
@@ -3101,11 +3101,11 @@ class GameState:
             return False
 
         dice.spend_combined(10)
-        self.log_event("ability_roll", piece="Slugalo", ability="One Of Us",
+        self.log_event("ability_roll", piece="Candy Biggs", ability="One Of Us",
                        detail="Combined dice for cost 10", result="success")
 
         # Find enemy pawns within 2 squares
-        r, c = slugalo_pos
+        r, c = caster_pos
         enemy_pawns = []
         for dr in range(-2, 3):
             for dc in range(-2, 3):

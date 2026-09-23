@@ -298,7 +298,7 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
         gs.try_frozen(pos, dice, idx)
     elif name == "Imani":
         gs.try_suppress(pos, dice, idx)
-    elif name == "Slugalo":
+    elif name == "Candy Biggs":
         gs.try_one_of_us(pos, dice)
     elif name == "Louie":
         gs.try_air_strike(pos, dice, idx)
@@ -944,9 +944,9 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
     elif name == "Elle McGib":
         if _has_enemy_in_range(board, row, col, 5, opponent):
             offensive.append(("elle_mcgib", (row, col), piece, floor))
-    elif name == "Slugalo":
+    elif name == "Candy Biggs":
         if _has_enemy_in_range(board, row, col, 2, opponent):
-            offensive.append(("slugalo", (row, col), piece, floor))
+            offensive.append(("candy_biggs", (row, col), piece, floor))
     elif name == "Stripper Anaconda":
         if _has_enemy_in_range(board, row, col, 1, opponent):
             offensive.append(("gun_show", (row, col), piece, floor))
@@ -1087,7 +1087,7 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
         gs.try_suppress(pos, dice, die_idx)
     elif ability_name == "elle_mcgib":
         gs.try_frozen(pos, dice, die_idx)
-    elif ability_name == "slugalo":
+    elif ability_name == "candy_biggs":
         gs.try_one_of_us(pos, dice)
     elif ability_name == "gun_show":
         gs.try_gun_show(pos, dice, die_idx)

@@ -394,12 +394,12 @@ def test_suppression():
 
 
 def test_recruit():
-    """Slugalo's Recruit should switch adjacent enemy pawn's side."""
+    """Candy Biggs's Recruit should switch adjacent enemy pawn's side."""
     b = make_empty_board()
-    place(b, 4, 4, PieceType.PAWN, Color.WHITE, "Slugalo")
+    place(b, 4, 4, PieceType.PAWN, Color.WHITE, "Candy Biggs")
     place(b, 4, 5, PieceType.PAWN, Color.BLACK, "Mordecai")
     gs = GameState(b)
-    gs.pawn_ability_uses["white_Slugalo"] = {"Recruit": 1}
+    gs.pawn_ability_uses["white_Candy Biggs"] = {"Recruit": 1}
     d = DungeonDice()
     d.roll()
     d.dice = [3, 1, 1]
