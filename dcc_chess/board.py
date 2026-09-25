@@ -13,7 +13,7 @@ CENTER_SQUARE = (5, 5)  # Boss spawn point
 PAWN_ROSTER = [
     "Zev", "The AI", "Mordecai", "Prepotente", "Elle McGib",
     "Imani", "Candy Biggs", "Louie", "Sledge", "Stripper Anaconda", "Quasar",
-    "Lucia Mar", "Chris", "Juice Box", "Florin", "Garret",
+    "Lucia Mar", "Chris", "Juice Box", "Florin", "Ren",
     "Signet", "Miriam Dom", "Orthrus", "Raul the Crab", "Bad Llama",
 ]
 

@@ -16,7 +16,7 @@ requested for this reference:
   simply always-on/passive (no trigger at all).
 - **REACTION** → `NO_ROLL` pawns whose actual behavior is a reactive defense
   (Quasar). Other `NO_ROLL` pawns are marked N/A (no active ability) or noted
-  individually (Juice Box, Garret, Orthrus).
+  individually (Juice Box, Ren, Orthrus).
 
 ---
 
@@ -43,7 +43,7 @@ beyond this note.
 | Chris | Lava Surge | 4 | FLOOR_ROLL | Unlimited | No |
 | Juice Box | Shapeshift | 0 / meta | NO_ROLL (meta) | N/A | Matches copied ability |
 | Florin | Suppressing Fire | 6 | FLOOR_ROLL | Unlimited | No |
-| Garret | Indestructible | — | AUTO (passive) | N/A | No |
+| Ren | Indestructible | — | AUTO (passive) | N/A | No |
 | Signet | Succubus | 6 | FLOOR_ROLL | Unlimited | No |
 | Miriam Dom | Blood Magic | 8 | FLOOR_ROLL | Unlimited | Yes |
 | Orthrus | No Ability | — | N/A | N/A | No |
@@ -142,10 +142,10 @@ that acquired ability (`_juice_box_lose_ability`). Matches `pawns.py`.
 **Florin — Suppressing Fire.** Pushes one enemy piece up to 2 squares directly away
 from Florin, stopping early if blocked. Matches `pawns.py`. Target is always random.
 
-**Garret — Indestructible.** Passive, no manual trigger. Cannot be captured by a
+**Ren — Indestructible.** Passive, no manual trigger. Cannot be captured by a
 normal capture; can only be removed by the enemy Carl moving onto his square, or
 by Miriam Dom's Blood Magic. Cannot capture enemy pieces himself. Matches `pawns.py`
-as far as this document's sources (`app.py` has no Garret-specific logic at all —
+as far as this document's sources (`app.py` has no Ren-specific logic at all —
 this is entirely implemented in `dcc_chess/abilities.py`, not re-verified against
 this document's two source files).
 
@@ -155,7 +155,7 @@ instead prevents every enemy male piece within 3 squares from moving on its next
 turn (`succubus_pending`). No "pull" mechanic exists in the code for this ability.
 
 **Miriam Dom — Blood Magic.** Sacrifices an adjacent friendly pawn (does not trigger
-on-capture effects; Garret can be sacrificed) to resurrect a previously-captured
+on-capture effects; Ren can be sacrificed) to resurrect a previously-captured
 friendly pawn onto an open back-rank square. Matches `pawns.py`. Note: same pattern
 as Candy Biggs — `app.py`'s inline handler for a human explicitly picking a sacrifice
 target does not re-check adjacency the way the shared implementation does; not
@@ -302,7 +302,7 @@ open questions to re-litigate.
 
 - **Pawn abilities toggle (`pawns_enabled`, set from `/new_game`).** A single
   global flag that affects both the human and the AI identically, including
-  every auto-trigger (Garret's Indestructible, Orthrus's capture restriction,
+  every auto-trigger (Ren's Indestructible, Orthrus's capture restriction,
   Mordecai's Manager Benefit, etc.) — when off, none of it applies for either
   side, not just the manually-triggered FLOOR_ROLL abilities.
 

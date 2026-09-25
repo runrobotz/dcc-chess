@@ -220,8 +220,8 @@ PAWN_CHARACTERS = {
         is_female=False,
     ),
 
-    "Garret": PawnCharacter(
-        name="Garret",
+    "Ren": PawnCharacter(
+        name="Ren",
         ability=PawnAbility(
             name="Indestructible",
             description="Cannot be captured by any standard capture. Can only be removed by the enemy Carl moving directly onto his square or by Miriam Dom's Blood Magic. Cannot capture enemy pieces. Can move backwards once he reaches the enemy back rank.",
@@ -239,14 +239,14 @@ PAWN_CHARACTERS = {
             floor_number=6,
             trigger=AbilityTrigger.FLOOR_ROLL,
         ),
-        is_female=False,
+        is_female=True,
     ),
 
     "Miriam Dom": PawnCharacter(
         name="Miriam Dom",
         ability=PawnAbility(
             name="Blood Magic",
-            description="Sacrifice any adjacent friendly pawn to resurrect any previously captured friendly pawn on your back rank. Sacrifice does not trigger on-capture effects. Can sacrifice Garret.",
+            description="Sacrifice any adjacent friendly pawn to resurrect any previously captured friendly pawn on your back rank. Sacrifice does not trigger on-capture effects. Can sacrifice Ren.",
             floor_number=8,
             trigger=AbilityTrigger.FLOOR_ROLL,
             requires_combined=True,
@@ -291,4 +291,4 @@ PAWN_CHARACTERS = {
 
 # Female piece type names (for Stripper Anaconda's Gun Show)
 FEMALE_MAJOR_PIECE_TYPES = {"Donut", "Katia", "Samantha"}
-FEMALE_PAWN_NAMES = {"Zev", "Elle McGib", "Imani", "Lucia Mar", "Juice Box", "Miriam Dom"}
+FEMALE_PAWN_NAMES = {"Zev", "Elle McGib", "Imani", "Lucia Mar", "Juice Box", "Miriam Dom", "Signet"}

@@ -146,7 +146,7 @@ class GameState:
         # Florin — Suppressing Fire: push pieces away
         # (handled directly in ability, no persistent state needed)
         
-        # Garret — Indestructible: (handled in is_piece_invulnerable)
+        # Ren — Indestructible: (handled in is_piece_invulnerable)
         
         # Signet — Succubus: pull male pieces closer
         # (handled directly in ability, no persistent state needed)
@@ -652,12 +652,12 @@ class GameState:
         """Check if a piece at this position cannot be captured."""
         if (row, col) in self.iron_wall_pieces:
             return True
-        # Garret is indestructible — cannot be captured by normal means.
-        # Skipped when pawn abilities are disabled via Game Settings: Garret
+        # Ren is indestructible — cannot be captured by normal means.
+        # Skipped when pawn abilities are disabled via Game Settings: Ren
         # then behaves as a normal capturable pawn.
         piece = self.board.get(row, col)
         if (self.pawns_enabled and piece and piece.is_pawn
-                and piece.pawn_name == "Garret"):
+                and piece.pawn_name == "Ren"):
             return True
         return False
 
@@ -694,10 +694,10 @@ class GameState:
             # board highlights only non-capture destinations.
             if self.boss_active and target is not None:
                 continue
-            # Garret cannot capture enemy pieces (skipped when pawn abilities
+            # Ren cannot capture enemy pieces (skipped when pawn abilities
             # are disabled -- he then moves and captures as a normal pawn).
             if (self.pawns_enabled and piece.is_pawn
-                    and piece.pawn_name == "Garret" and target is not None):
+                    and piece.pawn_name == "Ren" and target is not None):
                 continue
             # Orthrus cannot capture pieces (skipped when pawn abilities are
             # disabled -- he is then treated as a normal capturable pawn).
@@ -748,7 +748,7 @@ class GameState:
     ) -> str:
         """Process capture with possible interceptions.
 
-        Returns: "captured", "defended_quasar", "defended_orthrus", "defended_garret"
+        Returns: "captured", "defended_quasar", "defended_orthrus", "defended_ren"
         """
         dr, dc = defender_pos
         defender = self.board.get(dr, dc)
@@ -756,18 +756,18 @@ class GameState:
         if defender is None:
             return "captured"
 
-        # Every pawn-ability capture interception below (Garret, Orthrus, Quasar)
+        # Every pawn-ability capture interception below (Ren, Orthrus, Quasar)
         # is skipped when pawn abilities are disabled via Game Settings -- those
         # pawns are then treated as ordinary capturable pieces.
         pawn_abilities_on = self.pawns_enabled
 
-        # Check Garret's Indestructible (auto-trigger)
-        if pawn_abilities_on and defender.is_pawn and defender.pawn_name == "Garret":
-            # Garret can only be captured by enemy Carl or Blood Magic
-            if not self.check_garret_special_capture(attacker_pos, defender_pos):
-                self.log_event("ability_auto", piece="Garret", ability="Indestructible",
+        # Check Ren's Indestructible (auto-trigger)
+        if pawn_abilities_on and defender.is_pawn and defender.pawn_name == "Ren":
+            # Ren can only be captured by enemy Carl or Blood Magic
+            if not self.check_ren_special_capture(attacker_pos, defender_pos):
+                self.log_event("ability_auto", piece="Ren", ability="Indestructible",
                                result="success", detail="Cannot be captured by non-Carl")
-                return "defended_garret"
+                return "defended_ren"
 
         # Orthrus can only be captured by major pieces (defense in depth --
         # get_legal_moves_with_status already keeps non-majors from reaching here)
@@ -2127,17 +2127,17 @@ class GameState:
                         return 1
         return 0
 
-    def check_garret_special_capture(self, attacker_pos: Tuple[int, int], 
-                                     garret_pos: Tuple[int, int]) -> bool:
-        """Check if Garret can be captured by this attacker.
-        Garret can only be captured by enemy Carl moving onto his square or by Blood Magic.
+    def check_ren_special_capture(self, attacker_pos: Tuple[int, int], 
+                                  ren_pos: Tuple[int, int]) -> bool:
+        """Check if Ren can be captured by this attacker.
+        Ren can only be captured by enemy Carl moving onto his square or by Blood Magic.
         Returns True if capture is allowed, False otherwise.
         """
         attacker = self.board.get(*attacker_pos)
         if attacker is None:
             return False
         
-        # Only enemy Carl can capture Garret by moving onto his square
+        # Only enemy Carl can capture Ren by moving onto his square
         if attacker.is_king:
             return True
         
@@ -2232,7 +2232,7 @@ class GameState:
         # Only floor-roll abilities are usable through Shapeshift's manual
         # trigger (mirrors the filter ai.py's _try_pawn_ability and
         # _categorize_pawn_ability already apply) -- auto/passive/no-roll
-        # abilities like Garret's Indestructible, Quasar's Mediation, or
+        # abilities like Ren's Indestructible, Quasar's Mediation, or
         # Mordecai's Manager Benefit have no active effect for her to fire,
         # so they must never be added as a usable entry.
         captured_char = PAWN_CHARACTERS.get(captured_pawn.pawn_name)
@@ -2357,7 +2357,7 @@ class GameState:
                     self.board.set(dest[0], dest[1], piece)
                     piece.has_moved = True
                     success = True
-            elif name == "Garret":
+            elif name == "Ren":
                 # Indestructible is passive and has no active effect to fire.
                 success = False
         finally:

@@ -862,7 +862,7 @@ const Game = {
         'Chris':             { grad: 'linear-gradient(160deg, #3d1608, #1a0904)', accent: '#ef4444', emoji: '🌋' },
         'Juice Box':         { grad: 'linear-gradient(160deg, #2f3d0c, #141a05)', accent: '#a3e635', emoji: '🧃' },
         'Florin':            { grad: 'linear-gradient(160deg, #3d1220, #1a070d)', accent: '#fb7185', emoji: '💥' },
-        'Garret':            { grad: 'linear-gradient(160deg, #33302c, #161512)', accent: '#d6d3d1', emoji: '🗿' },
+        'Ren':               { grad: 'linear-gradient(160deg, #33302c, #161512)', accent: '#d6d3d1', emoji: '🗿' },
         'Signet':            { grad: 'linear-gradient(160deg, #3a1240, #18071b)', accent: '#e879f9', emoji: '💋' },
         'Miriam Dom':        { grad: 'linear-gradient(160deg, #3d0f0f, #1a0606)', accent: '#dc2626', emoji: '🩸' },
         'Orthrus':           { grad: 'linear-gradient(160deg, #232a4d, #0f1220)', accent: '#818cf8', emoji: '🐺' },
@@ -877,9 +877,9 @@ const Game = {
         'Carl': 'Carl', 'Donut': 'Donut', 'Mongo': 'Mongo', 'Katia': 'Katia', 'Samantha': 'Samantha',
         'Mordecai': 'Mordecai', 'Prepotente': 'Prepotente', 'Quasar': 'Quasar',
         'Zev': 'Zev', 'Elle McGib': 'Elle', 'Lucia Mar': 'Lucia', 'Juice Box': 'Juice',
-        'Bad Llama': 'BadLlama', 'Stripper Anaconda': 'Anaconda', 'Raul the Crab': 'Raul',
+        'Bad Llama': 'Llama', 'Stripper Anaconda': 'Anaconda', 'Raul the Crab': 'Raul',
         'Miriam Dom': 'Miriam', 'Imani': 'Imani', 'Candy Biggs': 'Biggs', 'Louie': 'Louis',
-        'Sledge': 'Sledge', 'Florin': 'Florin', 'Garret': 'Garret', 'Signet': 'Signet',
+        'Sledge': 'Sledge', 'Florin': 'Florin', 'Ren': 'Ren', 'Signet': 'Signet',
         'Orthrus': 'Orthrus', 'Chris': 'Chris',
     },
     _loadedPortraits: new Set(),   // srcs known to load -- shown instantly on re-render
@@ -3790,15 +3790,15 @@ const Game = {
             return;
         }
 
-        // Check if player is trying to make an illegal capture with Garret or Orthrus
+        // Check if player is trying to make an illegal capture with Ren or Orthrus
         if (this.selectedSquare) {
             const selectedPiece = this.state.board[this.selectedSquare.row][this.selectedSquare.col];
             const targetPiece = this.state.board[row][col];
             
-            // Only show notification for capture rule violations (Garret/Orthrus trying to capture)
+            // Only show notification for capture rule violations (Ren/Orthrus trying to capture)
             if (selectedPiece && selectedPiece.is_pawn && targetPiece && targetPiece.color !== selectedPiece.color) {
-                if (selectedPiece.name === 'Garret') {
-                    this.showMoveBlockedNotification('Garret cannot capture enemy pieces');
+                if (selectedPiece.name === 'Ren') {
+                    this.showMoveBlockedNotification('Ren cannot capture enemy pieces');
                     return;
                 } else if (selectedPiece.name === 'Orthrus') {
                     this.showMoveBlockedNotification('Orthrus cannot capture pieces');

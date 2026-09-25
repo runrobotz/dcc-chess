@@ -271,7 +271,7 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
     if char is None:
         return
 
-    # Auto-trigger abilities don't need dice (Mordecai, Garret, Quasar, Orthrus)
+    # Auto-trigger abilities don't need dice (Mordecai, Ren, Quasar, Orthrus)
     if char.ability.trigger != AbilityTrigger.FLOOR_ROLL:
         return
 

@@ -54,7 +54,7 @@ PAWN_SHORT_NAMES = {
     "Chris": "CHRIS",
     "Juice Box": "JUICE",
     "Florin": "FLORIN",
-    "Garret": "GARRET",
+    "Ren": "REN",
     "Signet": "SIGNET",
     "Miriam Dom": "MIRIAM",
     "Orthrus": "ORTH",
