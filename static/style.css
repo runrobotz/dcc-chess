@@ -153,6 +153,49 @@ body.light-theme .board .square.dark { background: #8b7355; }
     color: var(--bg-darkest);
     transform: translateY(-1px);
 }
+/* "← Back" on the draft screen and during the placement phase */
+#draft-screen,
+#game-screen {
+    position: relative;
+}
+.btn-back {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 50;
+    min-height: 44px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-panel);
+    color: var(--accent-gold);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition: background 0.15s, border-color 0.15s;
+}
+.btn-back:hover {
+    background: var(--bg-light);
+    border-color: var(--accent-gold);
+}
+/* Placement phase: drop the game layout below the button (12 + 44 + 12px) */
+#game-screen.has-back-btn {
+    padding-top: 68px;
+}
+#game-screen.has-back-btn .game-layout {
+    height: calc(100vh - 84px);
+}
+/* Narrow screens: the centered draft title would run under the button */
+@media (max-width: 720px) {
+    #draft-screen .draft-header {
+        padding-top: 48px;
+    }
+}
 .btn-end-turn {
     background: var(--accent-red);
     color: #fff;

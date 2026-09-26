@@ -1204,6 +1204,44 @@ const Game = {
         this.renderDraft();
     },
 
+    // Draft screen "← Back": abandon the draft and return to the start screen
+    // with a clean slate (no mode, no picks for either side).
+    draftBack() {
+        this.hideAbilityTooltip();
+        this.mode = null;
+        this.draftSelection = [];
+        this.draftPlayer = 1;
+        this.whitePawns = [];
+        this.blackPawns = [];
+        this.showScreen('start-screen');
+    },
+
+    // Placement phase "← Back": drop the unfinished game client-side and
+    // reopen a fresh draft in the same mode. The server's game is simply
+    // replaced by the next /new_game when the new draft is confirmed.
+    placementBack() {
+        const mode = this.mode;
+        this.draftBack();
+        this.state = null;
+        this.selectedSquare = null;
+        this.legalMoves = [];
+        this.selectedPieceToPlace = null;
+        this.resetBattleLog();
+        this.updatePlacementBackButton();
+        this.mode = mode;
+        this.showScreen('draft-screen');
+        this.renderDraft();
+    },
+
+    updatePlacementBackButton() {
+        const show = !!(this.state && this.state.phase === 'placement');
+        const btn = document.getElementById('placement-back-btn');
+        if (btn) btn.classList.toggle('hidden', !show);
+        // Reserve the top-left corner so the button never covers Black's
+        // sidebar header or its collapse toggle.
+        document.getElementById('game-screen')?.classList.toggle('has-back-btn', show);
+    },
+
     async confirmDraft() {
         if (this.draftSelection.length !== 8) return;
 
@@ -1306,6 +1344,7 @@ const Game = {
         this.checkGameOver();
         this.handlePendingAiCardDecision();
         this.updatePlaytestButton();
+        this.updatePlacementBackButton();
     },
 
     handlePendingAiCardDecision() {

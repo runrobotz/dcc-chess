@@ -32,6 +32,7 @@
 
     <!-- ═══ DRAFT SCREEN ═══ -->
     <div id="draft-screen" class="screen">
+        <button id="draft-back-btn" class="btn-back" onclick="Game.draftBack()">← Back</button>
         <div class="draft-container">
             <div class="draft-header">
                 <h2 id="draft-title">Draft Your Pawns</h2>
@@ -59,6 +60,7 @@
 
     <!-- ═══ GAME SCREEN ═══ -->
     <div id="game-screen" class="screen">
+        <button id="placement-back-btn" class="btn-back hidden" onclick="Game.placementBack()">← Back</button>
         <div class="game-layout">
             <!-- Left: Black's permanent panel -->
             <div class="player-panel" id="black-player-panel" data-color="black">
@@ -242,7 +244,7 @@
     <div id="toast" class="toast hidden"></div>
 
     <!-- ═══ VERSION TAG (subtle, always visible) — bump manually on each push ═══ -->
-    <div id="version-tag">v0.64</div>
+    <div id="version-tag">v0.65</div>
 
     <script src="/static/game.js"></script>
 </body>
