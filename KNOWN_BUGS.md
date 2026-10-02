@@ -9,6 +9,38 @@ _No open bugs._
 
 ## Fixed
 
+### Signet's Succubus never took effect
+
+`try_succubus()` added targets to `succubus_pending`, but nothing ever promoted that set or
+checked it in `is_piece_movable()` -- the ability spent the die and did nothing, for both
+Signet and Juice Box.
+
+Fixed: 2026-10-01 (v0.67). Added `succubus_pieces`, promoted from `succubus_pending` in
+`start_turn()` (same pattern as frozen/restrained/she_tank) and checked in
+`is_piece_movable()`. Shown as a status entry and a 💋 board badge.
+
+### Blood Magic always failed to resurrect
+
+`try_blood_magic()` and app.py's targeted Miriam handler resurrected from
+`GameState.captured_pieces`, which only Rampage ever writes to -- normal captures land in
+`board.captured`. The pool was always empty, so the spell spent both dice and failed.
+Once the pool was non-empty, the targeted handler also crashed: it imported `BOARD_SIZE` from
+`dcc_chess.pieces` (it doesn't exist there), and a second inline `Color` import in the same
+function made `Color` an unbound local.
+
+Fixed: 2026-10-01 (v0.67). New `GameState.blood_magic_candidates()` reads `board.captured`
+(pawns only, never Orthrus or permanently-dead pieces); both paths use it, and the inline
+imports were removed.
+
+### Juice Box combined-dice cards and AI costs
+
+Her sidebar card ignored `requires_combined`, so a discounted combined ability could show green
+with one die and burn the turn on click. The AI priced her copies at the base cost (no +1)
+and never passed a Lava Surge direction.
+
+Fixed: 2026-10-01 (v0.67).
+
+
 ### Raul the Crab's Group Climax doesn't actually reduce ability costs
 
 `try_group_climax()` in `dcc_chess/abilities.py` set `group_climax_pending[color] = True`

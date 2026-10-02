@@ -57,6 +57,33 @@ MAJOR_PRIORITY_BONUS: Dict[str, int] = {
 }
 
 
+# smart_abilities() keys whose underlying try_* pays with BOTH dice combined
+# (dice.can_combine_for_cost / spend_combined) rather than a single die.
+# Juice Box entries ("juice_box:<ability>") are resolved per-entry from the
+# copied pawn's own requires_combined flag instead (see _entry_requires_combined).
+COMBINED_ABILITY_KEYS = {
+    "rampage", "slut_shame", "cockroach", "puddle_jump", "plot_armor",
+    "candy_biggs", "louie", "miriam_dom", "raul",
+}
+
+
+def _ability_die_index(dice: DungeonDice, floor: int, requires_combined: bool) -> Optional[int]:
+    """Die index to pay an ability with this turn, or None if it can't be afforded.
+
+    Honors dice.floor_modifier (AI's Pet / Dirty Tootsies / Group Climax), the
+    same way the server-side spend_die / can_combine_for_cost checks do.
+    Combined abilities need both dice summed (their try_* spends both itself,
+    so any available index works); single-die abilities use the lowest die
+    that still meets the floor -- unlike get_best_die_for_floor, never a die
+    that would just fail and be wasted.
+    """
+    if requires_combined:
+        return dice.available_dice[0] if dice.can_combine_for_cost(floor) else None
+    needed = dice._effective_floor(floor)
+    affordable = [i for i in dice.available_dice if dice.dice[i] >= needed]
+    return min(affordable, key=lambda i: dice.dice[i]) if affordable else None
+
+
 def random_draft(count: int = 8) -> List[str]:
     """Draft unique pawns from the roster. Default 8 per player.
 
@@ -249,7 +276,7 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
     name = piece.pawn_name
 
     # Juice Box has no ability of her own -- she uses one of the abilities
-    # she's captured from enemy pawns, each at that pawn's own floor/cost.
+    # she's captured from enemy pawns, at that pawn's own cost + 1.
     if name == "Juice Box":
         if pos in gs.juice_box_used_this_turn:
             return
@@ -260,11 +287,14 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
             return
         captured_name = random.choice(options)
         cchar = PAWN_CHARACTERS[captured_name]
-        idx = dice.get_best_die_for_floor(cchar.ability.floor_number)
+        idx = _ability_die_index(dice, cchar.ability.floor_number + 1,
+                                 cchar.ability.requires_combined)
         if idx is None:
             return
+        direction = _pick_chris_direction(gs, pos) if captured_name == "Chris" else None
         gs.try_juice_box_use_captured_ability(pos, cchar.ability.name, dice, idx,
-                                              use_combined=cchar.ability.requires_combined)
+                                              use_combined=cchar.ability.requires_combined,
+                                              direction=direction)
         return
 
     char = PAWN_CHARACTERS.get(name)
@@ -299,7 +329,7 @@ def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], pi
     elif name == "Imani":
         gs.try_suppress(pos, dice, idx)
     elif name == "Candy Biggs":
-        gs.try_one_of_us(pos, dice)
+        gs.try_gang_gang(pos, dice)
     elif name == "Louie":
         gs.try_air_strike(pos, dice, idx)
     elif name == "Sledge":
@@ -886,7 +916,7 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
     for ability_name, pos, piece, floor in offensive_attempts:
         if dice.remaining_count <= 1:
             break  # Reserve last die for movement
-        idx = dice.get_best_die_for_floor(floor)
+        idx = _ability_die_index(dice, floor, _entry_requires_combined(game_state, ability_name, pos))
         if idx is None:
             continue  # Skip this ability, try others with lower floors
         _execute_smart_ability(game_state, dice, ability_name, pos, piece, idx, color)
@@ -894,10 +924,18 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
     for ability_name, pos, piece, floor in defensive_attempts:
         if dice.remaining_count <= 1:
             break  # Reserve last die for movement
-        idx = dice.get_best_die_for_floor(floor)
+        idx = _ability_die_index(dice, floor, _entry_requires_combined(game_state, ability_name, pos))
         if idx is None:
             continue  # Skip this ability, try others with lower floors
         _execute_smart_ability(game_state, dice, ability_name, pos, piece, idx, color)
+
+
+def _entry_requires_combined(gs: GameState, ability_name: str, pos: Tuple[int, int]) -> bool:
+    """Whether a smart_abilities() candidate pays with both dice combined."""
+    if ability_name.startswith("juice_box:"):
+        cchar = gs.find_captured_ability(pos, ability_name.split(":", 1)[1])
+        return bool(cchar and cchar.ability.requires_combined)
+    return ability_name in COMBINED_ABILITY_KEYS
 
 
 def _has_enemy_in_range(board: Board, row: int, col: int,
@@ -921,15 +959,18 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
     name = piece.pawn_name
 
     # Juice Box has no ability of her own -- offer each captured ability at
-    # that pawn's own floor/cost, same as a human would see in her sidebar list.
+    # that pawn's own cost + 1 (her Shapeshift tax, applied server-side in
+    # try_juice_box_use_captured_ability), same as a human sees on her cards.
     if name == "Juice Box":
         if (row, col) in gs.juice_box_used_this_turn:
+            return
+        if gs.juice_box_cooldown.get(piece.color):
             return
         for captured_name in gs.juice_box_captured.get(gs.juice_box_key((row, col)), []):
             cchar = PAWN_CHARACTERS.get(captured_name)
             if cchar and cchar.ability.trigger == AbilityTrigger.FLOOR_ROLL:
                 offensive.append((f"juice_box:{cchar.ability.name}", (row, col), piece,
-                                  cchar.ability.floor_number))
+                                  cchar.ability.floor_number + 1))
         return
 
     char = PAWN_CHARACTERS.get(name)
@@ -1025,8 +1066,11 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         if has_adj_pawn and captured_pawns:
             defensive.append(("miriam_dom", (row, col), piece, floor))
     elif name == "Raul the Crab":
-        # Meditative Strike: always useful if Raul didn't move
-        if (row, col) not in gs.raul_moved_this_turn:
+        # Group Climax (combined dice, cost 7): -2 to every friendly ability
+        # cost next turn. Skip if one is already pending for this side --
+        # casting again would just waste both dice. (Affordability against
+        # the combined dice is checked in smart_abilities' spend loop.)
+        if not gs.group_climax_pending.get(piece.color):
             defensive.append(("raul", (row, col), piece, floor))
     elif name == "Bad Llama":
         if _has_enemy_in_range(board, row, col, 2, opponent):
@@ -1088,7 +1132,7 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     elif ability_name == "elle_mcgib":
         gs.try_frozen(pos, dice, die_idx)
     elif ability_name == "candy_biggs":
-        gs.try_one_of_us(pos, dice)
+        gs.try_gang_gang(pos, dice)
     elif ability_name == "gun_show":
         gs.try_gun_show(pos, dice, die_idx)
     elif ability_name == "louie":
@@ -1116,8 +1160,9 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
         captured_ability_name = ability_name.split(":", 1)[1]
         cchar = gs.find_captured_ability(pos, captured_ability_name)
         use_combined = bool(cchar and cchar.ability.requires_combined)
+        direction = _pick_chris_direction(gs, pos) if cchar and cchar.name == "Chris" else None
         gs.try_juice_box_use_captured_ability(pos, captured_ability_name, dice, die_idx,
-                                              use_combined=use_combined)
+                                              use_combined=use_combined, direction=direction)
     elif ability_name == "florin":
         gs.try_suppressing_fire(pos, dice, die_idx)
     elif ability_name == "signet":

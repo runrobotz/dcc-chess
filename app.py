@@ -287,12 +287,18 @@ def get_status_effects_summary(gs, game_data):
         if piece:
             add(piece.color, _piece_label(piece), "She Tank", 1)
 
+    for pos in gs.succubus_pieces:
+        piece = board.get(*pos)
+        if piece:
+            add(piece.color, _piece_label(piece), "Succubus (can't move)", 1)
+
     for pos, turns in gs.iron_wall_pieces.items():
         if turns <= 0:
             continue
         piece = board.get(*pos)
-        if piece and piece.is_pawn and piece.pawn_name == "Sledge":
-            add(piece.color, "Sledge", "Body Guard", turns)
+        # Sledge's own Body Guard, or Juice Box casting it via Shapeshift
+        if piece and piece.is_pawn and piece.pawn_name in ("Sledge", "Juice Box"):
+            add(piece.color, piece.pawn_name, "Body Guard", turns)
 
     for entry in gs.mordecai_respawn_pending:
         add(entry["color"], "Mordecai", "Ghost Zone (awaiting respawn)", entry["turns_left"])
@@ -315,7 +321,11 @@ def get_status_effects_summary(gs, game_data):
 
     for color, active in gs.group_climax_active.items():
         if active:
-            add(color, "Raul the Crab", "Group Climax (buff)", None)
+            add(color, "Raul the Crab", "Group Climax — abilities cost 2 less this turn", 1)
+
+    for color, pending in gs.group_climax_pending.items():
+        if pending:
+            add(color, "Raul the Crab", "Group Climax — abilities cost 2 less next turn", None)
 
     return result
 
@@ -384,6 +394,7 @@ def build_game_state_response():
         "suppressed_pieces": [[r, c] for r, c in gs.suppressed_pieces],
         "restrained_pieces": [[r, c] for r, c in gs.restrained_pieces],
         "she_tank_targets": [[r, c] for r, c in gs.she_tank_targets],
+        "succubus_pieces": [[r, c] for r, c in gs.succubus_pieces],
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
         # Meaningless before both Carls are even on the board, and meaningless again
@@ -1328,7 +1339,7 @@ def get_ability_targets():
                             valid_targets.append([nr, nc])
             message = "Select enemy pawn to swallow (within 3 squares)"
         
-        elif ability_name == "One Of Us":
+        elif ability_name == "Gang Gang!":
             # Enemy pawns within 2 squares
             for dr in range(-2, 3):
                 for dc in range(-2, 3):
@@ -1831,19 +1842,18 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             gs.board.set(dest[0], dest[1], piece)
             piece.has_moved = True
         msg = "Special boy!" if success else "Failed"
-    elif name == "Candy Biggs" and ability_name == "One Of Us":
-        # One Of Us uses target_pos from request data if available
+    elif name == "Candy Biggs" and ability_name == "Gang Gang!":
+        # Gang Gang! uses target_pos from request data if available
         # target_pos is passed in as parameter
         if target_pos:
             target_piece = gs.board.get(target_pos[0], target_pos[1])
             if target_piece and target_piece.is_pawn and target_piece.color != piece.color:
                 if dice.can_combine_for_cost(10):
                     dice.spend_combined(10)
-                    gs.log_event("ability_roll", piece="Candy Biggs", ability="One Of Us",
+                    gs.log_event("ability_roll", piece="Candy Biggs", ability="Gang Gang!",
                                  detail="Combined dice for cost 10", result="success")
-                    from dcc_chess.pieces import Color
                     target_piece.color = piece.color
-                    gs.log_event("one_of_us", converted=repr(target_piece), pos=target_pos,
+                    gs.log_event("gang_gang", converted=repr(target_piece), pos=target_pos,
                                  detail="Enemy pawn converted to friendly")
                     success = True
                     msg = "Converted!"
@@ -1854,7 +1864,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                 success = False
                 msg = "Invalid target"
         else:
-            success = gs.try_one_of_us(pos, dice)
+            success = gs.try_gang_gang(pos, dice)
             msg = "Converted!" if success else "Failed"
     elif name == "Louie" and ability_name == "Air Strike":
         # Air Strike uses target_pos for zone placement
@@ -1938,12 +1948,10 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                                  detail="Combined dice for cost 8", result="success")
                     gs.board.set(target_pos[0], target_pos[1], None)
                     # Resurrect captured pawn on back rank (Orthrus can never be resurrected)
-                    source = gs.captured_pieces.get(piece.color, [])
-                    captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
+                    source, captured = gs.blood_magic_candidates(piece.color)
                     if captured:
                         resurrected = random.choice(captured)
                         source.remove(resurrected)
-                        from dcc_chess.pieces import Color, BOARD_SIZE
                         back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
                         spawn_squares = [(back_rank, c) for c in range(BOARD_SIZE) if gs.board.get(back_rank, c) is None]
                         if spawn_squares:
@@ -1956,7 +1964,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
                             success = True
                             msg = "Blood magic!"
                         else:
-                            captured.append(resurrected)
+                            source.append(resurrected)
                             gs.board.set(target_pos[0], target_pos[1], sacrifice_piece)
                             success = False
                             msg = "No space on back rank"

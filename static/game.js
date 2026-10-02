@@ -1664,6 +1664,7 @@ const Game = {
         const suppressedSet = new Set((this.state.suppressed_pieces || []).map(z => `${z[0]},${z[1]}`));
         const restrainedSet = new Set((this.state.restrained_pieces || []).map(z => `${z[0]},${z[1]}`));
         const sheTankSet = new Set((this.state.she_tank_targets || []).map(z => `${z[0]},${z[1]}`));
+        const succubusSet = new Set((this.state.succubus_pieces || []).map(z => `${z[0]},${z[1]}`));
         const ironWallMap = this.state.iron_wall_pieces || {};
         const ghostMap = this.state.ghost_tokens || {};
         const ghostSet = new Set(Object.keys(ghostMap));
@@ -1820,6 +1821,11 @@ const Game = {
                     if (sheTankSet.has(sqKey)) {
                         effectSymbols.push('🚫');
                         tooltipLines.push('She Tank — 1 turn remaining');
+                        primaryEffect = primaryEffect || 'piece-she-tank';
+                    }
+                    if (succubusSet.has(sqKey)) {
+                        effectSymbols.push('💋');
+                        tooltipLines.push('Succubus — cannot move, 1 turn remaining');
                         primaryEffect = primaryEffect || 'piece-she-tank';
                     }
                     if (primaryEffect) pieceEl.classList.add(primaryEffect);
@@ -2403,6 +2409,9 @@ const Game = {
         // Lottery Ticket's Fireball sub-events are redundant with the
         // ai_card_resolved outcome text already folded into ai_card_drawn.
         'fireball_target', 'fireball_kill',
+        // Juice Box's bookkeeping event -- the preceding ability line already
+        // reads "Juice Box (<source pawn>) used <ability>".
+        'juice_box_use_ability',
     ]),
 
     // If events[i-1] is an un-consumed ability_roll/ability_reaction, mark it
@@ -3534,7 +3543,19 @@ const Game = {
             let useCombined = false;
             if (!onCooldown && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
                 const single = this.findBestDie(availableDice, jbFloor);
-                if (single !== null && single.value >= jbFloor) {
+                if (ab.requires_combined) {
+                    // Combined-dice abilities (Gang Gang!, Air Strike, Blood Magic,
+                    // Group Climax) always pay with both dice server-side
+                    // (can_combine_for_cost) -- a single die that happens to meet the
+                    // floor isn't enough, so never offer the single-die path here.
+                    const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
+                    useCombined = true;
+                    if (availableDice.length >= 2 && diceSum >= jbFloor) {
+                        status = 'green'; bestDie = availableDice[0];
+                    } else {
+                        status = 'red';
+                    }
+                } else if (single !== null && single.value >= jbFloor) {
                     status = 'green'; bestDie = single;
                 } else if (availableDice.length >= 2) {
                     const diceSum = availableDice.reduce((s, d) => s + d.value, 0);
@@ -3626,7 +3647,9 @@ const Game = {
                 } else {
                     for (const ab of pc.abilities) {
                         // Juice Box pays +1 over the source pawn's base cost (Chunk 4).
-                        const floorText = ab.floor > 0 ? `${ab.floor + 1} Mana (via Juice Box)` : 'Auto';
+                        const floorText = ab.floor > 0
+                            ? `${ab.requires_combined ? '⚄+⚄ ' : ''}${ab.floor + 1} Mana (via Juice Box)`
+                            : 'Auto';
                         entries += `
                             <div class="pc-ability">
                                 <span class="ab-label">${ab.juice_box_source_pawn} — ${ab.name}</span>
@@ -3977,7 +4000,7 @@ const Game = {
             'Cockroach': 'resurrection',
             'Rampage': 'movement',
             'Slut Shame': 'target_piece',
-            'One Of Us': 'target_piece',
+            'Gang Gang!': 'target_piece',
             'Blood Magic': 'sacrifice',
             // Freeze abilities
             'Frozen': 'target_piece',

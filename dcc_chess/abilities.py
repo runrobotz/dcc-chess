@@ -113,7 +113,7 @@ class GameState:
         
         # Imani — Suppress: suppressed pieces (already tracked above in suppressed_pieces)
         
-        # Candy Biggs — One Of Us: recruited pawns
+        # Candy Biggs — Gang Gang!: recruited pawns
         self.recruited_pawns: Dict[Tuple[int, int], Color] = {}  # pos -> original_color
         
         # Louie — Air Strike: can't move flag
@@ -172,7 +172,10 @@ class GameState:
         # Enthrall / Succubus (Signet — _apply_enthrall reads enthralled_pieces)
         self.enthralled_pieces: Dict[Tuple[int, int], Tuple[int, int]] = {}
         self.enthralled_pending: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        self.succubus_pending: Set[Tuple[int, int]] = set()
+        # Signet — Succubus: enemy male pieces that can't move (same pending ->
+        # active promotion as frozen/restrained/she_tank, see start_turn)
+        self.succubus_pieces: Set[Tuple[int, int]] = set()  # active this turn
+        self.succubus_pending: Set[Tuple[int, int]] = set()  # applied this turn, active next
 
         # Captured pieces (ability methods use self.captured_pieces in addition to board.captured)
         self.captured_pieces: Dict[Color, List] = {Color.WHITE: [], Color.BLACK: []}
@@ -450,6 +453,9 @@ class GameState:
         self.she_tank_targets = self.she_tank_pending.copy()
         self.she_tank_pending.clear()
 
+        self.succubus_pieces = self.succubus_pending.copy()
+        self.succubus_pending.clear()
+
     def promote_group_climax(self, dice: DungeonDice):
         """Apply Raul the Crab's Group Climax if it's pending for the player whose
         turn is starting: all their ability floor costs drop by 2 for this turn.
@@ -641,6 +647,8 @@ class GameState:
         if (row, col) in self.chris_stuck:
             return False
         if (row, col) in self.she_tank_targets:
+            return False
+        if (row, col) in self.succubus_pieces:
             return False
         if (row, col) in self.frozen_pieces:
             return False
@@ -2312,6 +2320,7 @@ class GameState:
         # try_* runs against floor + 1 (stacks additively with AI-Card / Group
         # Climax modifiers, exactly like the server's own checks).
         dice.floor_modifier += 1
+        events_before = len(self.events)
         try:
             if name == "Zev":
                 success = self.try_biggest_fan(juice_box_pos, dice, die_index)
@@ -2320,7 +2329,7 @@ class GameState:
             elif name == "Imani":
                 success = self.try_suppress(juice_box_pos, dice, die_index)
             elif name == "Candy Biggs":
-                success = self.try_one_of_us(juice_box_pos, dice, target_pos=target_pos)
+                success = self.try_gang_gang(juice_box_pos, dice, target_pos=target_pos)
             elif name == "Louie":
                 success = self.try_air_strike(juice_box_pos, dice, die_index, target_pos=target_pos)
             elif name == "Sledge":
@@ -2362,6 +2371,12 @@ class GameState:
                 success = False
         finally:
             dice.floor_modifier -= 1
+
+        # The delegated try_* logs its ability_roll under the source pawn's
+        # name (e.g. "Lucia Mar") -- credit Juice Box in the battle log instead.
+        for event in self.events[events_before:]:
+            if event.get("type") == "ability_roll":
+                event["piece"] = f"Juice Box ({name})"
 
         if success:
             # Chunk 4 balance: block another acquired-ability use until the start
@@ -2794,10 +2809,11 @@ class GameState:
             self.log_event("ability_reaction", piece="Katia", ability="She Tank",
                           banked_die_value=pulled_value, target_pos=target_pos)
         else:
-            # Normal use on own turn - need to find a die with value >= 6
+            # Normal use on own turn - need a die meeting cost 6 after this
+            # turn's floor modifier (AI's Pet / Dirty Tootsies / Group Climax)
             die_index = -1
             for i in range(len(dice.dice)):
-                if not dice.used[i] and dice.dice[i] >= 6:
+                if not dice.used[i] and dice.dice[i] >= dice._effective_floor(6):
                     die_index = i
                     break
             if die_index == -1:
@@ -3085,9 +3101,9 @@ class GameState:
                        detail="Will respawn within 1 square of Samantha in 5 turns")
         return True
 
-    def try_one_of_us(self, caster_pos: Tuple[int, int], dice: DungeonDice,
+    def try_gang_gang(self, caster_pos: Tuple[int, int], dice: DungeonDice,
                       target_pos: Optional[Tuple[int, int]] = None) -> bool:
-        """Candy Biggs's One Of Us (Floor 10, requires combined):
+        """Candy Biggs's Gang Gang! (Floor 10, requires combined):
         Convert enemy pawn within 2 squares to friendly side.
         """
         piece = self.board.get(*caster_pos)
@@ -3101,7 +3117,7 @@ class GameState:
             return False
 
         dice.spend_combined(10)
-        self.log_event("ability_roll", piece="Candy Biggs", ability="One Of Us",
+        self.log_event("ability_roll", piece="Candy Biggs", ability="Gang Gang!",
                        detail="Combined dice for cost 10", result="success")
 
         # Find enemy pawns within 2 squares
@@ -3131,9 +3147,22 @@ class GameState:
         from .pieces import Color
         converted_pawn.color = piece.color
         
-        self.log_event("one_of_us", converted=repr(converted_pawn), pos=target_pos,
+        self.log_event("gang_gang", converted=repr(converted_pawn), pos=target_pos,
                        detail="Enemy pawn converted to friendly")
         return True
+
+    def blood_magic_candidates(self, color: Color) -> Tuple[List[Piece], List[Piece]]:
+        """(graveyard list, resurrectable pawns) for Blood Magic.
+
+        Reads board.captured -- where every normal capture actually lands (and
+        what the sidebar graveyard shows) -- not self.captured_pieces, which
+        only Rampage ever writes to. Pawns only, per the ability text; Orthrus
+        and permanently-dead pieces are never eligible.
+        """
+        source = self.board.captured[color]
+        candidates = [p for p in source
+                      if p.is_pawn and not p.permanently_dead and p.pawn_name != "Orthrus"]
+        return source, candidates
 
     def try_blood_magic(self, miriam_pos: Tuple[int, int], dice: DungeonDice,
                         target_pos: Optional[Tuple[int, int]] = None) -> bool:
@@ -3169,9 +3198,8 @@ class GameState:
                     if target and target.is_pawn and target.color == piece.color:
                         adjacent_pawns.append((nr, nc))
 
-        # Check for captured friendly pieces to resurrect (Orthrus can never be resurrected)
-        source = self.captured_pieces.get(piece.color, [])
-        captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
+        # Check for captured friendly pawns to resurrect (Orthrus can never be resurrected)
+        source, captured = self.blood_magic_candidates(piece.color)
 
         if not adjacent_pawns or not captured:
             return False

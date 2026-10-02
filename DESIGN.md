@@ -34,7 +34,7 @@ beyond this note.
 | Prepotente | Special Boy | 4 | FLOOR_ROLL | Unlimited | No |
 | Elle McGib | Frozen | 5 | FLOOR_ROLL | Unlimited | No |
 | Imani | Suppress | 4 | FLOOR_ROLL | Unlimited | No |
-| Candy Biggs | One Of Us | 10 | FLOOR_ROLL | 1 | Yes |
+| Candy Biggs | Gang Gang! | 10 | FLOOR_ROLL | 1 | Yes |
 | Louie | Air Strike | 6 | FLOOR_ROLL | Unlimited | Yes |
 | Sledge | Body Guard | 4 | FLOOR_ROLL | Unlimited | No |
 | Stripper Anaconda | Gun Show | 5 | FLOOR_ROLL | Unlimited | No |
@@ -87,7 +87,7 @@ Elle McGib has exactly one ability now, matching the code.
 next turn. Matches `pawns.py`. Target is always chosen randomly — no manual
 targeting UI exists for this ability.
 
-**Candy Biggs — One Of Us.** Converts one enemy pawn to the caster's side permanently.
+**Candy Biggs — Gang Gang!** Converts one enemy pawn to the caster's side permanently.
 **Mismatches:** (1) `pawns.py`'s text states no range restriction at all ("any one
 enemy pawn"), but the shared implementation (used whenever Juice Box hosts it, and
 whenever a human plays Candy Biggs with no explicit target) restricts targets to within
@@ -137,7 +137,12 @@ the same filter as a second layer. She can fire an acquired ability from her own
 square at the source pawn's base cost + 1, at most once per side per turn cycle
 (`juice_box_cooldown`), and never the same turn she captured a pawn
 (`juice_box_used_this_turn`). If the opponent resurrects the source pawn, she loses
-that acquired ability (`_juice_box_lose_ability`). Matches `pawns.py`.
+that acquired ability (`_juice_box_lose_ability`). Matches `pawns.py`. As of v0.67,
+every copyable ability is verified end to end through `/ability/get_targets` +
+`/ability`: her sidebar card honors `requires_combined` (combined abilities always
+need both dice, even when discounts would let one die cover the cost), the AI
+prices her copies at base + 1 and supplies Chris's Lava Surge direction, and the
+battle log credits her (`Juice Box (<source pawn>) used <ability>`).
 
 **Florin — Suppressing Fire.** Pushes one enemy piece up to 2 squares directly away
 from Florin, stopping early if blocked. Matches `pawns.py`. Target is always random.
@@ -152,11 +157,16 @@ this document's two source files).
 **Signet — Succubus.** **Mismatch, code is authoritative:** `pawns.py` describes
 "draw any 1 male character 1 square closer to Signet." The implemented ability
 instead prevents every enemy male piece within 3 squares from moving on its next
-turn (`succubus_pending`). No "pull" mechanic exists in the code for this ability.
+turn (`succubus_pending` -> `succubus_pieces`, promoted in `start_turn()` like
+Frozen/She Tank; before v0.67 it was never promoted, so the ability did nothing).
+No "pull" mechanic exists in the code for this ability.
 
 **Miriam Dom — Blood Magic.** Sacrifices an adjacent friendly pawn (does not trigger
 on-capture effects; Ren can be sacrificed) to resurrect a previously-captured
-friendly pawn onto an open back-rank square. Matches `pawns.py`. Note: same pattern
+friendly pawn onto an open back-rank square. Matches `pawns.py`. Resurrects from
+`board.captured` (the real graveyard), pawns only, via `blood_magic_candidates` --
+before v0.67 it read `GameState.captured_pieces`, which only Rampage writes to, so it
+always failed. Note: same pattern
 as Candy Biggs — `app.py`'s inline handler for a human explicitly picking a sacrifice
 target does not re-check adjacency the way the shared implementation does; not
 reachable through normal play today since `get_ability_targets` already restricts
@@ -173,9 +183,11 @@ all, since only major pieces are allowed to). Matches `pawns.py` exactly.
 start of that side's next turn the flag is consumed and every friendly ability's
 floor cost drops by 2 for that turn only (`promote_group_climax`, called from
 `/new_game`, `/start_turn`, and the AI's own turn handler in `app.py`). Matches
-`pawns.py`'s "-2 for the next full turn." See Section 4 — flagged there as a pending
-item to re-verify end-to-end (e.g. reaction-based die spends that don't pass through
-those three call sites).
+`pawns.py`'s "-2 for the next full turn." `group_climax_pending` / `group_climax_active`
+drive the sidebar status entry ("next turn" / "this turn"). Verified in v0.67: every
+own-turn die spend goes through `DungeonDice._effective_floor` (She Tank's die search
+was the one exception and now uses it too); the AI checks combined dice against the
+modified cost before casting.
 
 **Bad Llama — Lava Spit.** As of the fix recorded in Section 3: places a 1×2
 horizontal lava strip anywhere within 4 squares (extends right, or left at the
@@ -320,18 +332,6 @@ open questions to re-litigate.
   move out on their next turn or be captured" — no code anywhere tracks which
   pieces were in the zone at placement or punishes them for staying. This is new
   state machinery, not a rewire of something that already exists.
-
-- **Juice Box's full ability execution is not complete for all ability types.**
-  The FLOOR_ROLL filter (v0.60) stops the worst symptom (dead cards that burn a
-  turn for nothing), but coverage of every acquired ability's execution path
-  hasn't been independently re-verified end to end since that fix.
-
-- **Raul the Crab's Group Climax needs its `floor_modifier` wiring re-verified.**
-  `promote_group_climax` is called from `/new_game`, `/start_turn`, and the AI's
-  own turn handler, which covers the normal roll-a-fresh-turn flow — but this
-  hasn't been confirmed against every path that can spend a die this turn (banked
-  die pulls, reactions, etc.), so treat it as unverified rather than confirmed
-  broken or confirmed working.
 
 - **Multiplayer infrastructure is not yet built.** The server holds a single
   in-memory game (`game_data` is one global dict in `app.py`) — no concept of
