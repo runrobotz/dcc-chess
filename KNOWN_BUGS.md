@@ -3,7 +3,43 @@
 Pre-existing issues found incidentally while working on other features.
 Tracked here so they don't get lost or re-"discovered" later.
 
-_No open bugs._
+### Cockroach and Rampage sidebar use counters never decrement
+
+`get_piece_abilities()` in `app.py` reads `game_state.cockroach_used` (Donut's Cockroach) and
+`game_state.rampage_used` (Mongo's Rampage) to compute `uses_left`, but nothing ever writes
+either field. The real once-per-game flags are `resurrection_used` (set by
+`try_cockroach()`) and `rampaging_charge_used` (set by `try_rampage()`) -- the ones `ai.py`
+and `ai_cards.py` (whose ability-reset card restores them) already use. Both cards therefore
+always show 1 use left; clicking one after it's spent fails and burns the turn's dice.
+
+Found: 2026-10-01, while fixing Cockroach's graveyard lookup. Likely fix: point the sidebar at
+`resurrection_used` / `rampaging_charge_used` (and drop or alias the dead fields).
+
+### Blood Magic can double-spawn a Mordecai awaiting respawn
+
+A captured Mordecai lands in `board.captured` *and* is queued in `mordecai_respawn_pending`;
+his Manager Benefit respawn also never removes him from `board.captured`. Blood Magic
+(`blood_magic_candidates()`, used by both `try_blood_magic()` and app.py's targeted Miriam
+handler) doesn't exclude him, so it can resurrect him while his respawn is still pending (he
+then appears twice when it fires), or after he has already respawned (the same Piece on two
+squares at once).
+
+Found: 2026-10-01. Cockroach already guards against this in `cockroach_candidates()`
+(excludes pieces on the board or pending respawn); Blood Magic needs the same filter.
+
+### Rampage bypasses every capture protection
+
+`try_rampage()` removes each enemy piece on Mongo's knight squares directly (`board.set(...,
+None)`) instead of going through `attempt_capture()`, and neither it nor app.py's
+`/ability/get_targets` Rampage branch checks `is_piece_invulnerable()`. So Rampage:
+
+- captures **Ren**, ignoring Indestructible (per DESIGN.md he can only be removed by the
+  enemy Carl or Blood Magic);
+- captures **Sledge** (or Juice Box) while **Body Guard** is active (`iron_wall_pieces`);
+- never gives **Quasar's Mediation** its chance to defend the threatened piece.
+
+The enemy Carl is already excluded. Found: 2026-10-01, while fixing Rampage victims not
+reaching the graveyard (they now land in `board.captured` and run `process_post_capture`).
 
 ---
 

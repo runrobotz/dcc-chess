@@ -159,14 +159,19 @@ this document's two source files).
 instead prevents every enemy male piece within 3 squares from moving on its next
 turn (`succubus_pending` -> `succubus_pieces`, promoted in `start_turn()` like
 Frozen/She Tank; before v0.67 it was never promoted, so the ability did nothing).
-No "pull" mechanic exists in the code for this ability.
+Carl is never affected, regardless of gender (v0.68) -- pinning him could leave his
+side with no legal move and soft-lock the game. No "pull" mechanic exists in the code
+for this ability.
 
 **Miriam Dom — Blood Magic.** Sacrifices an adjacent friendly pawn (does not trigger
 on-capture effects; Ren can be sacrificed) to resurrect a previously-captured
 friendly pawn onto an open back-rank square. Matches `pawns.py`. Resurrects from
 `board.captured` (the real graveyard), pawns only, via `blood_magic_candidates` --
-before v0.67 it read `GameState.captured_pieces`, which only Rampage writes to, so it
-always failed. Note: same pattern
+before v0.67 it read a separate `GameState.captured_pieces` list that only Rampage
+wrote to, so it always failed. That list was removed in v0.68; `board.captured` is
+now the single graveyard for every capture path. Known issue: it can resurrect a
+Mordecai who is awaiting (or has already had) his Manager Benefit respawn, putting
+him on the board twice -- see `KNOWN_BUGS.md`. Note: same pattern
 as Candy Biggs — `app.py`'s inline handler for a human explicitly picking a sacrifice
 target does not re-check adjacency the way the shared implementation does; not
 reachable through normal play today since `get_ability_targets` already restricts
@@ -257,7 +262,13 @@ documented as live abilities below.
 - *Rampage* — captures every enemy piece found along any of his knight-shaped
   movement paths, not just the final landing square. The enemy King is explicitly
   excluded as a valid target/capture (fixed in v0.59, mirroring Plot Armor's own
-  King exclusion).
+  King exclusion). As of v0.68, every victim lands in `board.captured` (the
+  graveyard the sidebar shows and Cockroach / Blood Magic resurrect from) and runs
+  `process_post_capture`, so Orthrus's second square is cleared and Mordecai's
+  Manager Benefit fires; Mongo can't land on a square a capture just blocked
+  (Mordecai's ghost token). Known issue: Rampage removes pieces directly instead of
+  via `attempt_capture`, so it ignores Ren's Indestructible, Body Guard, and Quasar's
+  Mediation -- see `KNOWN_BUGS.md`.
 - *Gorefest (Boss Event Only)* — attacks 2 squares from Mongo's current position
   in any direction to damage a summoned boss.
 

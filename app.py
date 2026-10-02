@@ -1352,16 +1352,14 @@ def get_ability_targets():
         
         # Resurrection/sacrifice abilities
         elif ability_name == "Cockroach":
-            # Show captured pieces as targets (we'll handle selection differently)
-            # For now, show adjacent squares where piece can spawn
-            for dr in [-1, 0, 1]:
-                for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    nr, nc = piece_row + dr, piece_col + dc
-                    if gs.board.in_bounds(nr, nc) and gs.board.get(nr, nc) is None:
-                        valid_targets.append([nr, nc])
-            message = "Select adjacent square to resurrect piece"
+            # Adjacent open squares where the resurrected piece can spawn --
+            # only offered if there's actually something in the graveyard to revive
+            _, candidates = gs.cockroach_candidates(piece.color)
+            if candidates:
+                valid_targets = [list(pos) for pos in gs.cockroach_spawn_squares((piece_row, piece_col))]
+                message = "Select adjacent square to resurrect piece"
+            else:
+                message = "No captured friendly pieces to resurrect"
         
         elif ability_name == "Blood Magic":
             # Adjacent friendly pawns to sacrifice
@@ -1607,11 +1605,8 @@ def use_ability():
 
         elif ability_name == "Cockroach" and piece.piece_type == PieceType.DONUT:
             # Cockroach uses target_pos as spawn location
-            result = gs.try_cockroach((piece_row, piece_col), dice)
+            result = gs.try_cockroach((piece_row, piece_col), dice, target_pos=target_pos)
             success = result is not None
-            # If target provided, move resurrected piece there
-            if success and result and target_pos:
-                gs.board.set(target_pos[0], target_pos[1], result)
             result_msg = f"Resurrected {repr(result)}!" if success else "Failed"
 
         elif ability_name == "Resurrection" and piece.piece_type == PieceType.DONUT:

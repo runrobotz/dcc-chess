@@ -177,9 +177,6 @@ class GameState:
         self.succubus_pieces: Set[Tuple[int, int]] = set()  # active this turn
         self.succubus_pending: Set[Tuple[int, int]] = set()  # applied this turn, active next
 
-        # Captured pieces (ability methods use self.captured_pieces in addition to board.captured)
-        self.captured_pieces: Dict[Color, List] = {Color.WHITE: [], Color.BLACK: []}
-
         # Zev — Pack Rally buffed pawn positions
         self.zev_buff_pawns: Set[Tuple[int, int]] = set()
 
@@ -2905,42 +2902,27 @@ class GameState:
 
     # ── Chunk 2 Abilities: Priority Group 7 (Combined Dice Abilities) ──
 
-    def try_cockroach(self, donut_pos: Tuple[int, int], dice: DungeonDice) -> Optional[Piece]:
-        """Donut's Cockroach (Floor 7, requires combined, once per game):
-        Resurrect one captured friendly piece and place on any open square adjacent to Donut.
+    def cockroach_candidates(self, color: Color) -> Tuple[List[Piece], List[Piece]]:
+        """(graveyard list, resurrectable pieces) for Cockroach.
+
+        Reads board.captured -- the real graveyard, same as Blood Magic (see
+        blood_magic_candidates). Any friendly piece is eligible except Orthrus,
+        permanently-dead pieces, and a Mordecai who is already back on the
+        board or still awaiting his own Manager Benefit respawn (reviving him
+        then would put the same piece on the board twice).
         """
-        piece = self.board.get(*donut_pos)
-        if piece is None or piece.piece_type != PieceType.DONUT:
-            return None
-        if self.is_piece_suppressed(*donut_pos):
-            return None
-        
-        # Check if already used
-        if self.resurrection_used.get(piece.color, False):
-            return None
-        
-        # Requires combined dice (total >= 7)
-        if not dice.can_combine_for_cost(7):
-            return None
-        
-        dice.spend_combined(7)
-        self.log_event("ability_roll", piece="Donut", ability="Cockroach",
-                       detail="Combined dice for cost 7", result="success")
-        
-        # Mark as used
-        self.resurrection_used[piece.color] = True
-        
-        # Find captured pieces for this color (Orthrus can never be resurrected)
-        source = self.captured_pieces.get(piece.color, [])
-        captured = [p for p in source if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
-        if not captured:
-            return None
+        source = self.board.captured[color]
+        on_board = {id(p) for _, _, p in self.board.all_pieces(color)}
+        pending_respawn = {id(entry["piece"]) for entry in self.mordecai_respawn_pending}
+        candidates = [p for p in source
+                      if not p.permanently_dead
+                      and not (p.is_pawn and p.pawn_name == "Orthrus")
+                      and id(p) not in on_board
+                      and id(p) not in pending_respawn]
+        return source, candidates
 
-        # Pick random captured piece to resurrect
-        resurrected = random.choice(captured)
-        source.remove(resurrected)
-
-        # Find adjacent empty squares to Donut
+    def cockroach_spawn_squares(self, donut_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Open, unblocked squares adjacent to Donut where Cockroach can place a piece."""
         r, c = donut_pos
         adjacent = []
         for dr in [-1, 0, 1]:
@@ -2951,14 +2933,52 @@ class GameState:
                 if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
                     if self.board.get(nr, nc) is None:
                         adjacent.append((nr, nc))
+        return adjacent
 
-        if not adjacent:
-            # No space to resurrect - put piece back in captured
-            source.append(resurrected)
+    def try_cockroach(self, donut_pos: Tuple[int, int], dice: DungeonDice,
+                      target_pos: Optional[Tuple[int, int]] = None) -> Optional[Piece]:
+        """Donut's Cockroach (Floor 7, requires combined, once per game):
+        Resurrect one captured friendly piece and place on any open square adjacent to Donut.
+
+        `target_pos`, if given and valid, is the adjacent square to place it on.
+        Nothing is spent (and the once-per-game use isn't burned) if there's
+        nothing to resurrect or nowhere to put it.
+        """
+        piece = self.board.get(*donut_pos)
+        if piece is None or piece.piece_type != PieceType.DONUT:
             return None
-        
-        # Place at random adjacent position
-        spawn_pos = random.choice(adjacent)
+        if self.is_piece_suppressed(*donut_pos):
+            return None
+
+        # Check if already used
+        if self.resurrection_used.get(piece.color, False):
+            return None
+
+        # Requires combined dice (total >= 7)
+        if not dice.can_combine_for_cost(7):
+            return None
+
+        source, captured = self.cockroach_candidates(piece.color)
+        adjacent = self.cockroach_spawn_squares(donut_pos)
+        if not captured or not adjacent:
+            return None
+
+        dice.spend_combined(7)
+        self.log_event("ability_roll", piece="Donut", ability="Cockroach",
+                       detail="Combined dice for cost 7", result="success")
+
+        # Mark as used
+        self.resurrection_used[piece.color] = True
+
+        # Pick random captured piece to resurrect
+        resurrected = random.choice(captured)
+        source.remove(resurrected)
+
+        # Use the requested square if valid, otherwise pick randomly
+        if target_pos is not None and tuple(target_pos) in adjacent:
+            spawn_pos = tuple(target_pos)
+        else:
+            spawn_pos = random.choice(adjacent)
         self.board.set(spawn_pos[0], spawn_pos[1], resurrected)
         if resurrected.is_pawn and resurrected.pawn_name:
             self._juice_box_lose_ability(resurrected.pawn_name)
@@ -3021,23 +3041,22 @@ class GameState:
                 valid_moves.append((nr, nc))
                 captured_pieces.append((nr, nc))
         
-        # Capture all enemy pieces in the path
+        # Capture all enemy pieces in the path. Victims go into board.captured
+        # (the real graveyard the sidebar shows and Cockroach / Blood Magic
+        # resurrect from), and process_post_capture runs the same on-capture
+        # effects as a normal capture -- clearing Orthrus's other body square
+        # and triggering Mordecai's Manager Benefit.
         for cap_pos in captured_pieces:
             cap_piece = self.board.get(*cap_pos)
             if cap_piece:
                 self.board.set(cap_pos[0], cap_pos[1], None)
-                if cap_piece.color not in self.captured_pieces:
-                    self.captured_pieces[cap_piece.color] = []
-                self.captured_pieces[cap_piece.color].append(cap_piece)
+                self.board.captured[cap_piece.color].append(cap_piece)
                 self.log_event("rampage_capture", pos=cap_pos, piece=repr(cap_piece))
-                # Orthrus is a single logical piece occupying two squares (head +
-                # butt). Rampage captures directly rather than going through
-                # process_post_capture, so without this his other square would
-                # be left behind as an unremovable ghost piece -- same fix as
-                # the standard capture path (see attempt_capture / process_post_capture).
-                if cap_piece.is_pawn and cap_piece.pawn_name == "Orthrus":
-                    self.process_orthrus_permanent_death(cap_piece, cap_pos)
+                self.process_post_capture(cap_piece, cap_pos, piece, mongo_pos)
 
+        # A capture can block its own square (Mordecai's ghost token), so
+        # Mongo can't land there.
+        valid_moves = [m for m in valid_moves if not self.is_square_blocked(*m)]
         return valid_moves if valid_moves else None
 
     def try_slut_shame(self, samantha_pos: Tuple[int, int], dice: DungeonDice) -> bool:
@@ -3154,9 +3173,8 @@ class GameState:
     def blood_magic_candidates(self, color: Color) -> Tuple[List[Piece], List[Piece]]:
         """(graveyard list, resurrectable pawns) for Blood Magic.
 
-        Reads board.captured -- where every normal capture actually lands (and
-        what the sidebar graveyard shows) -- not self.captured_pieces, which
-        only Rampage ever writes to. Pawns only, per the ability text; Orthrus
+        Reads board.captured -- where every capture lands (and what the
+        sidebar graveyard shows). Pawns only, per the ability text; Orthrus
         and permanently-dead pieces are never eligible.
         """
         source = self.board.captured[color]
@@ -3339,7 +3357,8 @@ class GameState:
     def try_succubus(self, signet_pos: Tuple[int, int], dice: DungeonDice,
                      die_index: int) -> bool:
         """Signet's Succubus (Floor 6):
-        All enemy male pieces within 3 squares cannot move next turn.
+        All enemy male pieces within 3 squares cannot move next turn. Carl is
+        always excluded.
         """
         piece = self.board.get(*signet_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name not in ("Signet", "Juice Box"):
@@ -3353,7 +3372,9 @@ class GameState:
         if not success:
             return False
 
-        # Find all enemy male pieces within 3 squares
+        # Find all enemy male pieces within 3 squares. Carl is never affected,
+        # regardless of gender: pinning him could leave his side with no legal
+        # move and soft-lock the game.
         r, c = signet_pos
         affected = []
         for dr in range(-3, 4):
@@ -3363,7 +3384,7 @@ class GameState:
                 nr, nc = r + dr, c + dc
                 if self.board.in_bounds(nr, nc):
                     target = self.board.get(nr, nc)
-                    if target and target.color != piece.color:
+                    if target and target.color != piece.color and not target.is_king:
                         if self.is_piece_male(target, nr, nc):
                             affected.append((nr, nc))
         
