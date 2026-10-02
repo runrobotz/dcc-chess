@@ -200,10 +200,10 @@ def get_piece_abilities(piece, game_state, row, col):
                 elif type_name == "Carl" and mab["name"] == "Leader":
                     uses_left = game_state.leader_uses.get(color, 2)
                 elif type_name == "Donut" and mab["name"] == "Cockroach":
-                    uses_left = 0 if game_state.cockroach_used.get(color, False) else 1
+                    uses_left = 0 if game_state.resurrection_used.get(color, False) else 1
                 elif type_name == "Mongo" and mab["name"] == "Rampage":
                     k = (color, id(piece))
-                    uses_left = 0 if game_state.rampage_used.get(k, False) else 1
+                    uses_left = 0 if game_state.rampaging_charge_used.get(k, False) else 1
                 elif type_name == "Katia" and mab["name"] == "She Tank":
                     uses_left = game_state.she_tank_uses.get(color, 2)
                 elif type_name == "Samantha" and mab["name"] == "Slut Shame":

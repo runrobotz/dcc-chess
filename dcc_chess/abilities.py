@@ -3175,11 +3175,17 @@ class GameState:
 
         Reads board.captured -- where every capture lands (and what the
         sidebar graveyard shows). Pawns only, per the ability text; Orthrus
-        and permanently-dead pieces are never eligible.
+        and permanently-dead pieces are never eligible, nor is a Mordecai who
+        is already back on the board or still awaiting his own Manager Benefit
+        respawn (same check as cockroach_candidates).
         """
         source = self.board.captured[color]
+        on_board = {id(p) for _, _, p in self.board.all_pieces(color)}
+        pending_respawn = {id(entry["piece"]) for entry in self.mordecai_respawn_pending}
         candidates = [p for p in source
-                      if p.is_pawn and not p.permanently_dead and p.pawn_name != "Orthrus"]
+                      if p.is_pawn and not p.permanently_dead and p.pawn_name != "Orthrus"
+                      and id(p) not in on_board
+                      and id(p) not in pending_respawn]
         return source, candidates
 
     def try_blood_magic(self, miriam_pos: Tuple[int, int], dice: DungeonDice,
