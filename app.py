@@ -527,9 +527,19 @@ def _submit_boss_roll(gs, color):
 
 # ── Routes ────────────────────────────────────────────────────────
 
+# Single source of truth for the version — shown in the homepage footer and
+# the game's #version-tag. Bump this on each push.
+SITE_VERSION = "v0.70"
+
+
 @app.route("/")
+def home():
+    return render_template("home.html", version=SITE_VERSION)
+
+
+@app.route("/play", strict_slashes=False)
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=SITE_VERSION)
 
 
 @app.route("/roster", methods=["GET"])

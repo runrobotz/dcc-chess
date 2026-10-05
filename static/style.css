@@ -75,12 +75,53 @@ body.light-theme .board .square.dark { background: #8b7355; }
 .start-container {
     text-align: center;
 }
+/* Subtle way back to the website homepage — plain text, not a button */
+#start-screen {
+    position: relative;
+}
+.home-link {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 50;
+    min-height: 44px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    letter-spacing: 0.3px;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: color 0.2s;
+}
+.home-link:hover,
+.home-link:focus-visible {
+    color: var(--accent-gold);
+}
+.home-link:focus-visible {
+    outline: 1px solid var(--accent-gold);
+    outline-offset: -4px;
+}
+/* Portrait phones: sit below the fixed "Rotate device" hint */
+@media (max-width: 599px) and (orientation: portrait) {
+    .home-link {
+        top: 34px;
+    }
+}
 .start-logo {
     display: block;
-    width: 500px;
+    /* Team photo is wider than tall (1000x889): cap by width and by screen height */
+    width: min(560px, 90vw, 62vh);
     max-width: 90%;
     height: auto;
     margin: 0 auto 2.5rem;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+    .start-logo {
+        width: min(90vw, 52vh);
+        margin: 0.75rem auto 1rem;
+    }
 }
 .mode-select {
     display: flex;

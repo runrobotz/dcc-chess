@@ -13,8 +13,9 @@
 
     <!-- ═══ START SCREEN ═══ -->
     <div id="start-screen" class="screen active">
+        <a href="/" class="home-link">← Home</a>
         <div class="start-container">
-            <img src="/static/DCC-new-logo.png" alt="Dungeon Crawler Carl Chess" class="start-logo">
+            <img src="/static/DCC-team-photo2.png" alt="Dungeon Crawler Chess — the crawlers" class="start-logo" width="1000" height="889">
             <div class="mode-select">
                 <button class="btn btn-primary" onclick="Game.selectMode('pvai')">Player vs AI</button>
                 <button class="btn btn-secondary" onclick="Game.selectMode('pvp')">Player vs Player</button>
@@ -244,8 +245,8 @@
     <!-- ═══ NOTIFICATION TOAST ═══ -->
     <div id="toast" class="toast hidden"></div>
 
-    <!-- ═══ VERSION TAG (subtle, always visible) — bump manually on each push ═══ -->
-    <div id="version-tag">v0.70</div>
+    <!-- ═══ VERSION TAG (subtle, always visible) — set from SITE_VERSION in app.py ═══ -->
+    <div id="version-tag">{{ version }}</div>
 
     <script src="/static/game.js"></script>
 </body>
