@@ -200,10 +200,11 @@ main {
     background: var(--ink);
 }
 
-/* Moved by JS (scroll parallax + pointer drift) */
+/* Moved by JS (scroll parallax + pointer drift). The small side overscan
+   only needs to cover the ±14px pointer drift. */
 .hero-parallax {
     position: absolute;
-    inset: -8% -5%;
+    inset: -8% -1.5%;
     will-change: transform;
 }
 
@@ -1074,8 +1075,8 @@ main {
 
 /* ═══ KEYFRAMES ═══ */
 @keyframes push-in {
-    from { transform: scale(1.04) translate3d(0, 0, 0); }
-    to   { transform: scale(1.16) translate3d(-1.2%, -1%, 0); }
+    from { transform: scale(1) translate3d(0, 0, 0); }
+    to   { transform: scale(1.04) translate3d(-0.6%, -0.5%, 0); }
 }
 
 @keyframes rise {
@@ -1152,6 +1153,21 @@ main {
 
 /* ═══ RESPONSIVE ═══ */
 
+/* Portrait screens: filling the full height would crop away most of the art's
+   width, so the art covers only the upper part (behind the characters) and its
+   bottom fades into the dark title band. */
+@media (orientation: portrait) {
+    .hero-parallax {
+        bottom: auto;
+        height: 132vw;
+    }
+
+    .hero-art {
+        -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+        mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+    }
+}
+
 @media (max-width: 1000px) {
     .floor-list { --step: 12px; }
 }
@@ -1224,6 +1240,21 @@ main {
     .card-status { top: 16px; right: 14px; }
 }
 
+/* Phones (portrait only): the logo painted into the artwork is the title, so the
+   text title is hidden visually but kept for screen readers and search engines */
+@media (max-width: 600px) and (orientation: portrait) {
+    .title {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+}
+
 /* Phones (landscape) and other short screens */
 @media (orientation: landscape) and (max-height: 520px) {
     .topbar { height: 50px; }
@@ -1258,7 +1289,7 @@ main {
         transition-duration: 0.01ms !important;
     }
 
-    .hero-art { transform: scale(1.06); }
+    .hero-art { transform: scale(1.02); }
 
     .js .reveal,
     .js .floor.reveal:nth-child(odd),
