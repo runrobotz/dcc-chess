@@ -5,6 +5,7 @@ import json
 import os
 import random
 from flask import Flask, render_template, jsonify, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dcc_chess.pieces import Piece, PieceType, Color
 from dcc_chess.board import Board, BOARD_SIZE, CENTER_SQUARE, PAWN_ROSTER, MAJOR_PIECE_ORDER
@@ -17,6 +18,9 @@ from dcc_chess.ai_cards import resolve_custard_choice, resolve_too_boring_choice
 from dcc_chess.boss import resolve_boss_movement
 
 app = Flask(__name__)
+# Trust the hosting proxy's X-Forwarded-Proto so absolute URLs (the link-preview
+# image) use https in production.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 
 # ── In-memory game store (single game at a time) ─────────────────
 game_data = {}
@@ -529,7 +533,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.71"
+SITE_VERSION = "v0.72"
 
 
 @app.route("/")
@@ -540,6 +544,11 @@ def home():
 @app.route("/play", strict_slashes=False)
 def index():
     return render_template("index.html", version=SITE_VERSION)
+
+
+@app.route("/contact", strict_slashes=False)
+def contact():
+    return render_template("contact.html", version=SITE_VERSION)
 
 
 @app.route("/roster", methods=["GET"])

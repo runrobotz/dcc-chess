@@ -129,6 +129,22 @@ body.light-theme .board .square.dark { background: #8b7355; }
     justify-content: center;
     margin-bottom: 1.5rem;
 }
+/* Fan project disclaimer at the bottom of the start screen (in the normal flow,
+   so it never overlaps the buttons; bottom margin keeps it clear of #version-tag) */
+.fan-disclaimer {
+    max-width: 64ch;
+    margin: 2.25rem auto 1.75rem;
+    text-wrap: balance;
+    padding: 0 16px;
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+@media (orientation: landscape) and (max-height: 520px) {
+    .fan-disclaimer {
+        margin: 1.25rem auto 1.5rem;
+    }
+}
 .dev-controls {
     display: flex;
     flex-direction: column;

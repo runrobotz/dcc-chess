@@ -11,7 +11,7 @@
      "teaser": "Dev updates from deep inside the dungeon."},
     {"name": "Crowdfunding",          "href": "#",     "live": false,
      "teaser": "Back the build and help open the lower floors."},
-    {"name": "Contact",               "href": "#",     "live": false,
+    {"name": "Contact",               "href": "/contact", "live": true,
      "teaser": "Send word to the surface: feedback, bugs, and fan mail."},
 ] -%}
 <!DOCTYPE html>
@@ -23,6 +23,7 @@
     <meta name="theme-color" content="#07050b">
     <link rel="icon" type="image/png" href="/static/favicon.png">
     <title>DCC Chess — RPG Chess in the Dungeon Crawler Carl Universe</title>
+{% include "_social_meta.html" %}
     <script>document.documentElement.classList.add('js');</script>
     <link rel="preload" as="image" href="/static/{{ HERO_ART }}" fetchpriority="high">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -102,7 +103,7 @@
             <header class="descent-head reveal">
                 <p class="section-kicker">The Floors</p>
                 <h2 id="floors-title" class="descent-title">Descend into the dungeon</h2>
-                <p class="descent-sub">Six floors down. One is open. The rest are sealed&nbsp;— for now.</p>
+                <p class="descent-sub">Six floors down. Two are open. The rest are sealed&nbsp;— for now.</p>
             </header>
 
             <ol class="floor-list">
@@ -135,7 +136,7 @@
         <!-- ═══ FOOTER ═══ -->
         <footer class="site-footer">
             <span class="footer-rule" aria-hidden="true">◆</span>
-            <p>A fan project. Not officially affiliated with Matt Dinniman or Dungeon Crawler Carl.</p>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
             <span class="site-version">{{ version }}</span>
         </footer>
     </main>

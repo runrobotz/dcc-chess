@@ -1,0 +1,198 @@
+{#- ═══ Contact page settings ═══ -#}
+{%- set HERO_ART = "DCC-logo-realistic.webp" -%}
+{%- set CONTACT_EMAIL = "dungeoncrawlerchess@gmail.com" -%}
+{%- set FORM_ENDPOINT = "https://formspree.io/f/xjyggynq" -%}
+{%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
+<!DOCTYPE html>
+<html lang="en" class="subpage">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Contact the Dungeon Crawler Chess project: questions, collaboration, and playtesting.">
+    <meta name="theme-color" content="#07050b">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>Contact — Dungeon Crawler Chess</title>
+{% include "_social_meta.html" %}
+    <script>document.documentElement.classList.add('js');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&display=swap">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <!-- ═══ FIXED LAYERS: dungeon backdrop and film grain ═══ -->
+    <div class="backdrop" aria-hidden="true"><div class="backdrop-glow"></div></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- Icons, reused below -->
+    <svg class="sprite" aria-hidden="true">
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+            <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-external" viewBox="0 0 24 24">
+            <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-mail" viewBox="0 0 24 24">
+            <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M3.5 6.5 12 13l8.5-6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </symbol>
+    </svg>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar" id="topbar">
+        <a class="brand" href="/" aria-label="DCC Chess home">
+            <span class="brand-mark" aria-hidden="true">◆</span>DCC<span class="brand-sub">Chess</span>
+        </a>
+        <a class="topbar-cta" href="/play">Play the Demo</a>
+    </header>
+
+    <main>
+        <!-- ═══ PAGE HEADER ═══ -->
+        <section class="page-hero">
+            <div class="page-hero-art" aria-hidden="true" style="background-image: url('/static/{{ HERO_ART }}')"></div>
+            <div class="page-hero-shade" aria-hidden="true"></div>
+            <div class="page-hero-content">
+                <a class="back-link" href="/">← Back to the homepage</a>
+                <p class="section-kicker">Floor 6</p>
+                <h1 class="page-title">Contact</h1>
+                <p class="page-lede">Send word to the surface.</p>
+            </div>
+        </section>
+
+        <!-- ═══ CONTACT ═══ -->
+        <section class="contact" aria-label="Contact options">
+            <div class="contact-grid">
+                <div class="contact-panel contact-info">
+                    <p class="contact-lead">Questions about the project, ideas for collaborating, or want to help playtest? Reach out. Every message gets read.</p>
+
+                    <div class="contact-block">
+                        <span class="contact-label">Email</span>
+                        <a class="contact-email" href="mailto:{{ CONTACT_EMAIL }}">
+                            <svg class="contact-email-icon" aria-hidden="true"><use href="#i-mail"/></svg>
+                            <span>{{ CONTACT_EMAIL.split('@')[0] }}@<wbr>{{ CONTACT_EMAIL.split('@')[1] }}</span>
+                        </a>
+                    </div>
+
+                    <div class="contact-block">
+                        <span class="contact-label">Playtest</span>
+                        <p class="contact-text">Play the demo, then tell us what works, what breaks, and what's missing.</p>
+                        <a class="cta cta-sm" href="{{ PLAYTEST_FORM }}" target="_blank" rel="noopener noreferrer">
+                            <span class="cta-glow" aria-hidden="true"></span>
+                            <span class="cta-face">
+                                <span class="cta-label">Join the Playtest</span>
+                                <svg class="cta-arrow" aria-hidden="true"><use href="#i-external"/></svg>
+                            </span>
+                            <span class="sr-only">(opens in a new tab)</span>
+                        </a>
+                    </div>
+                </div>
+
+                <form class="contact-panel contact-form" id="contact-form" action="{{ FORM_ENDPOINT }}" method="POST">
+                    <h2 class="form-title">Send a message</h2>
+
+                    <label class="field">
+                        <span class="field-label">Name</span>
+                        <input type="text" name="name" autocomplete="name" maxlength="120" required>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Email</span>
+                        <input type="email" name="email" autocomplete="email" maxlength="200" required>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Message</span>
+                        <textarea name="message" rows="6" maxlength="5000" required></textarea>
+                    </label>
+
+                    <input type="hidden" name="_subject" value="New message from the Dungeon Crawler Chess website">
+                    <!-- Spam trap: people never see or fill this; bots often do -->
+                    <input class="field-trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+                    <button class="cta form-submit" type="submit">
+                        <span class="cta-glow" aria-hidden="true"></span>
+                        <span class="cta-face">
+                            <span class="cta-label">Send message</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                        </span>
+                    </button>
+                    <p class="form-status" role="status" aria-live="polite"></p>
+                </form>
+
+                <div class="contact-panel form-success" id="form-success" tabindex="-1" hidden>
+                    <span class="success-mark" aria-hidden="true">◆</span>
+                    <h2 class="form-title">Message sent</h2>
+                    <p class="contact-text">Thanks for reaching out. Your message made it to the surface, and we'll get back to you soon.</p>
+                    <button class="ghost-link send-another" type="button" id="send-another">Send another message</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="site-footer">
+            <span class="footer-rule" aria-hidden="true">◆</span>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <span class="site-version">{{ version }}</span>
+        </footer>
+    </main>
+
+    <script>
+    (() => {
+        const root = document.documentElement;
+
+        // Frost the top bar once the page scrolls
+        const onScroll = () => root.classList.toggle('is-scrolled', window.scrollY > 24);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        // ═══ Contact form: send to Formspree without leaving the page ═══
+        // (Without JavaScript the form still posts normally and Formspree shows its own thank-you page.)
+        const form = document.getElementById('contact-form');
+        const status = form.querySelector('.form-status');
+        const button = form.querySelector('.form-submit');
+        const buttonLabel = button.querySelector('.cta-label');
+        const success = document.getElementById('form-success');
+        const EMAIL = '{{ CONTACT_EMAIL }}';
+
+        const setStatus = (message, isError) => {
+            status.textContent = message;
+            status.classList.toggle('is-error', Boolean(isError));
+        };
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!form.reportValidity()) return;
+            button.disabled = true;
+            buttonLabel.textContent = 'Sending…';
+            setStatus('');
+            try {
+                const resp = await fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: { Accept: 'application/json' },
+                });
+                if (resp.ok) {
+                    form.reset();
+                    form.hidden = true;
+                    success.hidden = false;
+                    success.focus();
+                    return;
+                }
+                const data = await resp.json().catch(() => ({}));
+                const detail = Array.isArray(data.errors) ? data.errors.map((er) => er.message).join(' ') : '';
+                setStatus(`${detail || 'Something went wrong sending your message.'} You can also email ${EMAIL}.`, true);
+            } catch {
+                setStatus(`Couldn't reach the server. Check your connection, or email ${EMAIL}.`, true);
+            } finally {
+                button.disabled = false;
+                buttonLabel.textContent = 'Send message';
+            }
+        });
+
+        document.getElementById('send-another').addEventListener('click', () => {
+            success.hidden = true;
+            form.hidden = false;
+            form.querySelector('input[name="name"]').focus();
+        });
+    })();
+    </script>
+</body>
+</html>

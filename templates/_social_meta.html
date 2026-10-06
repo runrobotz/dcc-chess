@@ -1,0 +1,20 @@
+{#- ═══ Link previews (Open Graph + Twitter cards) — shared by every page ═══ -#}
+{%- set SOCIAL_TITLE = "Dungeon Crawler Chess" -%}
+{%- set SOCIAL_DESCRIPTION = "RPG chess in the Dungeon Crawler Carl universe. A playable fan-made demo, pending licensing." -%}
+{%- set SOCIAL_IMAGE = request.url_root ~ "static/og-image.jpg" -%}
+{%- set SOCIAL_IMAGE_ALT = "The Dungeon Crawler Chess crawlers gathered around the game's logo" -%}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="{{ SOCIAL_TITLE }}">
+    <meta property="og:title" content="{{ SOCIAL_TITLE }}">
+    <meta property="og:description" content="{{ SOCIAL_DESCRIPTION }}">
+    <meta property="og:url" content="{{ request.base_url }}">
+    <meta property="og:image" content="{{ SOCIAL_IMAGE }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="{{ SOCIAL_IMAGE_ALT }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ SOCIAL_TITLE }}">
+    <meta name="twitter:description" content="{{ SOCIAL_DESCRIPTION }}">
+    <meta name="twitter:image" content="{{ SOCIAL_IMAGE }}">
+    <meta name="twitter:image:alt" content="{{ SOCIAL_IMAGE_ALT }}">

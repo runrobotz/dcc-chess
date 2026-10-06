@@ -1073,6 +1073,363 @@ main {
     color: var(--gold-deep);
 }
 
+/* ═══ SUBPAGES (Contact) ═══ */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Subpages have no hero to scroll past, so the top bar's Play button shows right away */
+.subpage .topbar-cta {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+
+/* ── Page header: the hero art, darkened, behind the page title ── */
+.page-hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: clamp(320px, 48svh, 480px);
+    padding: calc(64px + 32px) var(--gutter) clamp(32px, 6vh, 60px);
+    text-align: center;
+}
+
+.page-hero-art {
+    position: absolute;
+    inset: -3%;
+    z-index: -2;
+    background-size: cover;
+    background-position: 50% 32%;
+    transform-origin: 50% 35%;
+    filter: saturate(1.1);
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 97%);
+    mask-image: linear-gradient(180deg, #000 70%, transparent 97%);
+    animation: push-in 40s ease-in-out infinite alternate;
+}
+
+.page-hero-shade {
+    position: absolute;
+    inset: 0 0 -2px;
+    z-index: -1;
+    background:
+        linear-gradient(180deg, rgba(7, 5, 11, 0.78) 0%, rgba(7, 5, 11, 0.5) 35%, rgba(7, 5, 11, 0.82) 72%, var(--ink) 100%),
+        linear-gradient(rgba(64, 22, 110, 0.25), rgba(64, 22, 110, 0.25));
+}
+
+.page-hero-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.back-link {
+    margin-bottom: clamp(18px, 4vh, 36px);
+    padding: 8px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--text-soft);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+    transition: color 250ms ease;
+}
+
+.back-link:hover,
+.back-link:focus-visible {
+    color: var(--gold-bright);
+}
+
+.page-title {
+    margin-top: 10px;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(3rem, 9vw, 6rem);
+    line-height: 0.95;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, #fff2c4 0%, #f0cf7c 32%, #c99a3e 62%, #7d5a1c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 6px 28px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 36px rgba(var(--ember), 0.28));
+}
+
+.page-lede {
+    margin-top: 12px;
+    font-size: clamp(15px, 1.7vw, 19px);
+    color: var(--text-soft);
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
+}
+
+/* ── Contact panels ── */
+.contact {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: clamp(8px, 2vh, 24px) max(var(--gutter), env(safe-area-inset-right)) 0 max(var(--gutter), env(safe-area-inset-left));
+}
+
+.contact-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: clamp(16px, 2.4vw, 28px);
+    align-items: start;
+}
+
+.contact-panel {
+    position: relative;
+    padding: clamp(22px, 3vw, 36px);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(44, 26, 66, 0.8) 0%, rgba(18, 12, 27, 0.92) 55%, rgba(10, 8, 15, 0.95) 100%);
+    border: 1px solid rgba(212, 175, 90, 0.18);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 2px 0 rgba(0, 0, 0, 0.5),
+        0 26px 50px -26px rgba(0, 0, 0, 0.95);
+}
+
+.contact-panel[hidden] {
+    display: none;
+}
+
+.contact-lead {
+    font-size: clamp(17px, 1.75vw, 20px);
+    line-height: 1.55;
+    color: var(--text);
+}
+
+.contact-block {
+    margin-top: clamp(22px, 3vh, 30px);
+    padding-top: clamp(20px, 3vh, 26px);
+    border-top: 1px solid rgba(212, 175, 90, 0.12);
+}
+
+.contact-label,
+.field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--gold);
+}
+
+.contact-text {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text-soft);
+}
+
+.contact-email {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 100%;
+    margin-top: 10px;
+    font-size: clamp(17px, 1.8vw, 20px);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--gold-bright);
+    text-decoration: none;
+    overflow-wrap: break-word;
+    transition: color 250ms ease, text-shadow 250ms ease;
+}
+
+.contact-email span {
+    background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+    transition: background-size 350ms var(--ease-out);
+}
+
+.contact-email:hover,
+.contact-email:focus-visible {
+    color: #fff1c2;
+    text-shadow: 0 0 18px rgba(var(--ember), 0.45);
+}
+
+.contact-email:hover span,
+.contact-email:focus-visible span {
+    background-size: 100% 1px;
+}
+
+.contact-email-icon {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    color: var(--gold);
+}
+
+.cta-sm {
+    margin-top: 16px;
+}
+
+.cta-sm .cta-face {
+    padding: 15px 24px 15px 26px;
+    font-size: 14px;
+}
+
+/* ── Form ── */
+.form-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+    line-height: 1.15;
+    color: var(--text);
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.field input,
+.field textarea {
+    width: 100%;
+    padding: 13px 14px;
+    font: inherit;
+    font-size: 16px;                    /* 16px stops iOS zooming into the field */
+    color: var(--text);
+    background: rgba(5, 4, 8, 0.6);
+    border: 1px solid rgba(212, 175, 90, 0.22);
+    border-radius: 10px;
+    transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+
+.field textarea {
+    min-height: 150px;
+    resize: vertical;
+}
+
+.field input:hover,
+.field textarea:hover {
+    border-color: rgba(212, 175, 90, 0.38);
+}
+
+.field input:focus,
+.field textarea:focus {
+    outline: none;
+    border-color: var(--gold);
+    background: rgba(5, 4, 8, 0.8);
+    box-shadow: 0 0 0 3px rgba(212, 175, 90, 0.18), 0 0 18px rgba(var(--ember), 0.12);
+}
+
+.field-trap {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+button.cta {
+    border: 0;
+    padding: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.form-submit {
+    margin-top: 24px;
+}
+
+.form-submit:disabled {
+    cursor: progress;
+    opacity: 0.7;
+    transform: none;
+}
+
+.form-status {
+    min-height: 1.5em;
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-soft);
+}
+
+.form-status.is-error {
+    color: #ffb59a;
+}
+
+.form-success {
+    text-align: center;
+}
+
+.form-success:focus {
+    outline: none;
+}
+
+.success-mark {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 22px;
+    color: var(--gold-bright);
+    text-shadow: 0 0 18px rgba(var(--ember), 0.8);
+}
+
+button.ghost-link {
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.send-another {
+    margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+    .contact-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .page-hero {
+        min-height: clamp(260px, 38svh, 340px);
+        padding-top: calc(56px + 24px);
+    }
+
+    .cta-sm,
+    .form-submit {
+        width: 100%;
+    }
+
+    .cta-sm .cta-face,
+    .form-submit .cta-face {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+    .page-hero {
+        min-height: 0;
+        padding-top: calc(50px + 20px);
+        padding-bottom: 24px;
+    }
+
+    .back-link {
+        margin-bottom: 10px;
+    }
+
+    .page-title {
+        font-size: clamp(2.4rem, 14vh, 3.6rem);
+    }
+}
+
 /* ═══ KEYFRAMES ═══ */
 @keyframes push-in {
     from { transform: scale(1) translate3d(0, 0, 0); }
