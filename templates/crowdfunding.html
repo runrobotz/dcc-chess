@@ -1,0 +1,327 @@
+{#- ═══ Crowdfunding Plan page settings — edit the content here ═══
+    This page describes a PLAN, not a live campaign: no prices, amounts, limits, or dates. -#}
+{%- set HERO_ART = "DCC-logo-realistic.webp" -%}
+{%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
+
+{#- The "plan only" notice shown under the header -#}
+{%- set PLAN_NOTICE = ["Plan only", "No campaign is live", "No money is being collected", "Pending licensing"] -%}
+
+{%- set WHY_TEXT = "The full game, a 3D cross-platform video game, needs a team of artists and developers. Crowdfunding would let the DCC community help build it and have a real say in what goes into it." -%}
+
+{#- Backer tiers, lowest to highest. The cards get more impressive as they go up.
+    plus: true shows "Everything above, plus:" · rewards: [] shows the note (or "Details to come." without one)
+    tier / hi / lo: the box colors as "r, g, b" (main, highlight, shadow) -#}
+{%- set TIERS = [
+    {"name": "Bronze Box", "plus": false, "tier": "205, 127, 50", "hi": "242, 186, 128", "lo": "112, 62, 24",
+     "rewards": ["Your name in the credits", "A supporter role in the community"]},
+    {"name": "Silver Box", "plus": true, "tier": "196, 204, 216", "hi": "244, 247, 252", "lo": "104, 112, 128",
+     "rewards": ["The base game", "An exclusive founder skin"]},
+    {"name": "Gold Box", "plus": true, "tier": "232, 190, 90", "hi": "255, 234, 164", "lo": "146, 104, 28",
+     "rewards": ["Early access to the first DLC, the Heroes Pack", "A vote on which characters join it"]},
+    {"name": "Platinum Box", "plus": true, "tier": "168, 226, 238", "hi": "232, 252, 255", "lo": "70, 126, 148",
+     "rewards": ["A bigger say in votes", "More exclusive cosmetics"]},
+    {"name": "Legendary Box", "plus": true, "tier": "255, 128, 48", "hi": "255, 204, 124", "lo": "158, 46, 18",
+     "rewards": ["Help choosing new abilities and bosses"]},
+    {"name": "Celestial Box", "plus": true, "tier": "142, 168, 255", "hi": "224, 232, 255", "lo": "70, 56, 172",
+     "rewards": ["The chance to suggest new characters", "A unique skin set"]},
+    {"name": "Show runners", "plus": true, "tier": "255, 82, 172", "hi": "255, 186, 224", "lo": "138, 18, 92",
+     "line": "For the biggest supporters",
+     "rewards": ["The chance to help pick characters directly", "The chance to appear in the game"]},
+    {"name": "Deity Sponsorship", "plus": false, "tier": "255, 236, 180", "hi": "255, 255, 255", "lo": "188, 138, 58",
+     "rewards": [], "note": "The ultimate tier. A collaboration with the team on something truly one of a kind. Details to come."},
+] -%}
+
+{%- set COMMUNITY_TEXT = "Higher-tier backers would help shape the game by suggesting and voting on new characters, abilities, and bosses for the Heroes Pack and future content." -%}
+{%- set COMMUNITY_STEPS = [
+    {"icon": "suggest", "title": "Suggest", "line": "Backers put forward new characters, abilities, and bosses."},
+    {"icon": "vote",    "title": "Vote",    "line": "Backers vote on what goes into the Heroes Pack and future content."},
+    {"icon": "approve", "title": "Approve", "line": "Every pick goes to the creator for approval."},
+] -%}
+{%- set COMMUNITY_NOTE = "All community picks would be subject to the creator's approval." -%}
+
+{#- Where the funds would go. No percentages or amounts. -#}
+{%- set FUNDS = [
+    {"icon": "art",     "title": "Artists and animation", "line": "2D and 3D art, animation, and trailers."},
+    {"icon": "code",    "title": "The development team",  "line": "Developers to build the full game."},
+    {"icon": "server",  "title": "Multiplayer servers",   "line": "Keeping online play running."},
+    {"icon": "rewards", "title": "Backer rewards",        "line": "Producing and delivering backer rewards."},
+] -%}
+
+{#- One loot box, drawn inline so each card can color and open its own lid -#}
+{%- macro loot_box() -%}
+<svg class="bx" viewBox="0 0 100 100" aria-hidden="true">
+    <ellipse class="bx-shadow" cx="50" cy="91" rx="32" ry="5"/>
+    <polygon class="bx-left"  points="16,47 50,64 50,92 16,75"/>
+    <polygon class="bx-right" points="50,64 84,47 84,75 50,92"/>
+    <polygon class="bx-band"  points="31,54.5 37,57.5 37,85.5 31,82.5"/>
+    <polygon class="bx-band"  points="63,57.5 69,54.5 69,82.5 63,85.5"/>
+    <polygon class="bx-light" points="16,47 50,30 84,47 50,64"/>
+    <g class="bx-lid">
+        <polygon class="bx-lid-left"  points="16,40 50,57 50,64 16,47"/>
+        <polygon class="bx-lid-right" points="50,57 84,40 84,47 50,64"/>
+        <polygon class="bx-top"       points="16,40 50,23 84,40 50,57"/>
+        <polygon class="bx-emblem"    points="50,33 56,40 50,47 44,40"/>
+    </g>
+</svg>
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="en" class="subpage">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Our rough plan for funding the full Dungeon Crawler Chess game with the community. Nothing is live yet. Pending licensing.">
+    <meta name="theme-color" content="#07050b">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>Crowdfunding Plan — Dungeon Crawler Chess</title>
+{% include "_social_meta.html" %}
+    <script>document.documentElement.classList.add('js');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&display=swap">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <!-- ═══ FIXED LAYERS: dungeon backdrop and film grain ═══ -->
+    <div class="backdrop" aria-hidden="true"><div class="backdrop-glow"></div></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- Icons, reused below -->
+    <svg class="sprite" aria-hidden="true">
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+            <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-external" viewBox="0 0 24 24">
+            <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.9"/>
+            <path d="M12 11v6M12 7.5v.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-suggest" viewBox="0 0 24 24">
+            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-vote" viewBox="0 0 24 24">
+            <rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M8 12.5l2.8 2.8L16.5 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-approve" viewBox="0 0 24 24">
+            <path d="M3.5 18.5h17M4.5 18.5l-1-11 5 4.5L12 5l3.5 7 5-4.5-1 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-art" viewBox="0 0 24 24">
+            <path d="M14.5 4.5l5 5L10 19H5v-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M12.5 6.5l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        </symbol>
+        <symbol id="i-code" viewBox="0 0 24 24">
+            <path d="M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5M13.5 5l-3 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-server" viewBox="0 0 24 24">
+            <rect x="4" y="4" width="16" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <rect x="4" y="13" width="16" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M8 7.5h.01M8 16.5h.01" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-rewards" viewBox="0 0 24 24">
+            <rect x="3.5" y="9" width="17" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M2.5 9h19M12 9v11.5M12 9c-1.5-3.5-5.5-4-5.5-1.5S10 9 12 9zm0 0c1.5-3.5 5.5-4 5.5-1.5S14 9 12 9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </symbol>
+    </svg>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar" id="topbar">
+        <a class="brand" href="/" aria-label="DCC Chess home">
+            <span class="brand-mark" aria-hidden="true">◆</span>DCC<span class="brand-sub">Chess</span>
+        </a>
+        <a class="topbar-cta" href="/play">Play the Demo</a>
+    </header>
+
+    <main>
+        <!-- ═══ PAGE HEADER ═══ -->
+        <section class="page-hero">
+            <div class="page-hero-art" aria-hidden="true" style="background-image: url('/static/{{ HERO_ART }}')"></div>
+            <div class="page-hero-shade" aria-hidden="true"></div>
+            <div class="page-hero-content">
+                <a class="back-link" href="/">← Back to the homepage</a>
+                <p class="section-kicker">Floor 5</p>
+                <h1 class="page-title page-title--long">Crowdfunding Plan</h1>
+                <p class="page-lede page-lede--wide">Our rough plan for funding the full game with the community. Nothing is live yet. Every detail depends on a licensing partnership with the creator and may change. Pending licensing.</p>
+            </div>
+        </section>
+
+        <div class="crowdfund">
+            <!-- ═══ PLAN-ONLY NOTICE ═══ -->
+            <p class="plan-notice reveal">
+                {%- for item in PLAN_NOTICE %}
+                <span class="plan-notice-item">{% if loop.last %}<span class="plan-notice-key">{{ item }}</span>{% else %}{{ item }}{% endif %}</span>
+                {%- endfor %}
+            </p>
+
+            <!-- ═══ 1. WHY CROWDFUNDING ═══ -->
+            <section class="cf-section" aria-labelledby="why-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">The idea</p>
+                    <h2 id="why-title" class="status-title">Why crowdfunding</h2>
+                </header>
+                <p class="cf-lead reveal">{{ WHY_TEXT }}</p>
+            </section>
+
+            <!-- ═══ 2. BACKER TIERS ═══ -->
+            <section class="cf-section" aria-labelledby="tiers-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Loot boxes</p>
+                    <h2 id="tiers-title" class="status-title">Backer tiers</h2>
+                </header>
+                <p class="cf-note reveal">
+                    <svg aria-hidden="true"><use href="#i-info"/></svg>
+                    <span>Tier names and rewards are a rough idea, not final. <strong>Pending licensing.</strong></span>
+                </p>
+
+                <ol class="tier-grid">
+                    {%- for t in TIERS %}
+                    {%- set lvl = loop.index %}
+                    <li class="tier reveal tier-{{ lvl }}" style="--lvl: {{ lvl }}; --tier: {{ t.tier }}; --tier-hi: {{ t.hi }}; --tier-lo: {{ t.lo }}">
+                        <span class="tier-sparks" aria-hidden="true">
+                            {%- for i in range(lvl * 2 - 1) %}
+                            <span class="spark" style="left: {{ (i * 37 + lvl * 17) % 86 + 7 }}%; top: {{ (i * 53 + lvl * 29) % 84 + 6 }}%; --d: {{ ((i * 0.47 + lvl * 0.31) % 2.6)|round(2) }}s; --s: {{ 3 + (i + lvl) % 4 }}px"></span>
+                            {%- endfor %}
+                        </span>
+                        <button class="tier-box" type="button" aria-pressed="false" aria-label="Open the {{ t.name }}">
+                            <span class="box-rays" aria-hidden="true"></span>
+                            <span class="box-glow" aria-hidden="true"></span>
+                            {{ loot_box() }}
+                        </button>
+                        <p class="tier-level">Tier {{ lvl }}</p>
+                        <h3 class="tier-name">{{ t.name }}</h3>
+                        {%- if t.line %}<p class="tier-line">{{ t.line }}</p>{% endif %}
+                        {%- if t.rewards %}
+                        {%- if t.plus %}<p class="tier-plus">Everything above, plus:</p>{% endif %}
+                        <ul class="tier-rewards">
+                            {%- for r in t.rewards %}
+                            <li>{{ r }}</li>
+                            {%- endfor %}
+                        </ul>
+                        {%- else %}
+                        <p class="tier-tbd">{{ t.note or "Details to come." }}</p>
+                        {%- endif %}
+                    </li>
+                    {%- endfor %}
+                </ol>
+                <p class="tier-hint" aria-hidden="true">
+                    <span class="hint-touch">Tap a box to open it</span>
+                    <span class="hint-mouse">Hover or click a box to open it</span>
+                </p>
+            </section>
+
+            <!-- ═══ 3. COMMUNITY-BUILT CONTENT ═══ -->
+            <section class="cf-section" aria-labelledby="community-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Built with the crawlers</p>
+                    <h2 id="community-title" class="status-title">Community-built content</h2>
+                </header>
+                <p class="cf-lead reveal">{{ COMMUNITY_TEXT }}</p>
+                <ol class="community-flow">
+                    {%- for step in COMMUNITY_STEPS %}
+                    <li class="flow-step reveal" style="--i: {{ loop.index0 }}">
+                        <span class="flow-icon" aria-hidden="true"><svg><use href="#i-{{ step.icon }}"/></svg></span>
+                        <span class="flow-title">{{ step.title }}</span>
+                        <span class="flow-line">{{ step.line }}</span>
+                    </li>
+                    {%- endfor %}
+                </ol>
+                <p class="cf-note reveal">
+                    <svg aria-hidden="true"><use href="#i-info"/></svg>
+                    <span>{{ COMMUNITY_NOTE }}</span>
+                </p>
+            </section>
+
+            <!-- ═══ 4. WHERE THE FUNDS WOULD GO ═══ -->
+            <section class="cf-section" aria-labelledby="funds-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">If it happens</p>
+                    <h2 id="funds-title" class="status-title">Where the funds would go</h2>
+                </header>
+                <ul class="funds-grid">
+                    {%- for f in FUNDS %}
+                    <li class="fund reveal" style="--i: {{ loop.index0 }}">
+                        <span class="fund-icon" aria-hidden="true"><svg><use href="#i-{{ f.icon }}"/></svg></span>
+                        <span class="fund-title">{{ f.title }}</span>
+                        <span class="fund-line">{{ f.line }}</span>
+                    </li>
+                    {%- endfor %}
+                </ul>
+            </section>
+
+            <!-- ═══ CALLS TO ACTION ═══ -->
+            <section class="road-cta reveal" aria-labelledby="cta-title">
+                <h2 id="cta-title" class="form-title">Want to know when it launches?</h2>
+                <p class="contact-text">There's no campaign yet and nothing to back. Get in touch and we'll keep you posted. Pending licensing.</p>
+                <div class="road-cta-actions">
+                    <a class="cta cta-sm" href="/contact">
+                        <span class="cta-glow" aria-hidden="true"></span>
+                        <span class="cta-face">
+                            <span class="cta-label">Get in touch</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                        </span>
+                    </a>
+                    <a class="cta cta-sm cta-outline" href="{{ PLAYTEST_FORM }}" target="_blank" rel="noopener noreferrer">
+                        <span class="cta-face">
+                            <span class="cta-label">Join the Playtest</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-external"/></svg>
+                        </span>
+                        <span class="sr-only">(opens in a new tab)</span>
+                    </a>
+                    <a class="cta cta-sm cta-outline" href="/play">
+                        <span class="cta-face">
+                            <span class="cta-label">Play the Demo</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                        </span>
+                    </a>
+                </div>
+            </section>
+        </div>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="site-footer">
+            <span class="footer-rule" aria-hidden="true">◆</span>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <span class="site-version">{{ version }}</span>
+        </footer>
+    </main>
+
+    <script>
+    (() => {
+        const root = document.documentElement;
+        const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const hasIO = 'IntersectionObserver' in window;
+
+        // Frost the top bar once the page scrolls
+        const onScroll = () => root.classList.toggle('is-scrolled', window.scrollY > 24);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        // ═══ Reveal sections and cards as they scroll into view ═══
+        const reveals = document.querySelectorAll('.reveal');
+        if (reduceMotion || !hasIO) {
+            reveals.forEach((el) => el.classList.add('is-visible'));
+        } else {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (!en.isIntersecting) return;
+                    en.target.classList.add('is-visible');
+                    io.unobserve(en.target);
+                });
+            }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+            reveals.forEach((el) => io.observe(el));
+        }
+
+        // ═══ Loot boxes: tap, click, or keyboard pops the lid (mouse hover does too, in CSS) ═══
+        document.querySelectorAll('.tier-box').forEach((box) => {
+            box.addEventListener('click', () => {
+                const tier = box.closest('.tier');
+                const open = !tier.classList.contains('is-open');
+                tier.classList.toggle('is-open', open);
+                box.setAttribute('aria-pressed', String(open));
+            });
+        });
+    })();
+    </script>
+</body>
+</html>
