@@ -1,0 +1,242 @@
+{#- ═══ "Where We Are Now" page settings — edit the stats and lists here ═══ -#}
+{%- set HERO_ART = "DCC-logo-realistic.webp" -%}
+{%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
+{#- count: the number to count up to · prefix: shown before it · square: shows as N×N -#}
+{%- set STATS = [
+    {"code": "PWN", "count": 20,  "label": "Unique pawn characters"},
+    {"code": "MAJ", "count": 5,   "label": "Major pieces"},
+    {"code": "BOS", "count": 4,   "label": "Boss battles"},
+    {"code": "AIC", "count": 14,  "label": "AI cards"},
+    {"code": "BRD", "count": 11,  "label": "Board", "square": true},
+    {"code": "HRS", "count": 300, "label": "Hours of development", "prefix": "~"},
+] -%}
+{%- set PLAYABLE = [
+    "Player vs Player and Player vs AI",
+    "A chess AI that plans 3 moves ahead and uses abilities strategically",
+    "Pawn draft: pick 8 of 20 characters",
+    "Free placement of your pieces before each game",
+    "Dice-powered mana and abilities for every piece",
+    "The AI card deck, which can crash any game",
+    "Boss battles where both players must team up",
+    "Game settings to turn abilities, AI summons, and bosses on or off",
+    "A how-to-play tutorial",
+    "Desktop and mobile support",
+] -%}
+{#- state: done · progress · ongoing -#}
+{%- set BEHIND_THE_SCENES = [
+    {"text": "Website live",                                   "state": "done"},
+    {"text": "Project email and domain secured",               "state": "done"},
+    {"text": "Full illustrated portrait set for every character", "state": "done"},
+    {"text": "Teaser trailers in production",                  "state": "progress"},
+    {"text": "Active playtesting with friends and family",     "state": "ongoing"},
+] -%}
+{%- set STATE_LABELS = {"done": "Done", "progress": "In production", "ongoing": "Ongoing"} -%}
+<!DOCTYPE html>
+<html lang="en" class="subpage">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Where Dungeon Crawler Chess stands today: a fully playable demo, built from the ground up.">
+    <meta name="theme-color" content="#07050b">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>Where We Are Now — Dungeon Crawler Chess</title>
+{% include "_social_meta.html" %}
+    <script>document.documentElement.classList.add('js');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&display=swap">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <!-- ═══ FIXED LAYERS: dungeon backdrop and film grain ═══ -->
+    <div class="backdrop" aria-hidden="true"><div class="backdrop-glow"></div></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- Icons, reused below -->
+    <svg class="sprite" aria-hidden="true">
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+            <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-external" viewBox="0 0 24 24">
+            <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+            <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+    </svg>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar" id="topbar">
+        <a class="brand" href="/" aria-label="DCC Chess home">
+            <span class="brand-mark" aria-hidden="true">◆</span>DCC<span class="brand-sub">Chess</span>
+        </a>
+        <a class="topbar-cta" href="/play">Play the Demo</a>
+    </header>
+
+    <main>
+        <!-- ═══ PAGE HEADER ═══ -->
+        <section class="page-hero">
+            <div class="page-hero-art" aria-hidden="true" style="background-image: url('/static/{{ HERO_ART }}')"></div>
+            <div class="page-hero-shade" aria-hidden="true"></div>
+            <div class="page-hero-content">
+                <a class="back-link" href="/">← Back to the homepage</a>
+                <p class="section-kicker">Floor 4</p>
+                <h1 class="page-title page-title--long">Where We Are Now</h1>
+                <p class="page-lede page-lede--wide">A fully playable demo, built from the ground up. Here's where the project stands today.</p>
+            </div>
+        </section>
+
+        <div class="status">
+            <!-- ═══ STAT SHEET ═══ -->
+            <section class="stat-sheet reveal" aria-labelledby="stats-title">
+                <header class="sheet-bar">
+                    <h2 id="stats-title" class="sheet-title"><span aria-hidden="true">◆ </span>Project stat sheet</h2>
+                    <span class="sheet-meta">Crawler: Dungeon Crawler Chess</span>
+                </header>
+                <dl class="stat-grid">
+                    {%- for stat in STATS %}
+                    {%- set final = (stat.prefix or "") ~ (stat.count ~ "×" ~ stat.count if stat.square else stat.count) %}
+                    <div class="stat" style="--i: {{ loop.index0 }}">
+                        <dt class="stat-code" aria-hidden="true">{{ stat.code }}</dt>
+                        <dd class="stat-value">
+                            <span class="stat-num" aria-hidden="true" data-count="{{ stat.count }}"
+                                  {%- if stat.prefix %} data-prefix="{{ stat.prefix }}"{% endif %}
+                                  {%- if stat.square %} data-square{% endif %}>{{ final }}</span>
+                            <span class="sr-only">{{ final }} {{ stat.label }}</span>
+                        </dd>
+                        <dd class="stat-label" aria-hidden="true">{{ stat.label }}</dd>
+                    </div>
+                    {%- endfor %}
+                </dl>
+            </section>
+
+            <!-- ═══ WHAT'S PLAYABLE NOW ═══ -->
+            <section class="status-section" aria-labelledby="playable-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Ready to play</p>
+                    <h2 id="playable-title" class="status-title">What's playable now</h2>
+                </header>
+                <ul class="playable-grid">
+                    {%- for item in PLAYABLE %}
+                    <li class="playable reveal" style="--i: {{ loop.index0 }}">
+                        <span class="playable-check" aria-hidden="true"><svg><use href="#i-check"/></svg></span>
+                        <span>{{ item }}</span>
+                    </li>
+                    {%- endfor %}
+                </ul>
+            </section>
+
+            <!-- ═══ BEHIND THE SCENES ═══ -->
+            <section class="status-section" aria-labelledby="behind-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Off the board</p>
+                    <h2 id="behind-title" class="status-title">Behind the scenes</h2>
+                </header>
+                <ul class="behind-list">
+                    {%- for item in BEHIND_THE_SCENES %}
+                    <li class="behind reveal is-{{ item.state }}" style="--i: {{ loop.index0 }}">
+                        <span class="behind-marker" aria-hidden="true"></span>
+                        <span class="behind-text">{{ item.text }}</span>
+                        <span class="behind-state">{{ STATE_LABELS[item.state] }}</span>
+                    </li>
+                    {%- endfor %}
+                </ul>
+            </section>
+
+            <!-- ═══ VERSION + CALLS TO ACTION ═══ -->
+            <section class="version-panel reveal" aria-label="Current demo version">
+                <div class="version-info">
+                    <span class="contact-label">Current demo version</span>
+                    <span class="version-number">{{ version }}</span>
+                </div>
+                <div class="version-actions">
+                    <a class="cta cta-sm" href="/play">
+                        <span class="cta-glow" aria-hidden="true"></span>
+                        <span class="cta-face">
+                            <span class="cta-label">Play the Demo</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                        </span>
+                    </a>
+                    <a class="cta cta-sm cta-outline" href="{{ PLAYTEST_FORM }}" target="_blank" rel="noopener noreferrer">
+                        <span class="cta-face">
+                            <span class="cta-label">Join the Playtest</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-external"/></svg>
+                        </span>
+                        <span class="sr-only">(opens in a new tab)</span>
+                    </a>
+                </div>
+            </section>
+        </div>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="site-footer">
+            <span class="footer-rule" aria-hidden="true">◆</span>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <span class="site-version">{{ version }}</span>
+        </footer>
+    </main>
+
+    <script>
+    (() => {
+        const root = document.documentElement;
+        const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const hasIO = 'IntersectionObserver' in window;
+
+        // Frost the top bar once the page scrolls
+        const onScroll = () => root.classList.toggle('is-scrolled', window.scrollY > 24);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        // ═══ Reveal sections as they scroll into view ═══
+        const reveals = document.querySelectorAll('.reveal');
+        if (reduceMotion || !hasIO) {
+            reveals.forEach((el) => el.classList.add('is-visible'));
+        } else {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (!en.isIntersecting) return;
+                    en.target.classList.add('is-visible');
+                    io.unobserve(en.target);
+                });
+            }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+            reveals.forEach((el) => io.observe(el));
+        }
+
+        // ═══ Stat counters: count up when they scroll into view ═══
+        // The page ships with the final numbers; with reduced motion (or no
+        // IntersectionObserver) they simply stay that way.
+        if (reduceMotion || !hasIO) return;
+        const counters = document.querySelectorAll('.stat-num[data-count]');
+        const show = (el, n) => {
+            const v = Math.round(n);
+            el.textContent = (el.dataset.prefix || '') + ('square' in el.dataset ? `${v}×${v}` : v);
+        };
+        const countUp = (el, delay) => {
+            const target = Number(el.dataset.count);
+            const duration = 1300 + Math.min(target, 300) * 2;
+            const stat = el.closest('.stat');
+            setTimeout(() => {
+                const t0 = performance.now();
+                const step = (t) => {
+                    const p = Math.min(1, (t - t0) / duration);
+                    show(el, target * (1 - Math.pow(1 - p, 3)));   // ease-out
+                    if (p < 1) requestAnimationFrame(step);
+                    else stat.classList.add('is-done');
+                };
+                requestAnimationFrame(step);
+            }, delay);
+        };
+        counters.forEach((el) => show(el, 0));
+        const cio = new IntersectionObserver((entries) => {
+            entries.forEach((en) => {
+                if (!en.isIntersecting) return;
+                cio.unobserve(en.target);
+                const i = Number(en.target.closest('.stat').style.getPropertyValue('--i')) || 0;
+                countUp(en.target, i * 110);
+            });
+        }, { threshold: 0.6 });
+        counters.forEach((el) => cio.observe(el));
+    })();
+    </script>
+</body>
+</html>
