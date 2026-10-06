@@ -1,0 +1,334 @@
+{#- ═══ Roadmap page settings — edit the stops and cards here ═══ -#}
+{%- set HERO_ART = "DCC-logo-realistic.webp" -%}
+{%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
+
+{#- The descent, top to bottom. state: "done" (reached), "current" (you are here), or "sealed" (not yet reached).
+    The gold path runs from the entrance down to the "current" stop. -#}
+{%- set STOPS = [
+    {"title": "Playable demo", "line": "You are here.", "state": "current",
+     "detail": "The demo is live and being playtested with friends and family."},
+    {"title": "Licensing and partnership", "line": "Make it official.", "state": "sealed",
+     "detail": "Reach out to Matt Dinniman and partners to make it official."},
+    {"title": "Form the company", "line": "Lay the foundation.", "state": "sealed",
+     "detail": "Set up the business behind the game."},
+    {"title": "Art and marketing", "line": "Bring the dungeon to life.", "state": "sealed",
+     "detail": "Bring on 2D and 3D artists to create the art, trailers, and content needed to launch a crowdfunding campaign."},
+    {"title": "Crowdfunding campaign", "line": "Fund the full game.", "state": "sealed",
+     "detail": "Fund the full game with the community, with backer tiers in the spirit of the DCC universe."},
+    {"title": "Build the dev team", "line": "Begin full production.", "state": "sealed",
+     "detail": "Hire developers and begin full production."},
+    {"title": "The full game", "line": "The final floor.", "state": "sealed",
+     "detail": "A 3D isometric video game on PC and mobile with cross-platform online play."},
+] -%}
+
+{#- What's coming. icon: crawler · boss · feature · physical. more: true styles it as an open-ended "and more" card.
+    link + link_text add a link after the detail. -#}
+{%- set COMING = [
+    {"title": "New characters", "icon": "crawler", "cards": [
+        {"name": "Cleaner Bot", "line": "Joining the pawn roster.",
+         "detail": "A new playable character for the draft, with abilities of its own."},
+        {"name": "Robot Donut", "line": "Joining the pawn roster.",
+         "detail": "A new playable character for the draft, with abilities of its own."},
+        {"name": "Big Tina", "line": "Joining the pawn roster.",
+         "detail": "A new playable character for the draft, with abilities of its own."},
+        {"name": "Jezebel the slut orphan Hedgehog", "line": "Joining the pawn roster.",
+         "detail": "A new playable character for the draft, with abilities of its own."},
+        {"name": "And many more crawlers from the books", "line": "The roster keeps growing.", "more": true,
+         "detail": "Who should join next?", "link": "/contact", "link_text": "Tell us on the Contact page."},
+    ]},
+    {"title": "New bosses", "icon": "boss", "cards": [
+        {"name": "Ruckus", "line": "A new boss battle.",
+         "detail": "Another boss that both players must team up to take down."},
+        {"name": "More floor bosses on the way", "line": "The dungeon has plenty more.", "more": true,
+         "detail": "New boss battles arrive as the dungeon grows."},
+    ]},
+    {"title": "Features", "icon": "feature", "cards": [
+        {"name": "Online multiplayer", "line": "Play anyone, anywhere.",
+         "detail": "Casual async games and live competitive matches."},
+        {"name": "Faction Wars", "line": "Four players, one board.",
+         "detail": "4 players on one expanded board."},
+        {"name": "Story mode", "line": "Your crawler, your campaign.",
+         "detail": "Build your own crawler and play through a campaign."},
+        {"name": "In-game chat", "line": "Talk mid-crawl.",
+         "detail": "Chat with other players during a match."},
+        {"name": "Character skins", "line": "New looks for your crawlers.",
+         "detail": "Alternate looks for your favorite characters."},
+        {"name": "Crafting system", "line": "Make something new.",
+         "detail": "A crafting system is coming to the dungeon."},
+        {"name": "Leveling and progression", "line": "Grind for glory.",
+         "detail": "Grind to earn new rewards."},
+        {"name": "Gods", "line": "Divine powers enter the game.",
+         "detail": "Divine powers entering the game."},
+        {"name": "Board themes", "line": "A new look for every floor.",
+         "detail": "Board themes based on dungeon floors."},
+        {"name": "Full 3D character animations", "line": "Every capture, animated.",
+         "detail": "Full 3D character animations, including unique capture animations."},
+        {"name": "DLC packs", "line": "More crawlers, more content.",
+         "detail": "DLC character and content packs."},
+    ]},
+    {"title": "Further down the road", "icon": "physical", "cards": [
+        {"name": "Physical edition", "line": "Take the crawl to the tabletop.",
+         "detail": "A physical edition with collectible miniatures and themed boards."},
+    ]},
+] -%}
+<!DOCTYPE html>
+<html lang="en" class="subpage">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="The Dungeon Crawler Chess roadmap: the path from playable demo to the full game, and what's coming to the dungeon.">
+    <meta name="theme-color" content="#07050b">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>Roadmap — Dungeon Crawler Chess</title>
+{% include "_social_meta.html" %}
+    <script>document.documentElement.classList.add('js');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&display=swap">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <!-- ═══ FIXED LAYERS: dungeon backdrop and film grain ═══ -->
+    <div class="backdrop" aria-hidden="true"><div class="backdrop-glow"></div></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- Icons, reused below -->
+    <svg class="sprite" aria-hidden="true">
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+            <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-external" viewBox="0 0 24 24">
+            <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24">
+            <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24">
+            <rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+            <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24">
+            <path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor"/>
+        </symbol>
+        <symbol id="i-crawler" viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.9"/>
+            <path d="M4.5 20.5c1.2-4 4.1-6 7.5-6s6.3 2 7.5 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-boss" viewBox="0 0 24 24">
+            <path d="M3.5 18.5h17M4.5 18.5l-1-11 5 4.5L12 5l3.5 7 5-4.5-1 11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-feature" viewBox="0 0 24 24">
+            <path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-physical" viewBox="0 0 24 24">
+            <path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4zM12 12l8-4.6M12 12L4 7.4M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </symbol>
+    </svg>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar" id="topbar">
+        <a class="brand" href="/" aria-label="DCC Chess home">
+            <span class="brand-mark" aria-hidden="true">◆</span>DCC<span class="brand-sub">Chess</span>
+        </a>
+        <a class="topbar-cta" href="/play">Play the Demo</a>
+    </header>
+
+    <main>
+        <!-- ═══ PAGE HEADER ═══ -->
+        <section class="page-hero">
+            <div class="page-hero-art" aria-hidden="true" style="background-image: url('/static/{{ HERO_ART }}')"></div>
+            <div class="page-hero-shade" aria-hidden="true"></div>
+            <div class="page-hero-content">
+                <a class="back-link" href="/">← Back to the homepage</a>
+                <p class="section-kicker">Floor 3</p>
+                <h1 class="page-title">Roadmap</h1>
+                <p class="page-lede page-lede--wide">Where the dungeon goes from here. Every step depends on partnering with the creator. Pending licensing.</p>
+            </div>
+        </section>
+
+        <div class="roadmap">
+            <!-- ═══ PART 1: THE DESCENT ═══ -->
+            <section class="road-section" aria-labelledby="descent-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">The path to launch</p>
+                    <h2 id="descent-title" class="status-title">The descent</h2>
+                </header>
+
+                <div class="descent-path">
+                    <span class="path-spine" aria-hidden="true"></span>
+                    <span class="path-lit" aria-hidden="true"></span>
+                    <p class="path-entrance" aria-hidden="true">The surface</p>
+                    <ol class="stops">
+                        {%- for stop in STOPS %}
+                        <li class="stop expandable is-{{ stop.state }}" style="--i: {{ loop.index0 }}">
+                            <span class="stop-node" aria-hidden="true">
+                                <svg><use href="#i-{{ {'done': 'check', 'current': 'star', 'sealed': 'lock'}[stop.state] }}"/></svg>
+                            </span>
+                            <div class="stop-card">
+                                <button class="expand-toggle" type="button" aria-expanded="false" aria-controls="stop-detail-{{ loop.index }}" data-expand>
+                                    <span class="stop-head">
+                                        <span class="stop-step">Step {{ loop.index }}</span>
+                                        {%- if stop.state == 'current' %}
+                                        <span class="chip chip-open"><span class="chip-dot" aria-hidden="true"></span>You are here</span>
+                                        {%- elif stop.state == 'done' %}
+                                        <span class="chip chip-open">Done</span>
+                                        {%- else %}
+                                        <span class="chip chip-sealed"><svg class="chip-lock" aria-hidden="true"><use href="#i-lock"/></svg>Sealed</span>
+                                        {%- endif %}
+                                    </span>
+                                    <span class="stop-title">{{ stop.title }}</span>
+                                    <span class="stop-line">{{ stop.line }}</span>
+                                    <svg class="expand-chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
+                                </button>
+                                <div class="expand" id="stop-detail-{{ loop.index }}">
+                                    <div class="expand-inner"><p class="expand-text">{{ stop.detail }}</p></div>
+                                </div>
+                            </div>
+                        </li>
+                        {%- endfor %}
+                    </ol>
+                </div>
+            </section>
+
+            <!-- ═══ PART 2: WHAT'S COMING ═══ -->
+            <section class="road-section" aria-labelledby="coming-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">On the horizon</p>
+                    <h2 id="coming-title" class="status-title">What's coming to the dungeon</h2>
+                </header>
+
+                {%- for group in COMING %}
+                {%- set g = loop.index %}
+                <div class="coming-group">
+                    <h3 class="coming-title reveal">
+                        <span class="coming-icon" aria-hidden="true"><svg><use href="#i-{{ group.icon }}"/></svg></span>
+                        {{ group.title }}
+                    </h3>
+                    <ul class="coming-grid">
+                        {%- for card in group.cards %}
+                        <li class="road-card expandable reveal{% if card.more %} is-more{% endif %}" style="--i: {{ loop.index0 }}">
+                            <button class="expand-toggle" type="button" aria-expanded="false" aria-controls="card-{{ g }}-{{ loop.index }}" data-expand>
+                                <span class="road-card-icon" aria-hidden="true"><svg><use href="#i-{{ group.icon }}"/></svg></span>
+                                <span class="road-card-text">
+                                    <span class="road-card-name">{{ card.name }}</span>
+                                    <span class="road-card-line">{{ card.line }}</span>
+                                </span>
+                                <svg class="expand-chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
+                            </button>
+                            <div class="expand" id="card-{{ g }}-{{ loop.index }}">
+                                <div class="expand-inner">
+                                    <p class="expand-text">{{ card.detail }}
+                                        {%- if card.link %} <a href="{{ card.link }}">{{ card.link_text }}</a>{% endif %}</p>
+                                </div>
+                            </div>
+                        </li>
+                        {%- endfor %}
+                    </ul>
+                </div>
+                {%- endfor %}
+            </section>
+
+            <!-- ═══ CALLS TO ACTION ═══ -->
+            <section class="road-cta reveal" aria-labelledby="cta-title">
+                <h2 id="cta-title" class="form-title">Help open the next floor</h2>
+                <p class="contact-text">Play the demo, then join the playtest and tell us what you think.</p>
+                <div class="road-cta-actions">
+                    <a class="cta cta-sm" href="/play">
+                        <span class="cta-glow" aria-hidden="true"></span>
+                        <span class="cta-face">
+                            <span class="cta-label">Play the Demo</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                        </span>
+                    </a>
+                    <a class="cta cta-sm cta-outline" href="{{ PLAYTEST_FORM }}" target="_blank" rel="noopener noreferrer">
+                        <span class="cta-face">
+                            <span class="cta-label">Join the Playtest</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-external"/></svg>
+                        </span>
+                        <span class="sr-only">(opens in a new tab)</span>
+                    </a>
+                </div>
+            </section>
+        </div>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="site-footer">
+            <span class="footer-rule" aria-hidden="true">◆</span>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <span class="site-version">{{ version }}</span>
+        </footer>
+    </main>
+
+    <script>
+    (() => {
+        const root = document.documentElement;
+        const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const hasIO = 'IntersectionObserver' in window;
+
+        // Frost the top bar once the page scrolls
+        const onScroll = () => root.classList.toggle('is-scrolled', window.scrollY > 24);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        // ═══ Reveal sections and cards as they scroll into view ═══
+        const reveals = document.querySelectorAll('.reveal');
+        if (reduceMotion || !hasIO) {
+            reveals.forEach((el) => el.classList.add('is-visible'));
+        } else {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (!en.isIntersecting) return;
+                    en.target.classList.add('is-visible');
+                    io.unobserve(en.target);
+                });
+            }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+            reveals.forEach((el) => io.observe(el));
+        }
+
+        // ═══ Stops on the descent light up as they scroll into view ═══
+        const stops = document.querySelectorAll('.stop');
+        if (reduceMotion || !hasIO) {
+            stops.forEach((s) => s.classList.add('is-lit'));
+        } else {
+            const sio = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (!en.isIntersecting) return;
+                    en.target.classList.add('is-lit');
+                    sio.unobserve(en.target);
+                });
+            }, { rootMargin: '0px 0px -18% 0px', threshold: 0.4 });
+            stops.forEach((s) => sio.observe(s));
+        }
+
+        // ═══ Gold path from the entrance down to the current stop ═══
+        const path = document.querySelector('.descent-path');
+        const sizeLitPath = () => {
+            const current = path.querySelector('.stop.is-current');
+            if (!current) return;
+            const node = current.querySelector('.stop-node');
+            // offsetTop ignores the reveal transforms, so this is the settled layout
+            const y = current.offsetTop + node.offsetTop + node.offsetHeight / 2;
+            path.style.setProperty('--lit-h', `${y}px`);
+        };
+        window.addEventListener('resize', sizeLitPath);
+        window.addEventListener('load', sizeLitPath);
+        if (document.fonts) document.fonts.ready.then(sizeLitPath);
+        sizeLitPath();
+
+        // ═══ Expandable stops and cards: tap, click, or keyboard toggles them ═══
+        // (Cards also open on hover for mouse users; that part is pure CSS.)
+        document.querySelectorAll('[data-expand]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const item = button.closest('.expandable');
+                const open = !item.classList.contains('is-open');
+                item.classList.toggle('is-open', open);
+                button.setAttribute('aria-expanded', String(open));
+            });
+        });
+    })();
+    </script>
+</body>
+</html>
