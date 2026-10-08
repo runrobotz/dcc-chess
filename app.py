@@ -533,7 +533,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.76"
+SITE_VERSION = "v0.77"
 
 
 @app.route("/")
@@ -564,6 +564,11 @@ def roadmap():
 @app.route("/crowdfunding", strict_slashes=False)
 def crowdfunding():
     return render_template("crowdfunding.html", version=SITE_VERSION)
+
+
+@app.route("/gallery", strict_slashes=False)
+def gallery():
+    return render_template("gallery.html", version=SITE_VERSION)
 
 
 @app.route("/roster", methods=["GET"])

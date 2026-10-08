@@ -1,0 +1,444 @@
+{#- ═══ Trailers & Gallery page settings — add trailers, logos, and crawlers here ═══ -#}
+{%- set HERO_ART = "gallery/logos/dcc-logo-purple.webp" -%}
+
+{#- Trailers, newest or best first. The first one plays in the big player; any others get smaller players below it.
+    src / poster: paths inside static/ · length: shown next to the title -#}
+{%- set TRAILERS = [
+    {"title": "Teaser Trailer 1", "length": "0:15",
+     "line": "The first look at Dungeon Crawler Chess, told in ASCII.",
+     "src": "gallery/teaser-trailer-1.mp4", "poster": "gallery/teaser-trailer-1-poster.jpg"},
+] -%}
+{%- set TRAILERS_NOTE = "More teasers are in production." -%}
+
+{#- Logos and key art. file: in static/gallery/logos/ (a 640px copy goes in logos/thumbs/ for the grid)
+    w / h: the full image's size · tag: optional label · small: true shows a tiny image at its real size -#}
+{%- set LOGOS = [
+    {"file": "dcc-new-logo.webp", "title": "Carl and Donut", "w": 1200, "h": 1200,
+     "alt": "The Dungeon Crawler Chess logo with Carl and Donut bursting out of a pink dungeon"},
+    {"file": "dcc-team-photo.webp", "title": "The crawler crew", "w": 1200, "h": 1067,
+     "alt": "The Dungeon Crawler Chess logo ringed by the cartoon cast of crawlers"},
+    {"file": "dcc-logo-realistic.webp", "title": "The full party", "w": 952, "h": 942,
+     "alt": "The Dungeon Crawler Chess logo surrounded by a painted cast of crawlers"},
+    {"file": "dcc-logo-purple.webp", "title": "Shadows on the board", "w": 942, "h": 742,
+     "alt": "The Dungeon Crawler Chess logo over crawler silhouettes on a purple chessboard"},
+    {"file": "donut-in-the-park.webp", "title": "Donut in the park", "tag": "Key art", "w": 1200, "h": 1196,
+     "alt": "A giant cat in a tiara and sunglasses looming over a night-time chess game in a park"},
+    {"file": "dcc-chess-logo-original.webp", "title": "The original logo", "tag": "Where it started", "w": 1024, "h": 1024,
+     "alt": "The first Dungeon Crawler Chess logo: gold lettering over pink flames with Carl and Donut running below"},
+    {"file": "dcc-favicon.webp", "title": "The favicon", "tag": "The site icon", "w": 64, "h": 64, "small": true,
+     "alt": "The tiny Dungeon Crawler Chess site icon"},
+] -%}
+
+{#- Every character with a portrait in static/portraits/. role: major or pawn · abilities: as named in the game
+    accent: the glow color behind their portrait (pawns match their draft cards) -#}
+{%- set CRAWLERS = [
+    {"name": "Carl",              "file": "Carl-Head.png",       "role": "major", "accent": "#f5b942", "abilities": ["Leader", "Plot Armor", "Jug-o-Boom"]},
+    {"name": "Donut",             "file": "Donut-Head.png",      "role": "major", "accent": "#c084fc", "abilities": ["Puddle Jump", "Cockroach", "Magic Missile"]},
+    {"name": "Mongo",             "file": "Mongo-Head.png",      "role": "major", "accent": "#4ade80", "abilities": ["Pet Carrier", "Rampage", "Gorefest"]},
+    {"name": "Katia",             "file": "Katia-Head.png",      "role": "major", "accent": "#7dd3fc", "abilities": ["She Tank", "Blitzed", "I Need My Space"]},
+    {"name": "Samantha",          "file": "Samantha-Head.png",   "role": "major", "accent": "#f87171", "abilities": ["Slut Shame", "Miss Me?", "IWKYM"]},
+    {"name": "Zev",               "file": "Zev-Head.png",        "role": "pawn",  "accent": "#ec4899", "abilities": ["Biggest Fan"]},
+    {"name": "Mordecai",          "file": "Mordecai-Head.png",   "role": "pawn",  "accent": "#94a3b8", "abilities": ["Manager Benefit"]},
+    {"name": "Prepotente",        "file": "Prepotente-Head.png", "role": "pawn",  "accent": "#f59e0b", "abilities": ["Special Boy"]},
+    {"name": "Elle McGib",        "file": "Elle-Head.png",       "role": "pawn",  "accent": "#38bdf8", "abilities": ["Frozen"]},
+    {"name": "Imani",             "file": "Imani-Head.png",      "role": "pawn",  "accent": "#a78bfa", "abilities": ["Suppress"]},
+    {"name": "Candy Biggs",       "file": "Biggs-Head.png",      "role": "pawn",  "accent": "#84cc16", "abilities": ["Gang Gang!"]},
+    {"name": "Louie",             "file": "Louis-Head.png",      "role": "pawn",  "accent": "#f87171", "abilities": ["Air Strike"]},
+    {"name": "Sledge",            "file": "Sledge-Head.png",     "role": "pawn",  "accent": "#cbd5e1", "abilities": ["Body Guard"]},
+    {"name": "Stripper Anaconda", "file": "Anaconda-Head.png",   "role": "pawn",  "accent": "#2dd4bf", "abilities": ["Gun Show"]},
+    {"name": "Quasar",            "file": "Quasar-Head.png",     "role": "pawn",  "accent": "#c9a84c", "abilities": ["Mediation"]},
+    {"name": "Lucia Mar",         "file": "Lucia-Head.png",      "role": "pawn",  "accent": "#fb923c", "abilities": ["Sic Em"]},
+    {"name": "Chris",             "file": "Chris-Head.png",      "role": "pawn",  "accent": "#ef4444", "abilities": ["Lava Surge"]},
+    {"name": "Juice Box",         "file": "Juice-Head.png",      "role": "pawn",  "accent": "#a3e635", "abilities": ["Shapeshift"]},
+    {"name": "Florin",            "file": "Florin-Head.png",     "role": "pawn",  "accent": "#fb7185", "abilities": ["Suppressing Fire"]},
+    {"name": "Ren",               "file": "Ren-Head.png",        "role": "pawn",  "accent": "#d6d3d1", "abilities": ["Indestructible"]},
+    {"name": "Signet",            "file": "Signet-Head.png",     "role": "pawn",  "accent": "#e879f9", "abilities": ["Succubus"]},
+    {"name": "Miriam Dom",        "file": "Miriam-Head.png",     "role": "pawn",  "accent": "#dc2626", "abilities": ["Blood Magic"]},
+    {"name": "Orthrus",           "file": "Orthrus-Head.png",    "role": "pawn",  "accent": "#818cf8", "abilities": []},
+    {"name": "Raul the Crab",     "file": "Raul-Head.png",       "role": "pawn",  "accent": "#fda4af", "abilities": ["Group Climax"]},
+    {"name": "Bad Llama",         "file": "Llama-Head.png",      "role": "pawn",  "accent": "#eab308", "abilities": ["Lava Spit"]},
+] -%}
+{%- set CRAWLER_GROUPS = [
+    {"role": "major", "title": "Major pieces", "line": "The five crawlers every side builds around."},
+    {"role": "pawn",  "title": "Pawns",        "line": "Twenty crawlers to draft, each with a trick of their own."},
+] -%}
+
+{#- One trailer player. featured: true is the big cinematic one -#}
+{%- macro trailer_player(t, featured) -%}
+<figure class="trailer{% if featured %} trailer--featured{% endif %}">
+    <div class="trailer-frame">
+        <span class="trailer-glow" aria-hidden="true"></span>
+        <div class="trailer-screen">
+            <video class="trailer-video" controls playsinline preload="metadata" width="1920" height="1080"
+                   poster="/static/{{ t.poster }}" aria-label="{{ t.title }}">
+                <source src="/static/{{ t.src }}" type="video/mp4">
+                <a href="/static/{{ t.src }}">Download the {{ t.title }}</a>
+            </video>
+            <button class="trailer-play" type="button" aria-label="Play {{ t.title }}">
+                <span class="trailer-play-ring" aria-hidden="true"><svg><use href="#i-play"/></svg></span>
+                <span class="trailer-play-label" aria-hidden="true">Play</span>
+            </button>
+        </div>
+    </div>
+    <figcaption class="trailer-caption">
+        <span class="trailer-title">{{ t.title }}</span>
+        {%- if t.length %}<span class="trailer-length">{{ t.length }}</span>{% endif %}
+        {%- if t.line %}<span class="trailer-line">{{ t.line }}</span>{% endif %}
+    </figcaption>
+</figure>
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="en" class="subpage">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Trailers, logos, and portraits of every crawler in Dungeon Crawler Chess.">
+    <meta name="theme-color" content="#07050b">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>Trailers &amp; Gallery — Dungeon Crawler Chess</title>
+{% include "_social_meta.html" %}
+    <script>document.documentElement.classList.add('js');</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&display=swap">
+    <link rel="stylesheet" href="/static/home.css">
+</head>
+<body>
+    <!-- ═══ FIXED LAYERS: dungeon backdrop and film grain ═══ -->
+    <div class="backdrop" aria-hidden="true"><div class="backdrop-glow"></div></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- Icons, reused below -->
+    <svg class="sprite" aria-hidden="true">
+        <symbol id="i-play" viewBox="0 0 24 24">
+            <path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24">
+            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24">
+            <path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-next" viewBox="0 0 24 24">
+            <path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-zoom" viewBox="0 0 24 24">
+            <circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M15 15l5 5M10.5 8v5M8 10.5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </symbol>
+        <symbol id="i-film" viewBox="0 0 24 24">
+            <rect x="3.5" y="5" width="17" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M3.5 9h17M3.5 15h17M8 5v4M16 5v4M8 15v4M16 15v4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        </symbol>
+    </svg>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar" id="topbar">
+        <a class="brand" href="/" aria-label="DCC Chess home">
+            <span class="brand-mark" aria-hidden="true">◆</span>DCC<span class="brand-sub">Chess</span>
+        </a>
+        <a class="topbar-cta" href="/play">Play the Demo</a>
+    </header>
+
+    <main>
+        <!-- ═══ PAGE HEADER ═══ -->
+        <section class="page-hero page-hero--gallery">
+            <div class="page-hero-art" aria-hidden="true" style="background-image: url('/static/{{ HERO_ART }}')"></div>
+            <div class="page-hero-shade" aria-hidden="true"></div>
+            <div class="page-hero-content">
+                <a class="back-link" href="/">← Back to the homepage</a>
+                <p class="section-kicker">Floor 2</p>
+                <h1 class="page-title page-title--long">Trailers &amp; Gallery</h1>
+                <p class="page-lede">Trailers, art, and the crawlers of Dungeon Crawler Chess.</p>
+                <nav class="gal-jump" aria-label="On this page">
+                    <a href="#trailers">Trailers</a>
+                    <a href="#logos">Logos</a>
+                    <a href="#crawlers">The Crawlers</a>
+                </nav>
+            </div>
+        </section>
+
+        <div class="gallery">
+            <!-- ═══ 1. TRAILERS ═══ -->
+            <section class="cf-section gal-section" id="trailers" aria-labelledby="trailers-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Now showing</p>
+                    <h2 id="trailers-title" class="status-title">Trailers</h2>
+                </header>
+
+                <div class="reveal">
+                    {{ trailer_player(TRAILERS[0], true) }}
+                </div>
+
+                {%- if TRAILERS|length > 1 %}
+                <div class="trailer-more">
+                    {%- for t in TRAILERS[1:] %}
+                    <div class="reveal" style="--i: {{ loop.index0 }}">{{ trailer_player(t, false) }}</div>
+                    {%- endfor %}
+                </div>
+                {%- endif %}
+
+                {%- if TRAILERS_NOTE %}
+                <p class="cf-note reveal">
+                    <svg aria-hidden="true"><use href="#i-film"/></svg>
+                    <span>{{ TRAILERS_NOTE }}</span>
+                </p>
+                {%- endif %}
+            </section>
+
+            <!-- ═══ 2. LOGOS ═══ -->
+            <section class="cf-section gal-section" id="logos" aria-labelledby="logos-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">The banners</p>
+                    <h2 id="logos-title" class="status-title">Logos</h2>
+                </header>
+                <ul class="logo-grid">
+                    {%- for l in LOGOS %}
+                    <li class="reveal" style="--i: {{ loop.index0 % 3 }}">
+                        <button class="logo-tile{% if l.small %} is-small{% endif %}" type="button"
+                                data-lb="logos"
+                                data-src="/static/gallery/logos/{{ l.file }}"
+                                data-w="{{ l.w }}" data-h="{{ l.h }}"
+                                data-alt="{{ l.alt }}"
+                                data-kicker="{{ l.tag or 'Logo' }}"
+                                data-title="{{ l.title }}"
+                                data-sub="{{ l.alt }}"
+                                {%- if l.small %} data-small="true"{% endif %}
+                                aria-label="View {{ l.title }} full size">
+                            <span class="logo-art">
+                                <img src="/static/gallery/logos/thumbs/{{ l.file }}" alt="{{ l.alt }}"
+                                     width="{{ [l.w, 640]|min }}" height="{{ ((l.h * [l.w, 640]|min) / l.w)|round|int }}"
+                                     loading="lazy" decoding="async">
+                                <span class="tile-zoom" aria-hidden="true"><svg><use href="#i-zoom"/></svg></span>
+                            </span>
+                            <span class="logo-caption">
+                                {%- if l.tag %}<span class="logo-tag">{{ l.tag }}</span>{% endif %}
+                                <span class="logo-title">{{ l.title }}</span>
+                            </span>
+                        </button>
+                    </li>
+                    {%- endfor %}
+                </ul>
+                <p class="tier-hint" aria-hidden="true">
+                    <span class="hint-touch">Tap a logo to see it full size</span>
+                    <span class="hint-mouse">Click a logo to see it full size</span>
+                </p>
+            </section>
+
+            <!-- ═══ 3. THE CRAWLERS ═══ -->
+            <section class="cf-section gal-section" id="crawlers" aria-labelledby="crawlers-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Meet the cast</p>
+                    <h2 id="crawlers-title" class="status-title">The Crawlers</h2>
+                </header>
+
+                {%- for group in CRAWLER_GROUPS %}
+                <div class="crawler-group">
+                    <header class="crawler-group-head reveal">
+                        <h3 class="crawler-group-title">{{ group.title }}</h3>
+                        <p class="crawler-group-line">{{ group.line }}</p>
+                    </header>
+                    <ul class="crawler-grid crawler-grid--{{ group.role }}">
+                        {%- for c in CRAWLERS if c.role == group.role %}
+                        {%- set ability_label = ("Abilities: " if c.abilities|length > 1 else "Ability: ") ~ c.abilities|join(" · ") if c.abilities else "No active ability" %}
+                        <li class="reveal" style="--i: {{ loop.index0 % 6 }}">
+                            <button class="crawler" type="button" style="--accent: {{ c.accent }}"
+                                    data-lb="crawlers"
+                                    data-src="/static/portraits/{{ c.file }}"
+                                    data-alt="Portrait of {{ c.name }}"
+                                    data-kicker="{{ 'Major piece' if c.role == 'major' else 'Pawn' }}"
+                                    data-title="{{ c.name }}"
+                                    data-sub="{{ ability_label }}"
+                                    data-accent="{{ c.accent }}"
+                                    aria-label="{{ c.name }}: view portrait">
+                                <span class="crawler-frame">
+                                    <img src="/static/portraits/{{ c.file }}" alt="" width="320" height="320" loading="lazy" decoding="async">
+                                </span>
+                                <span class="crawler-name">{{ c.name }}</span>
+                            </button>
+                        </li>
+                        {%- endfor %}
+                    </ul>
+                </div>
+                {%- endfor %}
+                <p class="tier-hint" aria-hidden="true">
+                    <span class="hint-touch">Tap a crawler to see their portrait and ability</span>
+                    <span class="hint-mouse">Click a crawler to see their portrait and ability</span>
+                </p>
+            </section>
+        </div>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="site-footer">
+            <span class="footer-rule" aria-hidden="true">◆</span>
+            <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <span class="site-version">{{ version }}</span>
+        </footer>
+    </main>
+
+    <!-- ═══ LIGHTBOX: one viewer shared by the logos and the crawlers ═══ -->
+    <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-labelledby="lb-title" hidden>
+        <div class="lb-stage" data-lb-outside>
+            <figure class="lb-figure" data-lb-outside>
+                <div class="lb-media" data-lb-outside>
+                    <img class="lb-img" alt="">
+                </div>
+                <figcaption class="lb-caption">
+                    <span class="lb-kicker"></span>
+                    <h2 class="lb-title" id="lb-title"></h2>
+                    <p class="lb-sub"></p>
+                    <span class="lb-count" aria-live="polite"></span>
+                </figcaption>
+            </figure>
+        </div>
+        <button class="lb-btn lb-close" type="button" aria-label="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+        <button class="lb-btn lb-prev" type="button" aria-label="Previous image"><svg aria-hidden="true"><use href="#i-prev"/></svg></button>
+        <button class="lb-btn lb-next" type="button" aria-label="Next image"><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+        <p class="lb-hint" aria-hidden="true"><span class="hint-touch">Swipe · tap outside to close</span><span class="hint-mouse">← → for more · Esc to close</span></p>
+    </div>
+
+    <script>
+    (() => {
+        const root = document.documentElement;
+        const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const hasIO = 'IntersectionObserver' in window;
+
+        // Frost the top bar once the page scrolls
+        const onScroll = () => root.classList.toggle('is-scrolled', window.scrollY > 24);
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        // ═══ Reveal sections and cards as they scroll into view ═══
+        const reveals = document.querySelectorAll('.reveal');
+        if (reduceMotion || !hasIO) {
+            reveals.forEach((el) => el.classList.add('is-visible'));
+        } else {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (!en.isIntersecting) return;
+                    en.target.classList.add('is-visible');
+                    io.unobserve(en.target);
+                });
+            }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+            reveals.forEach((el) => io.observe(el));
+        }
+
+        // ═══ Trailers: the big play button starts the video (never autoplays);
+        //     after that the normal video controls take over ═══
+        document.querySelectorAll('.trailer').forEach((trailer) => {
+            const video = trailer.querySelector('video');
+            const play = trailer.querySelector('.trailer-play');
+            const label = trailer.querySelector('.trailer-play-label');
+            play.addEventListener('click', () => { video.play(); });
+            video.addEventListener('play', () => {
+                trailer.classList.add('is-playing');
+                // Only one trailer plays at a time
+                document.querySelectorAll('.trailer video').forEach((v) => { if (v !== video) v.pause(); });
+            });
+            video.addEventListener('ended', () => {
+                trailer.classList.remove('is-playing');
+                label.textContent = 'Replay';
+            });
+        });
+
+        // ═══ Lightbox: logos and crawlers each browse within their own section ═══
+        const lb = document.getElementById('lightbox');
+        const img = lb.querySelector('.lb-img');
+        const kicker = lb.querySelector('.lb-kicker');
+        const title = lb.querySelector('.lb-title');
+        const sub = lb.querySelector('.lb-sub');
+        const count = lb.querySelector('.lb-count');
+        const closeBtn = lb.querySelector('.lb-close');
+        const prevBtn = lb.querySelector('.lb-prev');
+        const nextBtn = lb.querySelector('.lb-next');
+        let items = [], index = 0, opener = null, hideTimer = 0;
+
+        function show(i, dir) {
+            index = (i + items.length) % items.length;
+            const d = items[index].dataset;
+            lb.dataset.group = d.lb;
+            lb.classList.toggle('is-small', d.small === 'true');
+            lb.style.setProperty('--accent', d.accent || 'transparent');
+            img.src = d.src;
+            img.alt = d.alt;
+            if (d.w) { img.width = d.w; img.height = d.h; } else { img.removeAttribute('width'); img.removeAttribute('height'); }
+            kicker.textContent = d.kicker;
+            title.textContent = d.title;
+            sub.textContent = d.sub;
+            count.textContent = `${index + 1} / ${items.length}`;
+            if (!reduceMotion && dir) {
+                lb.classList.remove('slide-next', 'slide-prev');
+                void lb.offsetWidth;
+                lb.classList.add(dir > 0 ? 'slide-next' : 'slide-prev');
+            }
+        }
+
+        function open(trigger) {
+            items = [...document.querySelectorAll(`[data-lb="${trigger.dataset.lb}"]`)];
+            opener = trigger;
+            clearTimeout(hideTimer);
+            show(items.indexOf(trigger), 0);
+            lb.hidden = false;
+            root.classList.add('lb-open');
+            requestAnimationFrame(() => lb.classList.add('is-open'));
+            closeBtn.focus({ preventScroll: true });
+        }
+
+        function close() {
+            if (lb.hidden) return;
+            lb.classList.remove('is-open', 'slide-next', 'slide-prev');
+            root.classList.remove('lb-open');
+            const done = () => { lb.hidden = true; img.removeAttribute('src'); };
+            if (reduceMotion) done(); else hideTimer = setTimeout(done, 220);
+            if (opener) opener.focus({ preventScroll: true });
+        }
+
+        document.querySelectorAll('[data-lb]').forEach((el) => el.addEventListener('click', () => open(el)));
+        closeBtn.addEventListener('click', close);
+        prevBtn.addEventListener('click', () => show(index - 1, -1));
+        nextBtn.addEventListener('click', () => show(index + 1, 1));
+
+        // Tapping anywhere outside the image (and its caption) closes it
+        let swiped = false;
+        lb.addEventListener('click', (e) => {
+            if (swiped) { swiped = false; return; }
+            if (e.target === lb || e.target.hasAttribute('data-lb-outside')) close();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (lb.hidden) return;
+            if (e.key === 'Escape') { e.preventDefault(); close(); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); show(index - 1, -1); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); show(index + 1, 1); }
+            else if (e.key === 'Tab') {
+                // Keep keyboard focus inside the lightbox
+                const f = [closeBtn, prevBtn, nextBtn];
+                const at = f.indexOf(document.activeElement);
+                e.preventDefault();
+                f[(at + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+            }
+        });
+
+        // Swipe left or right to move through the section
+        let sx = 0, sy = 0, tracking = false;
+        lb.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) { tracking = false; return; }
+            tracking = true;
+            sx = e.touches[0].clientX;
+            sy = e.touches[0].clientY;
+        }, { passive: true });
+        lb.addEventListener('touchend', (e) => {
+            if (!tracking) return;
+            tracking = false;
+            const dx = e.changedTouches[0].clientX - sx;
+            const dy = e.changedTouches[0].clientY - sy;
+            if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+                swiped = true;
+                setTimeout(() => { swiped = false; }, 400);
+                show(index + (dx < 0 ? 1 : -1), dx < 0 ? 1 : -1);
+            }
+        }, { passive: true });
+    })();
+    </script>
+</body>
+</html>
