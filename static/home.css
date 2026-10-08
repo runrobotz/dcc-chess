@@ -2951,6 +2951,491 @@ button.ghost-link {
     color: var(--text-soft);
 }
 
+/* ── Funding goals: a staircase that rises, each step unlocking more ── */
+.goal-steps {
+    --rise: clamp(22px, 4vw, 44px);
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(12px, 1.6vw, 18px);
+    max-width: 1000px;
+    margin: 30px auto 0;
+}
+
+.goal {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    /* Each step sits one rise higher than the one before it */
+    margin-top: calc((3 - var(--lvl)) * var(--rise));
+    padding: 22px clamp(18px, 2vw, 26px) 34px;
+    border-radius: 16px 16px 6px 6px;
+    border: 1px solid rgba(212, 175, 90, calc(0.14 + var(--lvl) * 0.12));
+    background: linear-gradient(170deg, rgba(56, 32, 84, calc(0.55 + var(--lvl) * 0.1)) 0%, rgba(16, 11, 25, 0.95) 68%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 240, 200, calc(0.03 + var(--lvl) * 0.025)),
+        0 0 calc(var(--lvl) * 16px) calc(var(--lvl) * -2px) rgba(var(--ember), calc(var(--lvl) * 0.1)),
+        0 28px 50px -26px rgba(0, 0, 0, 1);
+}
+
+.js .goal.reveal {
+    transition-delay: calc((var(--lvl) - 1) * 110ms);
+}
+
+.goal > * {
+    position: relative;
+    z-index: 1;
+}
+
+.goal-glow {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse 85% 50% at 50% 0%, rgba(var(--ember), calc(var(--lvl) * 0.08)), transparent 72%);
+}
+
+/* The top goal gets the radiant turning border */
+.goal-3 {
+    border-color: transparent;
+}
+
+.goal-3::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: 1.5px;
+    border-radius: inherit;
+    background: conic-gradient(from var(--trace), #fff6d6, #f0c75e, #9c7a2e, #f0c75e, #fff6d6, #c99a3e, #fff6d6);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    animation: trace 9s linear infinite;
+    pointer-events: none;
+}
+
+.goal-level,
+.goal-unlocks {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+
+.goal-level {
+    color: var(--gold);
+}
+
+.goal-amount {
+    margin-top: 8px;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(1.55rem, 2.9vw, 2.35rem);
+    line-height: 1.05;
+    white-space: nowrap;
+    background: linear-gradient(180deg, #fff2c4 0%, #f0cf7c 40%, #c99a3e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 calc(var(--lvl) * 6px) rgba(var(--ember), 0.35));
+}
+
+.goal-unlocks {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(212, 175, 90, 0.18);
+    color: var(--text-dim);
+}
+
+.goal-name {
+    margin-top: 4px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(1.15rem, 1.8vw, 1.4rem);
+    line-height: 1.15;
+    color: var(--text);
+}
+
+.goal-line {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text-soft);
+}
+
+/* A stone tread along the bottom of each step */
+.goal-tread {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 12px;
+    background:
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.35) 0 1px, transparent 1px 34px),
+        linear-gradient(180deg, rgba(212, 175, 90, calc(0.18 + var(--lvl) * 0.1)), rgba(120, 88, 34, 0.25));
+    border-top: 1px solid rgba(245, 220, 146, calc(0.15 + var(--lvl) * 0.12));
+}
+
+/* ── Rough timeline: a path across the page (down it, on phones) ── */
+.timeline-wrap {
+    max-width: 1060px;
+    margin: 34px auto 0;
+}
+
+.timeline {
+    --g: clamp(16px, 2.4vw, 28px);
+    --node: 46px;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--g);
+}
+
+.tl-stop {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.tl-node {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: var(--node);
+    height: var(--node);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    border: 1px solid rgba(212, 175, 90, 0.5);
+    background: radial-gradient(circle at 50% 35%, rgba(70, 44, 104, 0.95), rgba(18, 12, 28, 0.98));
+    box-shadow: 0 0 0 5px rgba(7, 5, 11, 0.9), 0 0 22px -6px rgba(var(--ember), 0.6);
+}
+
+.tl-stop.is-goal .tl-node {
+    color: #1d1205;
+    border-color: #f6dd94;
+    background: linear-gradient(180deg, #f6dd94, #c99a3e);
+    box-shadow: 0 0 0 5px rgba(7, 5, 11, 0.9), 0 0 30px -2px rgba(var(--ember), 0.75);
+}
+
+.tl-node svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* The dashed path from one stop to the next; it draws itself in on reveal */
+.tl-link {
+    position: absolute;
+    top: calc(var(--node) / 2 - 1px);
+    left: calc(50% + var(--node) / 2 + 8px);
+    width: calc(100% + var(--g) - var(--node) - 16px);
+    height: 2px;
+    background: repeating-linear-gradient(90deg, rgba(245, 220, 146, 0.85) 0 7px, transparent 7px 13px);
+    filter: drop-shadow(0 0 4px rgba(var(--ember), 0.6));
+    transform-origin: 0 50%;
+    transition: transform 700ms var(--ease-out);
+    transition-delay: calc(300ms + var(--i) * 260ms);
+}
+
+.js .timeline-wrap:not(.is-visible) .tl-link {
+    transform: scaleX(0);
+}
+
+.tl-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+}
+
+.js .timeline-wrap .tl-text {
+    transition: opacity 700ms ease;
+    transition-delay: calc(200ms + var(--i) * 260ms);
+}
+
+.js .timeline-wrap:not(.is-visible) .tl-text {
+    opacity: 0;
+}
+
+.tl-when {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--gold);
+}
+
+.tl-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.3rem;
+    line-height: 1.1;
+    color: var(--text);
+}
+
+.tl-stop.is-goal .tl-title {
+    color: var(--gold-bright);
+}
+
+.tl-line {
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+}
+
+/* ── Built With the Community: the featured panel ── */
+.community-panel {
+    position: relative;
+    max-width: 1000px;
+    margin: 30px auto 0;
+    padding: clamp(26px, 4vw, 48px) clamp(18px, 4vw, 48px);
+    text-align: center;
+    border-radius: 20px;
+    border: 1px solid rgba(212, 175, 90, 0.42);
+    background:
+        radial-gradient(ellipse 70% 45% at 50% 0%, rgba(var(--ember), 0.13), transparent 72%),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.016) 0 1px, transparent 1px 4px),
+        linear-gradient(160deg, rgba(54, 31, 80, 0.92) 0%, rgba(17, 11, 26, 0.96) 60%, rgba(10, 8, 15, 0.97) 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 240, 200, 0.08),
+        0 0 0 4px rgba(212, 175, 90, 0.05),
+        0 30px 60px -28px rgba(0, 0, 0, 1),
+        0 0 70px -18px rgba(var(--ember), 0.32);
+}
+
+.community-lead {
+    max-width: 720px;
+    margin: 0 auto;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.1rem, 2.3vw, 1.6rem);
+    line-height: 1.45;
+    color: var(--text);
+    text-wrap: balance;
+}
+
+.community-label {
+    margin-top: clamp(26px, 4vh, 36px);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--gold);
+}
+
+.community-ways {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.community-way {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 14px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text);
+    border-radius: 12px;
+    border: 1px solid rgba(212, 175, 90, 0.2);
+    background: rgba(7, 5, 11, 0.45);
+}
+
+.way-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    color: #1d1205;
+    background: linear-gradient(180deg, #f6dd94, #c99a3e);
+    box-shadow: 0 0 14px -2px rgba(var(--ember), 0.6);
+}
+
+.way-mark svg {
+    width: 15px;
+    height: 15px;
+}
+
+.community-panel .community-flow {
+    margin-top: 14px;
+}
+
+.community-panel .flow-step {
+    background: rgba(7, 5, 11, 0.45);
+}
+
+.community-panel .cf-note {
+    margin-top: 26px;
+}
+
+/* ── Founder item callout, above the tiers ── */
+.founder-callout {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: clamp(14px, 2vw, 22px);
+    max-width: 860px;
+    margin: 22px auto 0;
+    padding: clamp(16px, 2.4vw, 22px) clamp(18px, 3vw, 30px);
+    border-radius: 16px;
+    border: 1px solid rgba(245, 220, 146, 0.6);
+    background:
+        linear-gradient(100deg, rgba(212, 175, 90, 0.2), rgba(212, 175, 90, 0.05) 60%),
+        rgba(20, 13, 28, 0.92);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 240, 200, 0.12),
+        0 0 40px -10px rgba(var(--ember), 0.5);
+}
+
+.founder-badge {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    color: #1d1205;
+    background: linear-gradient(180deg, #fff1c2, #d9a94a 60%, #9c7a2e);
+    box-shadow: 0 0 0 4px rgba(245, 220, 146, 0.15), 0 0 26px -2px rgba(var(--ember), 0.8);
+}
+
+.founder-badge svg {
+    width: 30px;
+    height: 30px;
+}
+
+.founder-text {
+    font-size: clamp(16px, 1.7vw, 18.5px);
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--text);
+}
+
+.founder-kicker {
+    display: block;
+    margin-bottom: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+}
+
+/* The founder reward inside a tier gets a gold badge instead of the diamond */
+.tier-rewards li.is-founder {
+    font-weight: 700;
+    color: var(--gold-bright);
+}
+
+.tier-rewards li.is-founder::before {
+    left: 0;
+    top: 0.32em;
+    width: 9px;
+    height: 9px;
+    rotate: 45deg;
+    background: linear-gradient(135deg, #fff1c2, #c99a3e);
+    box-shadow: 0 0 8px rgba(var(--ember), 0.9);
+}
+
+@media (max-width: 1000px) {
+    .community-ways {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Phones and small tablets: the steps stack, the timeline runs down the page */
+@media (max-width: 760px) {
+    .goal-steps {
+        grid-template-columns: minmax(0, 1fr);
+        max-width: 520px;
+        gap: 14px;
+    }
+
+    .goal {
+        margin-top: 0;
+    }
+
+    .timeline {
+        grid-template-columns: minmax(0, 1fr);
+        --g: 26px;
+        max-width: 560px;
+        margin: 0 auto;
+    }
+
+    .tl-stop {
+        display: grid;
+        grid-template-columns: var(--node) minmax(0, 1fr);
+        column-gap: 16px;
+        align-items: start;
+        text-align: left;
+    }
+
+    .tl-text {
+        margin-top: 0;
+        padding-top: 2px;
+    }
+
+    .tl-link {
+        top: calc(var(--node) + 8px);
+        left: calc(var(--node) / 2 - 1px);
+        width: 2px;
+        height: calc(100% - var(--node) - 16px + var(--g));
+        background: repeating-linear-gradient(180deg, rgba(245, 220, 146, 0.85) 0 7px, transparent 7px 13px);
+        transform-origin: 50% 0;
+    }
+
+    .js .timeline-wrap:not(.is-visible) .tl-link {
+        transform: scaleY(0);
+    }
+}
+
+@media (max-width: 600px) {
+    .community-ways {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .community-way {
+        flex-direction: row;
+        padding: 12px 14px;
+        text-align: left;
+    }
+
+    .founder-callout {
+        align-items: flex-start;
+    }
+
+    .founder-badge {
+        width: 46px;
+        height: 46px;
+    }
+
+    .founder-badge svg {
+        width: 25px;
+        height: 25px;
+    }
+}
+
 /* ── Where the funds would go ── */
 .funds-grid {
     list-style: none;

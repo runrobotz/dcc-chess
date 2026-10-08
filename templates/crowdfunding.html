@@ -1,5 +1,6 @@
 {#- ═══ Crowdfunding Plan page settings — edit the content here ═══
-    This page describes a PLAN, not a live campaign: no prices, amounts, limits, or dates. -#}
+    This page describes a PLAN, not a live campaign: no prices, amounts, limits, or dates.
+    The one exception: the target funding levels in GOALS are the only dollar amounts on the page. -#}
 {%- set HERO_ART = "DCC-logo-realistic.webp" -%}
 {%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
 
@@ -8,14 +9,38 @@
 
 {%- set WHY_TEXT = "The full game, a 3D cross-platform video game, needs a team of artists and developers. Crowdfunding would let the DCC community help build it and have a real say in what goes into it." -%}
 
+{#- Target funding levels, lowest to highest. Each step down the stairs unlocks more. -#}
+{%- set GOALS_NOTE = "Target funding levels. A rough plan, pending licensing." -%}
+{%- set GOALS = [
+    {"amount": "$350K–$500K", "name": "The Base Game",
+     "line": "Built with a team of contractors. The core game launches, with some ideas saved for later updates."},
+    {"amount": "$1M", "name": "Built by Fans",
+     "line": "A partial in-house team of DCC fans working alongside each other, allowing more detail, more features, and more content at launch."},
+    {"amount": "$2M+", "name": "The Full Vision",
+     "line": "A full in-house team of salaried developers and artists, unlocking the full potential of the project."},
+] -%}
+
+{#- Rough timeline, in order. Months, not dates. -#}
+{%- set TIMELINE_NOTE = "A rough goal. Timeline depends on funding level and licensing." -%}
+{%- set TIMELINE = [
+    {"when": "Month 1",      "title": "Assemble", "line": "Hiring, sourcing, planning, and consulting."},
+    {"when": "Months 2–6",   "title": "Build",    "line": "Development begins, with ongoing testing by real DCC fans to keep it true to canon and make sure it meets the community's expectations."},
+    {"when": "Months 6–12",  "title": "Expand",   "line": "Development continues, alongside marketing and partnerships."},
+    {"when": "Months 12–18", "title": "Launch",   "line": "The goal of a full launch."},
+] -%}
+
+{#- Shown in a highlighted callout above the tiers. FOUNDER_REWARD gets the founder badge wherever it appears in a tier. -#}
+{%- set FOUNDER_CALLOUT = "Every backer, at every tier, gets an exclusive Founder item (a skin or badge) to show off in-game forever." -%}
+{%- set FOUNDER_REWARD = "Exclusive Founder item" -%}
+
 {#- Backer tiers, lowest to highest. The cards get more impressive as they go up.
     plus: true shows "Everything above, plus:" · rewards: [] shows the note (or "Details to come." without one)
     tier / hi / lo: the box colors as "r, g, b" (main, highlight, shadow) -#}
 {%- set TIERS = [
     {"name": "Bronze Box", "plus": false, "tier": "205, 127, 50", "hi": "242, 186, 128", "lo": "112, 62, 24",
-     "rewards": ["Your name in the credits", "A supporter role in the community"]},
+     "rewards": ["Exclusive Founder item", "Your name in the credits", "A supporter role in the community"]},
     {"name": "Silver Box", "plus": true, "tier": "196, 204, 216", "hi": "244, 247, 252", "lo": "104, 112, 128",
-     "rewards": ["The base game", "An exclusive founder skin"]},
+     "rewards": ["The base game", "An upgraded Founder skin"]},
     {"name": "Gold Box", "plus": true, "tier": "232, 190, 90", "hi": "255, 234, 164", "lo": "146, 104, 28",
      "rewards": ["Early access to the first DLC, the Heroes Pack", "A vote on which characters join it"]},
     {"name": "Platinum Box", "plus": true, "tier": "168, 226, 238", "hi": "232, 252, 255", "lo": "70, 126, 148",
@@ -31,7 +56,13 @@
      "rewards": [], "note": "The ultimate tier. A collaboration with the team on something truly one of a kind. Details to come."},
 ] -%}
 
-{%- set COMMUNITY_TEXT = "Higher-tier backers would help shape the game by suggesting and voting on new characters, abilities, and bosses for the Heroes Pack and future content." -%}
+{%- set COMMUNITY_TEXT = "The Dungeon Crawler Carl books have always grown alongside their community. In that same spirit, fans would help shape this game from the inside." -%}
+{%- set COMMUNITY_WAYS = [
+    "Suggest new characters",
+    "Vote on abilities and bosses",
+    "Give feedback on builds",
+    "See their ideas make it into the game",
+] -%}
 {%- set COMMUNITY_STEPS = [
     {"icon": "suggest", "title": "Suggest", "line": "Backers put forward new characters, abilities, and bosses."},
     {"icon": "vote",    "title": "Vote",    "line": "Backers vote on what goes into the Heroes Pack and future content."},
@@ -107,6 +138,17 @@
         <symbol id="i-approve" viewBox="0 0 24 24">
             <path d="M3.5 18.5h17M4.5 18.5l-1-11 5 4.5L12 5l3.5 7 5-4.5-1 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
         </symbol>
+        <symbol id="i-founder" viewBox="0 0 24 24">
+            <path d="M8.5 2.5l2.4 6.2M15.5 2.5l-2.4 6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="12" cy="14.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M12 10.6l1.2 2.5 2.7.3-2 1.9.5 2.7-2.4-1.4-2.4 1.4.5-2.7-2-1.9 2.7-.3z" fill="currentColor"/>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+            <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24">
+            <path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor"/>
+        </symbol>
         <symbol id="i-art" viewBox="0 0 24 24">
             <path d="M14.5 4.5l5 5L10 19H5v-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
             <path d="M12.5 6.5l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/>
@@ -163,7 +205,95 @@
                 <p class="cf-lead reveal">{{ WHY_TEXT }}</p>
             </section>
 
-            <!-- ═══ 2. BACKER TIERS ═══ -->
+            <!-- ═══ 2. BUILT WITH THE COMMUNITY ═══ -->
+            <section class="cf-section" aria-labelledby="community-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Community at the core</p>
+                    <h2 id="community-title" class="status-title">Built With the Community</h2>
+                </header>
+                <div class="community-panel reveal">
+                    <p class="community-lead">{{ COMMUNITY_TEXT }}</p>
+                    <p class="community-label">Fans would</p>
+                    <ul class="community-ways">
+                        {%- for way in COMMUNITY_WAYS %}
+                        <li class="community-way">
+                            <span class="way-mark" aria-hidden="true"><svg><use href="#i-check"/></svg></span>
+                            <span>{{ way }}</span>
+                        </li>
+                        {%- endfor %}
+                    </ul>
+                    <p class="community-label">How an idea gets in</p>
+                    <ol class="community-flow">
+                        {%- for step in COMMUNITY_STEPS %}
+                        <li class="flow-step" style="--i: {{ loop.index0 }}">
+                            <span class="flow-icon" aria-hidden="true"><svg><use href="#i-{{ step.icon }}"/></svg></span>
+                            <span class="flow-title">{{ step.title }}</span>
+                            <span class="flow-line">{{ step.line }}</span>
+                        </li>
+                        {%- endfor %}
+                    </ol>
+                    <p class="cf-note">
+                        <svg aria-hidden="true"><use href="#i-info"/></svg>
+                        <span>{{ COMMUNITY_NOTE }}</span>
+                    </p>
+                </div>
+            </section>
+
+            <!-- ═══ 3. FUNDING GOALS: a staircase, each step unlocks more ═══ -->
+            <section class="cf-section" aria-labelledby="goals-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">Funding goals</p>
+                    <h2 id="goals-title" class="status-title">What each level unlocks</h2>
+                </header>
+                <p class="cf-note reveal">
+                    <svg aria-hidden="true"><use href="#i-info"/></svg>
+                    <span>{{ GOALS_NOTE }}</span>
+                </p>
+                <ol class="goal-steps">
+                    {%- for g in GOALS %}
+                    <li class="goal reveal goal-{{ loop.index }}" style="--lvl: {{ loop.index }}">
+                        <span class="goal-glow" aria-hidden="true"></span>
+                        <p class="goal-level">Goal {{ loop.index }}</p>
+                        <p class="goal-amount">{{ g.amount }}</p>
+                        <p class="goal-unlocks">Unlocks</p>
+                        <h3 class="goal-name">{{ g.name }}</h3>
+                        <p class="goal-line">{{ g.line }}</p>
+                        <span class="goal-tread" aria-hidden="true"></span>
+                    </li>
+                    {%- endfor %}
+                </ol>
+            </section>
+
+            <!-- ═══ 4. ROUGH TIMELINE: horizontal on wide screens, vertical on phones ═══ -->
+            <section class="cf-section" aria-labelledby="timeline-title">
+                <header class="status-head reveal">
+                    <p class="section-kicker">If it's funded</p>
+                    <h2 id="timeline-title" class="status-title">Rough timeline</h2>
+                </header>
+                <p class="cf-note reveal">
+                    <svg aria-hidden="true"><use href="#i-info"/></svg>
+                    <span>{{ TIMELINE_NOTE }}</span>
+                </p>
+                <div class="timeline-wrap reveal">
+                    <ol class="timeline">
+                        {%- for step in TIMELINE %}
+                        <li class="tl-stop{% if loop.last %} is-goal{% endif %}" style="--i: {{ loop.index0 }}">
+                            {%- if not loop.last %}<span class="tl-link" aria-hidden="true"></span>{% endif %}
+                            <span class="tl-node" aria-hidden="true">
+                                {%- if loop.last %}<svg><use href="#i-star"/></svg>{% else %}{{ loop.index }}{% endif -%}
+                            </span>
+                            <span class="tl-text">
+                                <span class="tl-when">{{ step.when }}</span>
+                                <span class="tl-title">{{ step.title }}</span>
+                                <span class="tl-line">{{ step.line }}</span>
+                            </span>
+                        </li>
+                        {%- endfor %}
+                    </ol>
+                </div>
+            </section>
+
+            <!-- ═══ 5. BACKER TIERS ═══ -->
             <section class="cf-section" aria-labelledby="tiers-title">
                 <header class="status-head reveal">
                     <p class="section-kicker">Loot boxes</p>
@@ -173,6 +303,13 @@
                     <svg aria-hidden="true"><use href="#i-info"/></svg>
                     <span>Tier names and rewards are a rough idea, not final. <strong>Pending licensing.</strong></span>
                 </p>
+                <div class="founder-callout reveal">
+                    <span class="founder-badge" aria-hidden="true"><svg><use href="#i-founder"/></svg></span>
+                    <p class="founder-text">
+                        <span class="founder-kicker">For every backer</span>
+                        {{ FOUNDER_CALLOUT }}
+                    </p>
+                </div>
 
                 <ol class="tier-grid">
                     {%- for t in TIERS %}
@@ -195,7 +332,7 @@
                         {%- if t.plus %}<p class="tier-plus">Everything above, plus:</p>{% endif %}
                         <ul class="tier-rewards">
                             {%- for r in t.rewards %}
-                            <li>{{ r }}</li>
+                            <li{% if r == FOUNDER_REWARD %} class="is-founder"{% endif %}>{{ r }}</li>
                             {%- endfor %}
                         </ul>
                         {%- else %}
@@ -210,29 +347,7 @@
                 </p>
             </section>
 
-            <!-- ═══ 3. COMMUNITY-BUILT CONTENT ═══ -->
-            <section class="cf-section" aria-labelledby="community-title">
-                <header class="status-head reveal">
-                    <p class="section-kicker">Built with the crawlers</p>
-                    <h2 id="community-title" class="status-title">Community-built content</h2>
-                </header>
-                <p class="cf-lead reveal">{{ COMMUNITY_TEXT }}</p>
-                <ol class="community-flow">
-                    {%- for step in COMMUNITY_STEPS %}
-                    <li class="flow-step reveal" style="--i: {{ loop.index0 }}">
-                        <span class="flow-icon" aria-hidden="true"><svg><use href="#i-{{ step.icon }}"/></svg></span>
-                        <span class="flow-title">{{ step.title }}</span>
-                        <span class="flow-line">{{ step.line }}</span>
-                    </li>
-                    {%- endfor %}
-                </ol>
-                <p class="cf-note reveal">
-                    <svg aria-hidden="true"><use href="#i-info"/></svg>
-                    <span>{{ COMMUNITY_NOTE }}</span>
-                </p>
-            </section>
-
-            <!-- ═══ 4. WHERE THE FUNDS WOULD GO ═══ -->
+            <!-- ═══ 6. WHERE THE FUNDS WOULD GO ═══ -->
             <section class="cf-section" aria-labelledby="funds-title">
                 <header class="status-head reveal">
                     <p class="section-kicker">If it happens</p>
