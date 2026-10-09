@@ -533,7 +533,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.77"
+SITE_VERSION = "v0.78"
 
 
 @app.route("/")

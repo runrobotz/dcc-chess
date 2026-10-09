@@ -17,6 +17,31 @@ None)`) instead of going through `attempt_capture()`, and neither it nor app.py'
 The enemy Carl is already excluded. Found: 2026-10-01, while fixing Rampage victims not
 reaching the graveyard (they now land in `board.captured` and run `process_post_capture`).
 
+### Gun Show and Succubus don't match their designed abilities
+
+The designed behavior (the ability text in `dcc_chess/pawns.py` and the game overview PDF) is
+correct; the code needs to change to match it. DESIGN.md currently records the code as
+authoritative for these two and should be updated when they're fixed.
+
+- **Gun Show** (Stripper Anaconda) should pull any one female piece, friendly or enemy, 1
+  square closer to Anaconda by the shortest route. Donut always counts as female. The live
+  `try_gun_show()` instead gives all friendly male pieces +2 to dice rolls for 2 turns
+  (`gun_show_active[color] = 2`).
+- **Succubus** (Signet) should pull any one male piece, friendly or enemy, 1 square closer to
+  Signet by the shortest route. Carl can never be targeted. The live `try_succubus()` instead
+  stops every enemy male piece within 3 squares (except Carl) from moving on its next turn
+  (`succubus_pending` -> `succubus_pieces`).
+
+Both are also reachable through Juice Box's Shapeshift, so her copies need the same fix.
+Found: 2026-10-09, while rebuilding the game overview PDF.
+
+### What a Bitch's Insta-Kill Boss Card can't be used
+
+The What a Bitch AI card sets `GameState.insta_kill_card[color] = True` and the sidebar shows an
+Insta-Kill badge, but nothing in `app.py`, `abilities.py`, or `game.js` ever reads or spends
+it: there's no route, button, or AI logic for playing the card during a boss battle.
+Found: 2026-10-09, while rebuilding the game overview PDF.
+
 ---
 
 ## Fixed

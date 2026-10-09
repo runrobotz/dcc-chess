@@ -1,6 +1,9 @@
 {#- ═══ "Where We Are Now" page settings — edit the stats and lists here ═══ -#}
 {%- set HERO_ART = "DCC-logo-realistic.webp" -%}
 {%- set PLAYTEST_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScaStjOjn8tRRPV7K8073VLHCcV88jY0Voiz_0Jlu4SKniUbw/viewform" -%}
+{#- The game overview PDF (rebuild it with tools/build_overview_pdf.py) -#}
+{%- set OVERVIEW_PDF = "DCC-Chess-Overview.pdf" -%}
+{%- set OVERVIEW_META = "5 pages · Rules, roster, and vision" -%}
 {#- count: the number to count up to · prefix: shown before it · square: shows as N×N -#}
 {%- set STATS = [
     {"code": "PWN", "count": 20,  "label": "Unique pawn characters"},
@@ -27,7 +30,7 @@
     {"text": "Website live",                                   "state": "done"},
     {"text": "Project email and domain secured",               "state": "done"},
     {"text": "Full illustrated portrait set for every character", "state": "done"},
-    {"text": "Teaser trailers in production",                  "state": "progress"},
+    {"text": "First teaser released, more in production",     "state": "done"},
     {"text": "Active playtesting with friends and family",     "state": "ongoing"},
 ] -%}
 {%- set STATE_LABELS = {"done": "Done", "progress": "In production", "ongoing": "Ongoing"} -%}
@@ -60,6 +63,9 @@
         <symbol id="i-external" viewBox="0 0 24 24">
             <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+            <path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </symbol>
         <symbol id="i-check" viewBox="0 0 24 24">
             <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </symbol>
@@ -83,6 +89,17 @@
                 <p class="section-kicker">Floor 4</p>
                 <h1 class="page-title page-title--long">Where We Are Now</h1>
                 <p class="page-lede page-lede--wide">A fully playable demo, built from the ground up. Here's where the project stands today.</p>
+                <div class="status-download">
+                    <a class="cta" href="/static/{{ OVERVIEW_PDF }}" target="_blank" rel="noopener">
+                        <span class="cta-glow" aria-hidden="true"></span>
+                        <span class="cta-face">
+                            <span class="cta-label">Download the Game Overview (PDF)</span>
+                            <svg class="cta-arrow" aria-hidden="true"><use href="#i-download"/></svg>
+                        </span>
+                        <span class="sr-only">(opens in a new tab)</span>
+                    </a>
+                    <span class="status-download-meta">{{ OVERVIEW_META }}</span>
+                </div>
             </div>
         </section>
 
@@ -172,6 +189,9 @@
         <footer class="site-footer">
             <span class="footer-rule" aria-hidden="true">◆</span>
             <p>A fan project. Not officially affiliated with or endorsed by Matt Dinniman or Dungeon Crawler Carl. Pending licensing.</p>
+            <a class="footer-pdf" href="/static/DCC-Chess-Overview.pdf" target="_blank" rel="noopener">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>Game Overview (PDF)<span class="sr-only"> (opens in a new tab)</span>
+            </a>
             <span class="site-version">{{ version }}</span>
         </footer>
     </main>
