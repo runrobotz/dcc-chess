@@ -59,7 +59,10 @@ turn only. Matches `pawns.py` exactly.
 **Mordecai — Manager Benefit.** No manual trigger; fires when he's captured
 (`process_mordecai_capture`): creates a single-square ghost token on his capture
 square for 3 full turns (blocks entry) and schedules his respawn on his own back
-rank after those 3 turns. Also grants a passive aura: while within 1 square of
+rank after those 3 turns. The respawn takes the first open, unzoned back-rank square
+that doesn't put the player whose turn is ending in check (the other side moves next);
+if there's none he waits and tries again at the end of the next turn (v0.80). Also
+grants a passive aura: while within 1 square of
 Carl or Donut, their ability costs are reduced by 1. Matches `pawns.py`. Note: in
 the Juice Box dispatcher (`try_juice_box_use_captured_ability`), the `if/elif` name
 chain has no branch for "Mordecai" at all — if Juice Box ever acquired his name
@@ -69,14 +72,14 @@ Juice Box in the first place, so this dead branch is now unreachable — moot bu
 as-is in the code.
 
 **Prepotente — Special Boy.** Moves 2 squares forward (including 2-square diagonal
-captures) normally. **Mismatch:** `pawns.py` says "if this move specifically saves
-Carl from check" he can move 2 squares in any direction — the code only checks
-whether Carl is in check *at the moment the ability is cast* (`is_in_check`), not
-whether the resulting move actually resolves that check. The code is what's live;
-the "specifically saves" qualifier is not enforced. Also: the destination is always
-chosen randomly by the server (`random.choice(result)`) — no UI path exists to pick
-a specific destination for this ability, for either Prepotente or Juice Box hosting
-it, so this is consistent (if under-featured) rather than a live bug.
+captures) normally; while his Carl is in check, 2 squares in any direction
+(`special_boy_destinations`). Since v0.80 no destination may leave his Carl in check,
+so in that mode he can only take a square that actually resolves the check — which
+enforces `pawns.py`'s "if this move specifically saves Carl from check". He never
+lands on the enemy Carl, Ren, a Body Guard piece, or Orthrus, and a piece he captures
+goes to the graveyard with its on-capture effects (`apply_ability_move`). With no
+destination, nothing is spent. The destination is chosen randomly by the server — no
+UI path exists to pick one, for either Prepotente or Juice Box hosting it.
 
 **Elle McGib — Frozen.** Freezes one enemy piece within 5 squares for 1 full turn
 (frozen piece can't move or use abilities). Matches `pawns.py` exactly. See
@@ -146,8 +149,11 @@ need both dice, even when discounts would let one die cover the cost), the AI
 prices her copies at base + 1 and supplies Chris's Lava Surge direction, and the
 battle log credits her (`Juice Box (<source pawn>) used <ability>`).
 
-**Florin — Suppressing Fire.** Pushes one enemy piece up to 2 squares directly away
-from Florin, stopping early if blocked. Matches `pawns.py`. Target is always random.
+**Florin — Suppressing Fire.** Pushes one enemy piece within 5 squares up to 2 squares
+directly away from Florin, stopping early if blocked. Matches `pawns.py`. Target is
+always random, from `suppressing_fire_pushes`: never Orthrus or a Body Guard piece, never
+a piece that can't move at all, and never a push that leaves Florin's own Carl in check
+(v0.80); with none, nothing is spent. A pushed piece keeps its statuses.
 
 **Ren — Indestructible.** Passive, no manual trigger. Cannot be captured by a
 normal capture; can only be removed by the enemy Carl moving onto his square, or
@@ -191,13 +197,12 @@ friendly pawn onto an open back-rank square. Matches `pawns.py`. Resurrects from
 `board.captured` (the real graveyard), pawns only, via `blood_magic_candidates` --
 before v0.67 it read a separate `GameState.captured_pieces` list that only Rampage
 wrote to, so it always failed. That list was removed in v0.68; `board.captured` is
-now the single graveyard for every capture path. Known issue: it can resurrect a
-Mordecai who is awaiting (or has already had) his Manager Benefit respawn, putting
-him on the board twice -- see `KNOWN_BUGS.md`. Note: same pattern
-as Candy Biggs — `app.py`'s inline handler for a human explicitly picking a sacrifice
-target does not re-check adjacency the way the shared implementation does; not
-reachable through normal play today since `get_ability_targets` already restricts
-the clickable squares to adjacent ones, but the two code paths disagree in principle.
+now the single graveyard for every capture path. Since v0.69 it skips a Mordecai who
+is back on the board or awaiting his own respawn. Sacrifices come from
+`blood_magic_sacrifices` (v0.80): adjacent friendly pawns, never Orthrus, and never one
+whose removal leaves her Carl in check. Nothing is spent unless there's a sacrifice, a
+pawn to resurrect, and an open back-rank square. `app.py`'s targeted handler now calls
+the same `try_blood_magic`.
 
 **Orthrus — No Ability.** No active ability. 1×2 piece; moves 1 square in his
 facing direction or rotates 90° (one action per turn); cannot capture (a move into
@@ -228,13 +233,12 @@ zone when it's placed is not yet enforced by any code.
 ## Section 2 — All 5 Major Pieces
 
 Source: `MAJOR_ABILITIES` in `app.py`. Each major has exactly 3 abilities, the third
-always Boss Event Only. `app.py`'s `use_ability()` route also still contains dead
-routing for a handful of older ability names (Carl's Bulldozer; Donut's Diva's
-Entrance and Resurrection; Mongo's Rampaging Charge; Katia's Combat Roll and Dual
-Threat; Samantha's The Mouth and Portal Spike) — none of these appear in
-`MAJOR_ABILITIES`, so `get_piece_abilities` never surfaces them in the sidebar and
-the frontend never sends them; they are unreachable through normal play and not
-documented as live abilities below.
+always Boss Event Only. Older ability names (Carl's Bulldozer; Donut's Diva's
+Entrance and Resurrection; Mongo's Rampaging Charge and Mongo Smash; Katia's Combat
+Roll and Dual Threat; Samantha's The Mouth and Portal Spike; The AI's Glitch) were
+removed from `use_ability()` and both AIs in v0.80 — the route answers "Unknown
+ability". Their `try_*` methods remain in `abilities.py` only because the old unit tests
+in `tests/test_abilities.py` call them; nothing in the game does.
 
 | Piece | Ability | Cost | Uses/Game | Combined? | Boss Only? |
 |---|---|---|---|---|---|
@@ -261,6 +265,7 @@ documented as live abilities below.
   die plus the rolled die) into a pull distance; choose one friendly back-line
   major (Donut, Katia, or Samantha) and pull it toward Carl by up to that many
   squares along its own normal movement path; Carl still makes his normal move.
+  Never to a square that leaves Carl in check (v0.80).
 - *Plot Armor* — moves 1–3 squares in any King direction; cannot pass through
   occupied squares but can capture the piece he lands on (the enemy King fully
   blocks, like a friendly piece — never a valid landing square); destination must
@@ -271,7 +276,8 @@ documented as live abilities below.
 **Donut**
 - *Puddle Jump* — hops unlimited squares in any Queen direction, passing harmlessly
   over every piece in the path; destination must be a completely empty square, so
-  it can never capture. 10-turn cooldown after each use (see Section 3).
+  it can never capture, and never one that leaves her Carl in check (v0.80).
+  10-turn cooldown after each use (see Section 3).
 - *Cockroach* — resurrects one randomly-chosen captured friendly piece onto any
   open square adjacent to Donut.
 - *Magic Missile (Boss Event Only)* — fires in a straight line up to 5 squares;
@@ -280,7 +286,9 @@ documented as live abilities below.
 **Mongo**
 - *Pet Carrier* — removes Mongo from the board (stored); can be released for free
   on a later turn within 2 squares of Donut; if Donut is captured while he's
-  stored, Mongo is captured too; only one Mongo can be stored at a time.
+  stored, Mongo is captured too; only one Mongo can be stored at a time. He can't be
+  stored if leaving the board would put his Carl in check (v0.80). Known issue:
+  a stored Mongo can never be released -- see `KNOWN_BUGS.md`.
 - *Rampage* — captures every enemy piece found along any of his knight-shaped
   movement paths, not just the final landing square. The enemy King is explicitly
   excluded as a valid target/capture (fixed in v0.59, mirroring Plot Armor's own
@@ -288,7 +296,9 @@ documented as live abilities below.
   graveyard the sidebar shows and Cockroach / Blood Magic resurrect from) and runs
   `process_post_capture`, so Orthrus's second square is cleared and Mordecai's
   Manager Benefit fires; Mongo can't land on a square a capture just blocked
-  (Mordecai's ghost token). Known issue: Rampage removes pieces directly instead of
+  (Mordecai's ghost token). Since v0.80 (`rampage_plan`) he only lands where, with
+  every victim gone, his Carl isn't in check; with no such square nothing is spent.
+  Known issue: Rampage removes pieces directly instead of
   via `attempt_capture`, so it ignores Ren's Indestructible, Body Guard, and Quasar's
   Mediation -- see `KNOWN_BUGS.md`.
 - *Gorefest (Boss Event Only)* — attacks 2 squares from Mongo's current position
@@ -305,8 +315,11 @@ documented as live abilities below.
 
 **Samantha**
 - *Slut Shame* — swallows one enemy pawn within 3 squares (Orthrus is immune — a
-  2-square body can't be swallowed), removing it from the board for 5 turns before
-  it respawns on an open square adjacent to Samantha.
+  2-square body can't be swallowed, and never a pawn whose removal leaves her Carl in
+  check — `slut_shame_targets`, v0.80), removing it from the board for 5 turns before
+  it respawns on an open square adjacent to where Samantha swallowed it. The respawn
+  places it exactly once, on an unzoned square that doesn't put the player whose turn
+  is ending in check; with none free it waits a turn and tries again (v0.80).
 - *Miss Me?* — forces a reroll of any dice currently in play; usable at the start
   of Samantha's own turn on her own dice, or as a reaction (banked die) to counter
   an enemy roll.
@@ -355,6 +368,23 @@ open questions to re-litigate.
   die, lasts 3 full turns, no piece can enter while active, and the caster cannot
   move on the turn they cast it (`bad_llama_cant_move`, cleared at `end_turn()`,
   same pattern as `louie_cant_move`). (v0.60.)
+
+- **Carl is never captured outright (v0.80).** No move or ability can capture Carl:
+  capturing him is never a legal move (`get_legal_moves_with_status`), Plot Armor,
+  Rampage, and Special Boy never target him, and every ability that moves or removes
+  pieces first checks `leaves_carl_in_check` so it can't expose its own Carl. If an
+  effect ever does leave a Carl in check, his side gets its own turn to escape (or is
+  checkmated then). The only things that kill Carl are boss events (a boss spawning or
+  moving onto him), which is intended. Lottery Ticket's Fireball fizzles if it strikes
+  Carl's square.
+
+- **The AI plays by the human turn order (v0.80).** Roll, use at most one ability (none
+  under System Reset), then move — in `_play_ai_turn()` and `Game.play_turn()`. Both the
+  smart and random AI use only the current abilities a human can use.
+
+- **The AI drafts a random roster (v0.80).** In Player vs AI, `/new_game` ignores any
+  roster sent for Black and drafts 8 distinct random pawns from all 20 (`random_draft`,
+  never "The AI"), independent of the player's picks. Placement and play are unchanged.
 
 ---
 

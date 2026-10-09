@@ -40,7 +40,8 @@ class Game:
         self.result_reason = ""
 
     def play_turn(self, move_fn, ability_fn=None):
-        """Play a single turn.
+        """Play a single turn, in the same order as a human turn: roll the
+        dice, use abilities, then move.
 
         Args:
             move_fn: callable(game_state, legal_moves) -> (from_pos, to_pos)
@@ -57,26 +58,25 @@ class Game:
         # Store Katia threats before move (for Combat Roll next turn)
         self.state.update_katia_threats()
 
-        # 1. Get legal moves with status effects
-        legal = self.state.get_legal_moves_with_status(color)
-
-        if not legal:
-            if is_in_check(self.board, color):
-                self.game_over = True
-                self.winner = color.opponent
-                self.result_reason = "checkmate"
-                self.state.log_event("game_over", result="checkmate", winner=self.winner.value)
-            else:
-                self.game_over = True
-                self.winner = None
-                self.result_reason = "stalemate"
-                self.state.log_event("game_over", result="stalemate")
+        # 1. No legal move at all ends the game before any dice are rolled
+        if not self.state.get_legal_moves_with_status(color):
+            self._end_without_a_move(color)
             return
 
-        # 2. Player picks a move
+        # 2. Roll Dungeon Dice and use abilities
+        self.dice.roll()
+        self.state.log_event("dice_roll", values=self.dice.dice[:])
+        if ability_fn:
+            ability_fn(self.state, self.dice, color)
+
+        # 3. Player picks a move from what's legal after the abilities
+        legal = self.state.get_legal_moves_with_status(color)
+        if not legal:
+            self._end_without_a_move(color)
+            return
         from_pos, to_pos = move_fn(self.state, legal)
 
-        # 3. Execute the move (with capture interception)
+        # 4. Execute the move (with capture interception)
         target = self.board.get(*to_pos)
         captured = None
 
@@ -103,7 +103,7 @@ class Game:
                              from_pos=from_pos, to_pos=to_pos,
                              captured=repr(captured) if captured else None)
 
-        # 4. Check for game end after move
+        # 5. Check for game end after move
         opponent = color.opponent
         if is_checkmate(self.board, opponent):
             self.game_over = True
@@ -130,19 +130,6 @@ class Game:
             self.state.end_turn()
             return
 
-        # 5. Roll Dungeon Dice and use abilities
-        self.dice.roll()
-        self.state.log_event("dice_roll", values=self.dice.dice[:])
-
-        # Apply Zev buff to dice if applicable
-        for i in self.dice.available_dice:
-            # Check if the moved piece is in a Zev-buffed position
-            # (Zev buff applies to adjacent friendly pawns)
-            pass  # Zev buff is applied when spending dice in ability_fn
-
-        if ability_fn:
-            ability_fn(self.state, self.dice, color)
-
         # 6. End turn
         self.state.end_turn()
 
@@ -152,6 +139,18 @@ class Game:
             self.winner = None
             self.result_reason = "max_turns"
             self.state.log_event("game_over", result="max_turns")
+
+    def _end_without_a_move(self, color):
+        """`color` has no legal move: checkmate if in check, otherwise stalemate."""
+        self.game_over = True
+        if is_in_check(self.board, color):
+            self.winner = color.opponent
+            self.result_reason = "checkmate"
+            self.state.log_event("game_over", result="checkmate", winner=self.winner.value)
+        else:
+            self.winner = None
+            self.result_reason = "stalemate"
+            self.state.log_event("game_over", result="stalemate")
 
     def play_full_game(self, move_fn, ability_fn=None):
         """Play a complete game until game over."""

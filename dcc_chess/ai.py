@@ -103,161 +103,73 @@ def random_move(game_state: GameState, legal_moves: List[Tuple]) -> Tuple:
     return random.choice(legal_moves)
 
 
-def random_abilities(game_state: GameState, dice: DungeonDice, color: Color):
-    """Randomly attempt abilities with available dice.
+# Every current, non-boss ability, keyed the way _execute_smart_ability
+# dispatches it, with its floor cost -- the same set a human can use.
+MAJOR_ABILITY_KEYS: Dict[PieceType, List[Tuple[str, int]]] = {
+    PieceType.CARL: [("leader", 0), ("plot_armor", 8)],
+    PieceType.DONUT: [("puddle_jump", 7), ("cockroach", 7)],
+    PieceType.MONGO: [("pet_carrier", 4), ("rampage", 8)],
+    PieceType.KATIA: [("she_tank", 6), ("blitzed", 5)],
+    PieceType.SAMANTHA: [("slut_shame", 8), ("miss_me", 5)],
+}
+PAWN_ABILITY_KEYS: Dict[str, str] = {
+    "Zev": "zev", "Prepotente": "prepotente", "Elle McGib": "elle_mcgib", "Imani": "imani",
+    "Candy Biggs": "candy_biggs", "Louie": "louie", "Sledge": "sledge",
+    "Stripper Anaconda": "gun_show", "Lucia Mar": "lucia_mar", "Chris": "chris",
+    "Florin": "florin", "Signet": "succubus", "Miriam Dom": "miriam_dom",
+    "Raul the Crab": "raul", "Bad Llama": "bad_llama",
+}
 
-    Strategy: iterate through all pieces, try to use abilities when dice are available.
-    Order is randomized so no piece is always prioritized.
+
+def _ability_options(gs: GameState, row: int, col: int, piece: Piece) -> List[Tuple[str, int]]:
+    """(ability key, floor cost) for every current ability this piece has."""
+    if not piece.is_pawn:
+        return list(MAJOR_ABILITY_KEYS.get(piece.piece_type, []))
+    if piece.pawn_name == "Juice Box":
+        # Her captured abilities, at the source pawn's cost + 1
+        if (row, col) in gs.juice_box_used_this_turn or gs.juice_box_cooldown.get(piece.color):
+            return []
+        options = []
+        for name in gs.juice_box_captured.get(gs.juice_box_key((row, col)), []):
+            char = PAWN_CHARACTERS.get(name)
+            if char and char.ability.trigger == AbilityTrigger.FLOOR_ROLL:
+                options.append((f"juice_box:{char.ability.name}", char.ability.floor_number + 1))
+        return options
+    key = PAWN_ABILITY_KEYS.get(piece.pawn_name)
+    return [(key, PAWN_CHARACTERS[piece.pawn_name].ability.floor_number)] if key else []
+
+
+def random_abilities(game_state: GameState, dice: DungeonDice, color: Color):
+    """Use one random current ability this turn, like a human: each piece's
+    real abilities only (never boss-only ones), and nothing at all under System
+    Reset. Stops after the first ability that spends dice.
     """
-    if dice.remaining_count == 0:
+    if dice.remaining_count == 0 or game_state.system_reset_active:
         return
 
-    pieces = game_state.board.all_pieces(color)
-    random.shuffle(pieces)
-
-    for row, col, piece in pieces:
-        if dice.remaining_count == 0:
-            break
-
+    candidates = []
+    for row, col, piece in game_state.board.all_pieces(color):
         if game_state.is_piece_suppressed(row, col):
             continue
-
         # Global Game Settings toggles apply to the AI too.
         if piece.is_pawn and not getattr(game_state, "pawns_enabled", True):
             continue
         if not piece.is_pawn and not getattr(game_state, "major_abilities_enabled", True):
             continue
+        for key, floor in _ability_options(game_state, row, col, piece):
+            candidates.append((key, (row, col), piece, floor))
+    random.shuffle(candidates)
 
-        # Major piece abilities
-        if piece.piece_type == PieceType.CARL:
-            _try_carl_abilities(game_state, dice, (row, col), piece)
-        elif piece.piece_type == PieceType.DONUT:
-            _try_donut_abilities(game_state, dice, (row, col), piece)
-        elif piece.piece_type == PieceType.MONGO:
-            _try_mongo_abilities(game_state, dice, (row, col), piece)
-        elif piece.piece_type == PieceType.KATIA:
-            _try_katia_abilities(game_state, dice, (row, col), piece)
-        elif piece.piece_type == PieceType.SAMANTHA:
-            _try_samantha_abilities(game_state, dice, (row, col), piece)
-        elif piece.is_pawn and piece.pawn_name:
-            _try_pawn_ability(game_state, dice, (row, col), piece)
-
-
-def _try_carl_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try Carl's abilities randomly."""
-    if dice.remaining_count == 0:
-        return
-
-    # 50% chance to try Bulldozer if dice available
-    if random.random() < 0.5:
-        idx = dice.get_best_die_for_floor(4)
-        if idx is not None:
-            gs.try_bulldozer(pos, dice, idx)
-            # Note: Bulldozer grants extra moves but AI already moved.
-            # In a real game this would be used before moving.
-            # For simulation purposes, the ability fires and is logged.
-
-
-def _try_donut_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try Donut's abilities randomly."""
-    if dice.remaining_count == 0:
-        return
-
-    abilities = []
-    if random.random() < 0.6:
-        abilities.append("diva")
-    if not gs.resurrection_used[piece.color] and gs.board.captured[piece.color]:
-        if random.random() < 0.7:
-            abilities.append("resurrect")
-
-    random.shuffle(abilities)
-    for ab in abilities:
-        if dice.remaining_count == 0:
-            break
-        if ab == "diva":
-            idx = dice.get_best_die_for_floor(3)
-            if idx is not None:
-                # Pick a random adjacent square as phantom threat
-                r, c = pos
-                adj = [(r + dr, c + dc) for dr in [-1, 0, 1] for dc in [-1, 0, 1]
-                       if (dr != 0 or dc != 0) and gs.board.in_bounds(r + dr, c + dc)]
-                if adj:
-                    gs.try_divas_entrance(pos, dice, idx, random.choice(adj))
-        elif ab == "resurrect":
-            idx = dice.get_best_die_for_floor(6)
-            if idx is not None:
-                gs.try_resurrection(pos, dice, idx, piece.color)
-
-
-def _try_mongo_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try Mongo's abilities randomly."""
-    if dice.remaining_count == 0:
-        return
-
-    abilities = []
-    if random.random() < 0.4:
-        abilities.append("charge")
-    if random.random() < 0.5:
-        abilities.append("smash")
-
-    random.shuffle(abilities)
-    for ab in abilities:
-        if dice.remaining_count == 0:
-            break
-        if ab == "charge":
-            idx = dice.get_best_die_for_floor(4)
-            if idx is not None:
-                gs.try_rampaging_charge(pos, dice, idx)
-        elif ab == "smash":
-            idx = dice.get_best_die_for_floor(3)
-            if idx is not None:
-                gs.try_mongo_smash(pos, dice, idx)
-
-
-def _try_katia_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try Katia's abilities randomly."""
-    if dice.remaining_count == 0:
-        return
-
-    if random.random() < 0.4:
-        idx = dice.get_best_die_for_floor(3)
-        if idx is not None:
-            retreats = gs.try_combat_roll(pos, dice, idx)
-            if retreats:
-                # Execute retreat
-                dest = random.choice(retreats)
-                gs.board.set(pos[0], pos[1], None)
-                gs.board.set(dest[0], dest[1], piece)
-
-    if dice.remaining_count > 0 and random.random() < 0.4:
-        idx = dice.get_best_die_for_floor(5)
-        if idx is not None:
-            r, c = pos
-            adj = [(r + dr, c + dc) for dr in [-2, -1, 0, 1, 2] for dc in [-2, -1, 0, 1, 2]
-                   if (dr != 0 or dc != 0) and gs.board.in_bounds(r + dr, c + dc)]
-            if adj:
-                gs.try_dual_threat(pos, dice, idx, random.choice(adj))
-
-
-def _try_samantha_abilities(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try Samantha's abilities randomly."""
-    if dice.remaining_count == 0:
-        return
-
-    # The Mouth: reroll a die (do this first since it improves other rolls)
-    if not gs.mouth_used_this_turn and random.random() < 0.6:
-        idx = dice.get_best_die_for_floor(3)
-        if idx is not None:
-            gs.try_the_mouth(pos, dice, idx)
-
-    if dice.remaining_count == 0:
-        return
-
-    # Portal Spike
-    if random.random() < 0.3:
-        idx = dice.get_best_die_for_floor(5)
-        if idx is not None:
-            gs.try_portal_spike(pos, dice, idx)
+    for key, pos, piece, floor in candidates:
+        if random.random() > 0.5:
+            continue  # don't fire every turn
+        idx = _ability_die_index(dice, floor, _entry_requires_combined(game_state, key, pos))
+        if idx is None:
+            continue
+        before = (list(dice.used), dict(dice.banked_die))
+        _execute_smart_ability(game_state, dice, key, pos, piece, idx, color)
+        if (list(dice.used), dict(dice.banked_die)) != before:
+            return  # one ability per turn
 
 
 def _pick_chris_direction(gs: GameState, pos: Tuple[int, int]) -> Optional[str]:
@@ -266,92 +178,6 @@ def _pick_chris_direction(gs: GameState, pos: Tuple[int, int]) -> Optional[str]:
         if gs.chris_lava_surge_direction_valid(pos, direction):
             return direction
     return None
-
-
-def _try_pawn_ability(gs: GameState, dice: DungeonDice, pos: Tuple[int, int], piece: Piece):
-    """Try a pawn's ability based on its character."""
-    if dice.remaining_count == 0:
-        return
-
-    name = piece.pawn_name
-
-    # Juice Box has no ability of her own -- she uses one of the abilities
-    # she's captured from enemy pawns, at that pawn's own cost + 1.
-    if name == "Juice Box":
-        if pos in gs.juice_box_used_this_turn:
-            return
-        captured_list = gs.juice_box_captured.get(gs.juice_box_key(pos), [])
-        options = [n for n in captured_list
-                   if PAWN_CHARACTERS.get(n) and PAWN_CHARACTERS[n].ability.trigger == AbilityTrigger.FLOOR_ROLL]
-        if not options or random.random() > 0.5:
-            return
-        captured_name = random.choice(options)
-        cchar = PAWN_CHARACTERS[captured_name]
-        idx = _ability_die_index(dice, cchar.ability.floor_number + 1,
-                                 cchar.ability.requires_combined)
-        if idx is None:
-            return
-        direction = _pick_chris_direction(gs, pos) if captured_name == "Chris" else None
-        gs.try_juice_box_use_captured_ability(pos, cchar.ability.name, dice, idx,
-                                              use_combined=cchar.ability.requires_combined,
-                                              direction=direction)
-        return
-
-    char = PAWN_CHARACTERS.get(name)
-    if char is None:
-        return
-
-    # Auto-trigger abilities don't need dice (Mordecai, Ren, Quasar, Orthrus)
-    if char.ability.trigger != AbilityTrigger.FLOOR_ROLL:
-        return
-
-    # Random chance to attempt (don't always waste dice)
-    if random.random() > 0.5:
-        return
-
-    idx = dice.get_best_die_for_floor(char.ability.floor_number)
-    if idx is None:
-        return
-
-    if name == "Zev":
-        gs.try_biggest_fan(pos, dice, idx)
-    elif name == "The AI":
-        gs.try_glitch(pos, dice, idx)
-    elif name == "Prepotente":
-        result = gs.try_special_boy(pos, dice, idx)
-        if result:
-            dest = random.choice(result)
-            gs.board.set(pos[0], pos[1], None)
-            gs.board.set(dest[0], dest[1], piece)
-            piece.has_moved = True
-    elif name == "Elle McGib":
-        gs.try_frozen(pos, dice, idx)
-    elif name == "Imani":
-        gs.try_suppress(pos, dice, idx)
-    elif name == "Candy Biggs":
-        gs.try_gang_gang(pos, dice)
-    elif name == "Louie":
-        gs.try_air_strike(pos, dice, idx)
-    elif name == "Sledge":
-        gs.try_body_guard(pos, dice, idx)
-    elif name == "Stripper Anaconda":
-        gs.try_gun_show(pos, dice, idx)
-    elif name == "Lucia Mar":
-        gs.try_sic_em(pos, dice, idx)
-    elif name == "Chris":
-        direction = _pick_chris_direction(gs, pos)
-        if direction:
-            gs.try_lava_surge_chunk2(pos, dice, idx, direction=direction)
-    elif name == "Florin":
-        gs.try_suppressing_fire(pos, dice, idx)
-    elif name == "Signet":
-        gs.try_succubus(pos, dice, idx)
-    elif name == "Miriam Dom":
-        gs.try_blood_magic(pos, dice)
-    elif name == "Raul the Crab":
-        gs.try_group_climax(pos, dice)
-    elif name == "Bad Llama":
-        gs.try_lava_spit_chunk2(pos, dice, idx)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -811,7 +637,7 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
 
     Priority: offensive abilities when enemies in range > defensive/utility > skip.
     """
-    if dice.remaining_count == 0:
+    if dice.remaining_count == 0 or game_state.system_reset_active:
         return
 
     board = game_state.board
@@ -912,22 +738,16 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
     offensive_attempts.sort(key=_priority_key, reverse=True)
     defensive_attempts.sort(key=_priority_key, reverse=True)
 
-    # Spend dice: offensive first, then defensive; reserve 1 die for movement
-    for ability_name, pos, piece, floor in offensive_attempts:
-        if dice.remaining_count <= 1:
-            break  # Reserve last die for movement
+    # One ability per turn, like a human: offensive first, then defensive. An
+    # attempt that didn't spend anything (no valid target) moves on to the next.
+    for ability_name, pos, piece, floor in offensive_attempts + defensive_attempts:
         idx = _ability_die_index(dice, floor, _entry_requires_combined(game_state, ability_name, pos))
         if idx is None:
             continue  # Skip this ability, try others with lower floors
+        before = (list(dice.used), dict(dice.banked_die))
         _execute_smart_ability(game_state, dice, ability_name, pos, piece, idx, color)
-
-    for ability_name, pos, piece, floor in defensive_attempts:
-        if dice.remaining_count <= 1:
-            break  # Reserve last die for movement
-        idx = _ability_die_index(dice, floor, _entry_requires_combined(game_state, ability_name, pos))
-        if idx is None:
-            continue  # Skip this ability, try others with lower floors
-        _execute_smart_ability(game_state, dice, ability_name, pos, piece, idx, color)
+        if (list(dice.used), dict(dice.banked_die)) != before:
+            return
 
 
 def _entry_requires_combined(gs: GameState, ability_name: str, pos: Tuple[int, int]) -> bool:
@@ -999,13 +819,9 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         if _has_enemy_in_range(board, row, col, 3, opponent):
             offensive.append(("louie", (row, col), piece, floor))
     elif name == "Prepotente":
-        # Titan stride is useful for advancement
-        direction = piece.color.direction
-        r2 = row + 2 * direction
-        if board.in_bounds(r2, col) and board.get(r2, col) is None:
-            r1 = row + direction
-            if board.get(r1, col) is None:
-                defensive.append(("prepotente", (row, col), piece, floor))
+        # Special Boy: useful for advancement whenever he has a safe square to go to
+        if gs.special_boy_destinations((row, col)):
+            defensive.append(("prepotente", (row, col), piece, floor))
     elif name == "Zev":
         # Pack Rally useful if adjacent friendly pawns exist
         has_adj_pawn = False
@@ -1024,10 +840,6 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         # Iron Wall if enemy nearby and in danger
         if _has_enemy_in_range(board, row, col, 2, opponent):
             defensive.append(("sledge", (row, col), piece, floor))
-    elif name == "The AI":
-        # Glitch: only try if there's a good reason
-        if _has_enemy_in_range(board, row, col, 2, opponent):
-            offensive.append(("the_ai", (row, col), piece, 4))  # Approximate floor
     elif name == "Lucia Mar":
         # Sic Em can target any enemy piece anywhere on the board
         if any(True for _ in board.all_pieces(opponent)):
@@ -1125,7 +937,7 @@ def _pull_score(gs: GameState, color: Color, src: Tuple[int, int], dest: Tuple[i
         board.set(dest[0], dest[1], None)
         board.set(src[0], src[1], piece)
     score = after - before
-    if GameState._pull_promotes(piece, dest):
+    if GameState._promotes_on(piece, dest):
         promo = PIECE_VALUES[PieceType.DUNGEON_BOSS] - 1
         score += promo if piece.color == color else -promo
     return score
@@ -1210,16 +1022,11 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     elif ability_name == "prepotente":
         result = gs.try_special_boy(pos, dice, die_idx)
         if result:
-            dest = random.choice(result)
-            gs.board.set(pos[0], pos[1], None)
-            gs.board.set(dest[0], dest[1], piece)
-            piece.has_moved = True
+            gs.apply_ability_move(pos, random.choice(result))
     elif ability_name == "zev":
         gs.try_biggest_fan(pos, dice, die_idx)
     elif ability_name == "sledge":
         gs.try_body_guard(pos, dice, die_idx)
-    elif ability_name == "the_ai":
-        gs.try_glitch(pos, dice, die_idx)
     elif ability_name == "lucia_mar":
         gs.try_sic_em(pos, dice, die_idx)
     elif ability_name == "chris":

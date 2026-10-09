@@ -537,7 +537,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.79"
+SITE_VERSION = "v0.80"
 
 
 @app.route("/")
@@ -608,11 +608,14 @@ def new_game():
 
     Body: {mode: "pvp"|"pvai"|"dev", white_pawns: [...], black_pawns: [...],
            ai_enabled: bool (optional, default True -- Game Settings "AI Summon" toggle)}
+    In "pvai" mode black_pawns is ignored: the AI drafts 8 random pawns here.
     """
     data = request.get_json(force=True)
     mode = data.get("mode", "pvp")
     white_pawns = data.get("white_pawns")
-    black_pawns = data.get("black_pawns")
+    # The AI opponent always drafts a fresh random roster: 8 distinct pawns from
+    # the full roster, independent of the player's picks, never "The AI".
+    black_pawns = random_draft() if mode == "pvai" else data.get("black_pawns")
 
     if not white_pawns or len(white_pawns) != 8:
         return jsonify({"error": "white_pawns must be a list of 8 pawn names"}), 400
@@ -1342,15 +1345,8 @@ def get_ability_targets():
         elif ability_name == "Rampage":
             # Combined dice check only — do NOT call try_rampage (would spend dice)
             if dice.can_combine_for_cost(8):
-                r, c = piece_row, piece_col
-                for dr, dc in [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]:
-                    nr, nc = r + dr, c + dc
-                    if gs.board.in_bounds(nr, nc) and not gs.is_square_blocked(nr, nc):
-                        t = gs.board.get(nr, nc)
-                        # The enemy King is never a valid Rampage target (see
-                        # try_rampage's matching target.is_king check).
-                        if t is None or (t.color != piece.color and not t.is_king):
-                            valid_targets.append([nr, nc])
+                _victims, destinations = gs.rampage_plan((piece_row, piece_col))
+                valid_targets = [list(pos) for pos in destinations]
             message = "Select destination after capturing all in path"
         
         # Target piece abilities
@@ -1373,14 +1369,7 @@ def get_ability_targets():
             message = "Select enemy piece to prevent from moving"
         
         elif ability_name == "Slut Shame":
-            # Enemy pawns within 3 squares (Orthrus is a 2-square body and can't be swallowed)
-            for dr in range(-3, 4):
-                for dc in range(-3, 4):
-                    nr, nc = piece_row + dr, piece_col + dc
-                    if gs.board.in_bounds(nr, nc):
-                        p = gs.board.get(nr, nc)
-                        if p and p.is_pawn and p.color != piece.color and p.pawn_name != "Orthrus":
-                            valid_targets.append([nr, nc])
+            valid_targets = [list(pos) for pos in gs.slut_shame_targets((piece_row, piece_col))]
             message = "Select enemy pawn to swallow (within 3 squares)"
         
         elif ability_name == "Gang Gang!":
@@ -1406,16 +1395,7 @@ def get_ability_targets():
                 message = "No captured friendly pieces to resurrect"
         
         elif ability_name == "Blood Magic":
-            # Adjacent friendly pawns to sacrifice
-            for dr in [-1, 0, 1]:
-                for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    nr, nc = piece_row + dr, piece_col + dc
-                    if gs.board.in_bounds(nr, nc):
-                        p = gs.board.get(nr, nc)
-                        if p and p.is_pawn and p.color == piece.color:
-                            valid_targets.append([nr, nc])
+            valid_targets = [list(pos) for pos in gs.blood_magic_sacrifices((piece_row, piece_col))]
             message = "Select adjacent friendly pawn to sacrifice"
 
         elif ability_name in GameState.PULL_ABILITIES:
@@ -1636,11 +1616,6 @@ def use_ability():
                     success = False
             result_msg = "Leader activated!" if success else "Failed"
 
-        elif ability_name == "Bulldozer" and piece.piece_type == PieceType.CARL:
-            result = gs.try_bulldozer((piece_row, piece_col), dice, die_index)
-            success = result is not None
-            result_msg = "Extra moves available!" if success else "Failed"
-
         elif ability_name == "Jug-o-Boom" and piece.piece_type == PieceType.CARL:
             if target_pos is None:
                 return jsonify({"error": "Jug-o-Boom needs a target square"}), 400
@@ -1659,24 +1634,9 @@ def use_ability():
             success = dest is not None
             result_msg = "Puddle jump!" if success else "Failed"
 
-        elif ability_name == "Diva's Entrance" and piece.piece_type == PieceType.DONUT:
-            # Pick a random adjacent target square for simplicity
-            r, c = piece_row, piece_col
-            adj = [(r+dr, c+dc) for dr in [-1,0,1] for dc in [-1,0,1]
-                   if (dr != 0 or dc != 0) and gs.board.in_bounds(r+dr, c+dc)]
-            target = random.choice(adj) if adj else None
-            if target:
-                success = gs.try_divas_entrance((piece_row, piece_col), dice, die_index, target)
-            result_msg = "Phantom threat placed!" if success else "Failed"
-
         elif ability_name == "Cockroach" and piece.piece_type == PieceType.DONUT:
             # Cockroach uses target_pos as spawn location
             result = gs.try_cockroach((piece_row, piece_col), dice, target_pos=target_pos)
-            success = result is not None
-            result_msg = f"Resurrected {repr(result)}!" if success else "Failed"
-
-        elif ability_name == "Resurrection" and piece.piece_type == PieceType.DONUT:
-            result = gs.try_resurrection((piece_row, piece_col), dice, die_index, color)
             success = result is not None
             result_msg = f"Resurrected {repr(result)}!" if success else "Failed"
 
@@ -1695,10 +1655,6 @@ def use_ability():
             success = gs.try_pet_carrier((piece_row, piece_col), dice, die_index)
             result_msg = "Pet carrier activated!" if success else "Failed"
 
-        elif ability_name == "Mongo Smash" and piece.piece_type == PieceType.MONGO:
-            success = gs.try_mongo_smash((piece_row, piece_col), dice, die_index)
-            result_msg = "Smash hit!" if success else "Failed"
-
         elif ability_name == "Rampage" and piece.piece_type == PieceType.MONGO:
             result = gs.try_rampage((piece_row, piece_col), dice)
             success = result is not None
@@ -1711,15 +1667,6 @@ def use_ability():
                     gs.board.set(piece_row, piece_col, None)
                     gs.board.set(dest[0], dest[1], piece)
             result_msg = "Rampage!" if success else "Failed"
-
-        elif ability_name == "Rampaging Charge" and piece.piece_type == PieceType.MONGO:
-            result = gs.try_rampaging_charge((piece_row, piece_col), dice, die_index)
-            success = result is not None
-            if success and result:
-                dest = random.choice(result)
-                gs.board.set(piece_row, piece_col, None)
-                gs.board.set(dest[0], dest[1], piece)
-            result_msg = "Charge!" if success else "Failed"
 
         elif ability_name == "Gorefest" and piece.piece_type == PieceType.MONGO:
             if target_pos is None:
@@ -1771,24 +1718,6 @@ def use_ability():
                 success = gs.try_blitzed((piece_row, piece_col), dice, die_index)
                 result_msg = "Blitzed activated!" if success else "Failed"
 
-        elif ability_name == "Combat Roll" and piece.piece_type == PieceType.KATIA:
-            result = gs.try_combat_roll((piece_row, piece_col), dice, die_index)
-            success = result is not None and len(result) > 0
-            if success:
-                dest = random.choice(result)
-                gs.board.set(piece_row, piece_col, None)
-                gs.board.set(dest[0], dest[1], piece)
-            result_msg = "Rolled to safety!" if success else "Failed"
-
-        elif ability_name == "Dual Threat" and piece.piece_type == PieceType.KATIA:
-            r, c = piece_row, piece_col
-            adj = [(r+dr, c+dc) for dr in [-2,-1,0,1,2] for dc in [-2,-1,0,1,2]
-                   if (dr != 0 or dc != 0) and gs.board.in_bounds(r+dr, c+dc)]
-            target = random.choice(adj) if adj else None
-            if target:
-                success = gs.try_dual_threat((piece_row, piece_col), dice, die_index, target)
-            result_msg = "Dual threat!" if success else "Failed"
-
         elif ability_name == "I Need My Space" and piece.piece_type == PieceType.KATIA:
             result = gs.try_i_need_my_space((piece_row, piece_col), dice, die_index)
             success = result is not None
@@ -1796,51 +1725,14 @@ def use_ability():
 
         # Samantha abilities
         elif ability_name == "Slut Shame" and piece.piece_type == PieceType.SAMANTHA:
-            # Slut Shame uses target_pos to select which pawn to swallow
-            if target_pos:
-                target_piece = gs.board.get(target_pos[0], target_pos[1])
-                if target_piece and target_piece.is_pawn and target_piece.color != piece.color and target_piece.pawn_name != "Orthrus":
-                    # Manually execute slut shame with specific target
-                    key = (piece.color, id(piece))
-                    if not gs.slut_shame_used.get(key, False) and dice.can_combine_for_cost(8):
-                        dice.spend_combined(8)
-                        gs.log_event("ability_roll", piece="Samantha", ability="Slut Shame",
-                                     detail="Combined dice for cost 8", result="success")
-                        gs.slut_shame_used[key] = True
-                        gs.board.set(target_pos[0], target_pos[1], None)
-                        gs.swallowed_pawns.append({
-                            "piece": target_piece,
-                            "turns_left": 5,
-                            "samantha_pos": (piece_row, piece_col)
-                        })
-                        gs.log_event("slut_shame", swallowed=repr(target_piece), pos=target_pos,
-                                     detail="Will respawn within 1 square of Samantha in 5 turns")
-                        success = True
-                        result_msg = "Pawn swallowed!"
-                    else:
-                        success = False
-                        result_msg = "Failed"
-                else:
-                    success = False
-                    result_msg = "Invalid target"
-            else:
-                success = gs.try_slut_shame((piece_row, piece_col), dice)
-                result_msg = "Pawn swallowed!" if success else "Failed"
+            # target_pos, when given, is the pawn to swallow
+            success = gs.try_slut_shame((piece_row, piece_col), dice, target_pos=target_pos)
+            result_msg = "Pawn swallowed!" if success else "Failed"
 
         elif ability_name == "Miss Me?" and piece.piece_type == PieceType.SAMANTHA:
             result = gs.try_miss_me((piece_row, piece_col), dice, die_index, is_reaction=False)
             success = result is not None
             result_msg = f"Dice rerolled: {result}!" if success else "Failed"
-
-        elif ability_name == "The Mouth" and piece.piece_type == PieceType.SAMANTHA:
-            result = gs.try_the_mouth((piece_row, piece_col), dice, die_index)
-            success = result is not None
-            result_msg = f"Rerolled to {result}!" if success else "Failed"
-
-        elif ability_name == "Portal Spike" and piece.piece_type == PieceType.SAMANTHA:
-            result = gs.try_portal_spike((piece_row, piece_col), dice, die_index)
-            success = result is not None
-            result_msg = "Teleported!" if success else "Failed"
 
         elif ability_name == "IWKYM" and piece.piece_type == PieceType.SAMANTHA:
             success = gs.try_iwkym((piece_row, piece_col), dice, die_index)
@@ -1890,18 +1782,12 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
     if name == "Zev" and ability_name == "Biggest Fan":
         success = gs.try_biggest_fan(pos, dice, die_index)
         msg = "Biggest fan activated!" if success else "Failed"
-    elif name == "The AI" and ability_name == "Glitch":
-        success = gs.try_glitch(pos, dice, die_index)
-        msg = "Glitched!" if success else "Failed"
     elif name == "Prepotente" and ability_name == "Special Boy":
         result = gs.try_special_boy(pos, dice, die_index)
         success = result is not None
         if success and result:
-            # Let player pick destination from result list
-            dest = random.choice(result)
-            gs.board.set(row, col, None)
-            gs.board.set(dest[0], dest[1], piece)
-            piece.has_moved = True
+            dest = tuple(target_pos) if target_pos and tuple(target_pos) in result else random.choice(result)
+            gs.apply_ability_move(pos, dest)
         msg = "Special boy!" if success else "Failed"
     elif name == "Candy Biggs" and ability_name == "Gang Gang!":
         # Gang Gang! uses target_pos from request data if available
@@ -1997,51 +1883,9 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         success = gs.try_succubus(pos, dice, die_index, target_pos=target_pos)
         msg = "Succubus!" if success else "Failed"
     elif name == "Miriam Dom" and ability_name == "Blood Magic":
-        # Blood Magic uses target_pos to select sacrifice pawn
-        # target_pos is passed in as parameter
-        if target_pos:
-            sacrifice_piece = gs.board.get(target_pos[0], target_pos[1])
-            if sacrifice_piece and sacrifice_piece.is_pawn and sacrifice_piece.color == piece.color:
-                # Execute blood magic with specific sacrifice
-                if dice.can_combine_for_cost(8):
-                    dice.spend_combined(8)
-                    gs.log_event("ability_roll", piece="Miriam Dom", ability="Blood Magic",
-                                 detail="Combined dice for cost 8", result="success")
-                    gs.board.set(target_pos[0], target_pos[1], None)
-                    # Resurrect captured pawn on back rank (Orthrus can never be resurrected)
-                    source, captured = gs.blood_magic_candidates(piece.color)
-                    if captured:
-                        resurrected = random.choice(captured)
-                        source.remove(resurrected)
-                        back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
-                        spawn_squares = [(back_rank, c) for c in range(BOARD_SIZE) if gs.board.get(back_rank, c) is None]
-                        if spawn_squares:
-                            spawn_pos = random.choice(spawn_squares)
-                            gs.board.set(spawn_pos[0], spawn_pos[1], resurrected)
-                            if resurrected.is_pawn and resurrected.pawn_name:
-                                gs._juice_box_lose_ability(resurrected.pawn_name)
-                            gs.log_event("blood_magic", sacrificed=repr(sacrifice_piece), sacrificed_pos=target_pos,
-                                         resurrected=repr(resurrected), spawn_pos=spawn_pos)
-                            success = True
-                            msg = "Blood magic!"
-                        else:
-                            source.append(resurrected)
-                            gs.board.set(target_pos[0], target_pos[1], sacrifice_piece)
-                            success = False
-                            msg = "No space on back rank"
-                    else:
-                        gs.board.set(target_pos[0], target_pos[1], sacrifice_piece)
-                        success = False
-                        msg = "No captured pieces"
-                else:
-                    success = False
-                    msg = "Failed"
-            else:
-                success = False
-                msg = "Invalid target"
-        else:
-            success = gs.try_blood_magic(pos, dice)
-            msg = "Blood magic!" if success else "Failed"
+        # target_pos, when given, is the adjacent pawn to sacrifice
+        success = gs.try_blood_magic(pos, dice, target_pos=target_pos)
+        msg = "Blood magic!" if success else "Failed"
     elif name == "Raul the Crab" and ability_name == "Group Climax":
         success = gs.try_group_climax(pos, dice)
         msg = "Group climax activated!" if success else "Failed"
@@ -2184,39 +2028,64 @@ def end_turn():
     return jsonify(build_game_state_response())
 
 
+def _end_ai_turn_without_a_move(gs, color):
+    """The AI has no legal move: during a Boss Event it just passes (the game
+    never ends by checkmate/stalemate while a boss is active -- Bug 3; also the
+    boss co-op fallen-AI case); otherwise the game ends."""
+    if gs.boss_active:
+        gs.end_turn()
+        _begin_next_phase_after_turn(gs, color)
+        return
+    game_data["game_over"] = True
+    game_data["phase"] = "game_over"
+    if is_in_check(gs.board, color):
+        game_data["winner"] = color.opponent.value
+        game_data["result_reason"] = "checkmate"
+    else:
+        game_data["winner"] = None
+        game_data["result_reason"] = "stalemate"
+
+
 def _play_ai_turn():
-    """Play the AI's turn (black). Returns response dict or None."""
+    """Play the AI's turn (black) in the same order as a human turn: roll the
+    dice, use at most one ability, then move. Returns response dict."""
     gs = game_data["game_state"]
     dice = game_data["dice"]
     color = Color.BLACK
+    opponent = Color.WHITE
 
     gs.start_turn()
     gs.update_katia_threats()
 
-    # Get legal moves
-    legal = gs.get_legal_moves_with_status(color)
-    if not legal:
-        # During a Boss Event the fight takes priority -- an AI with no legal
-        # (non-capture) move doesn't end the game by checkmate/stalemate; it just
-        # rolls into the next phase with no move (Bug 3; also the boss co-op
-        # fallen-AI case).
-        if gs.boss_active:
-            gs.end_turn()
-            _begin_next_phase_after_turn(gs, color)
-            return build_game_state_response()
-        if is_in_check(gs.board, color):
-            game_data["game_over"] = True
-            game_data["winner"] = "white"
-            game_data["result_reason"] = "checkmate"
-            game_data["phase"] = "game_over"
-        else:
-            game_data["game_over"] = True
-            game_data["winner"] = None
-            game_data["result_reason"] = "stalemate"
-            game_data["phase"] = "game_over"
+    # Same start-of-turn check a human gets in /start_turn: no legal move at all
+    # ends the game before any dice are rolled.
+    if not gs.get_legal_moves_with_status(color):
+        _end_ai_turn_without_a_move(gs, color)
         return build_game_state_response()
 
-    # AI picks a move
+    # 1. Roll dice
+    dice.roll()
+    gs.log_event("dice_roll", values=dice.dice[:])
+    gs.promote_group_climax(dice)
+    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color, dice=dice)
+
+    # 2. Use an ability (smart_abilities never uses more than one, skips them
+    # all under System Reset, and no ability can leave the AI's Carl in check)
+    smart_abilities(gs, dice, color)
+
+    # Safety net: abilities can't capture Carl (see the v0.80 KNOWN_BUGS
+    # entry), but if White's Carl were ever gone anyway, end the game here
+    # instead of playing on with no king on the board.
+    if gs.board.find_king(opponent) is None:
+        if _handle_carl_fallen(gs, color, opponent):
+            return build_game_state_response()
+
+    # 3. Move. The roll or the ability may have changed what's legal (an AI
+    # Card, a pull, a frozen piece), so pick from the current legal moves.
+    legal = gs.get_legal_moves_with_status(color)
+    if not legal:
+        _end_ai_turn_without_a_move(gs, color)
+        return build_game_state_response()
     from_pos, to_pos = smart_move(gs, legal)
 
     # Execute move
@@ -2267,7 +2136,6 @@ def _play_ai_turn():
 
     # Check game end. A missing king takes priority over checkmate/stalemate --
     # see _finish_move_and_check_game_over for why.
-    opponent = Color.WHITE
     if gs.board.find_king(opponent) is None:
         if _handle_carl_fallen(gs, color, opponent):
             return build_game_state_response()
@@ -2288,22 +2156,6 @@ def _play_ai_turn():
             game_data["result_reason"] = "stalemate"
             game_data["phase"] = "game_over"
             gs.end_turn()
-            return build_game_state_response()
-
-    # Roll dice and use abilities
-    dice.roll()
-    gs.log_event("dice_roll", values=dice.dice[:])
-    gs.promote_group_climax(dice)
-    gs.draw_ai_card_if_triggered(dice.dice[0], dice.dice[1], color, dice=dice)
-    smart_abilities(gs, dice, color)
-
-    # Safety net: an ability the AI just used may have moved or removed a
-    # piece directly on the board without going through the normal
-    # move-capture flow (see the matching check in use_ability()). If
-    # White's Carl is now gone as a result, end the game here instead of
-    # continuing to play out a turn with no king on the board.
-    if gs.board.find_king(opponent) is None:
-        if _handle_carl_fallen(gs, color, opponent):
             return build_game_state_response()
 
     # End AI turn

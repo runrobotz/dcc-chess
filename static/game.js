@@ -169,7 +169,7 @@ const Game = {
             if (rollEvent) {
                 return rollEvent.roll <= 3
                     ? 'You — Custard resets one of your spent abilities'
-                    : 'A random square — Fireball may permanently kill whatever piece is there';
+                    : 'A random square — Fireball may permanently kill whatever piece is there (never Carl)';
             }
             return 'You, or a random square, depending on the roll';
         }
@@ -1250,13 +1250,9 @@ const Game = {
             this.draftSelection = [];
 
             if (this.mode === 'pvai') {
-                // AI drafts from remaining. "The AI" pawn is never draftable by
-                // anyone -- exclude it here too (belt-and-suspenders alongside the
-                // /roster endpoint, which already omits it).
-                const remaining = this.roster
-                    .map(p => p.name)
-                    .filter(n => n !== 'The AI' && !this.whitePawns.includes(n));
-                this.blackPawns = this.shuffleArray(remaining).slice(0, 8);
+                // The server drafts the AI's roster (8 random pawns, see
+                // /new_game); startGame() reads it back from the game state.
+                this.blackPawns = [];
                 await this.startGame();
             } else {
                 // PvP: Player 2 drafts
@@ -1292,6 +1288,7 @@ const Game = {
                 this.showToast(this.state.error, 'fail');
                 return;
             }
+            this.blackPawns = this.state.black_pawns || this.blackPawns;
             this.selectedSquare = null;
             this.legalMoves = [];
             this.lastMoveFrom = null;
@@ -4765,15 +4762,6 @@ const Game = {
         }, 100);
 
         document.body.appendChild(notification);
-    },
-
-    shuffleArray(arr) {
-        const a = [...arr];
-        for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
     },
 
     // ═══ DEV GAME MODE ═══

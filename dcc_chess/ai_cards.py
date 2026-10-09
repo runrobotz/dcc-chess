@@ -37,7 +37,8 @@ AI_CARD_NAMES: List[str] = [
 
 AI_CARD_DESCRIPTIONS: Dict[str, str] = {
     "Lottery Ticket": "Roll a die. 1-3: Custard -- reset one limited-use ability. "
-                       "4-6: Fireball -- a random square is struck and its piece is permanently killed.",
+                       "4-6: Fireball -- a random square is struck and its piece is permanently killed "
+                       "(it fizzles if Carl is there).",
     "You a Bitch": "If you're down in piece count, roll a die for a chance to resurrect a major piece.",
     "AI's Pet": "All your ability costs are reduced by 1 this turn.",
     "Dirty Tootsies": "All your ability costs are increased by 1 this turn.",
@@ -414,6 +415,12 @@ def _resolve_fireball(gs: "GameState", color: Color) -> None:
     col = _scale_1_to_9(col_roll)
     row = _scale_1_to_9(row_roll)
     gs.log_event("fireball_target", col_roll=col_roll, row_roll=row_roll, row=row, col=col)
+
+    occupant = gs.board.get(row, col)
+    if occupant is not None and occupant.is_king:
+        _set_outcome(gs, "Lottery Ticket", color,
+                     f"Fireball: it fizzled -- Carl stands on ({row}, {col}) and can't be hit.")
+        return
 
     target = gs.eliminate_piece_permanently(row, col)
     if target is None:

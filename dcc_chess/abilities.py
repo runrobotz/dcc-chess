@@ -516,53 +516,53 @@ class GameState:
             for zone in self.lava_spit_zones if zone["turns"] - 1 > 0
         ]
 
-        # Swallowed pawns (Slut Shame)
-        respawned = []
-        for i, swallowed in enumerate(self.swallowed_pawns):
-            swallowed["turns_left"] -= 1
-            if swallowed["turns_left"] <= 0:
-                respawned.append(i)
-        # Respawn in reverse order to avoid index issues
-        for i in reversed(respawned):
-            pawn_data = self.swallowed_pawns.pop(i)
-            # Find Samantha and respawn pawn adjacent
-            sam_pos = pawn_data["samantha_pos"]
+        # Swallowed pawns (Slut Shame) respawn on a square next to where
+        # Samantha swallowed them. With no safe square free, the pawn waits
+        # and tries again at the end of the next turn.
+        still_swallowed = []
+        for pawn_data in self.swallowed_pawns:
+            pawn_data["turns_left"] -= 1
+            if pawn_data["turns_left"] > 0:
+                still_swallowed.append(pawn_data)
+                continue
+            sr, sc = pawn_data["samantha_pos"]
             piece = pawn_data["piece"]
-            # Try to find adjacent empty square
-            for dr in [-1, 0, 1]:
-                for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    nr, nc = sam_pos[0] + dr, sam_pos[1] + dc
-                    if self.board.in_bounds(nr, nc) and self.board.get(nr, nc) is None:
-                        self.board.set(nr, nc, piece)
-                        self.log_event("pawn_respawn", piece=repr(piece), pos=(nr, nc))
-                        break
-        
+            spot = next((sq for sq in [(sr + dr, sc + dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)]
+                         if sq != (sr, sc) and self._safe_respawn_square(piece, sq)), None)
+            if spot is None:
+                still_swallowed.append(pawn_data)
+                continue
+            self.board.set(spot[0], spot[1], piece)
+            self.log_event("pawn_respawn", piece=repr(piece), pos=spot)
+        self.swallowed_pawns = still_swallowed
+
         # Mordecai respawn. Skip the grace tick on the capture turn's own
         # end_turn() so exactly 3 full turns pass between death and respawn.
-        mordecai_respawned = []
-        for i, mord_data in enumerate(self.mordecai_respawn_pending):
+        # With no safe back-rank square free, he waits and tries again at the
+        # end of the next turn.
+        still_pending = []
+        for mord_data in self.mordecai_respawn_pending:
             if mord_data.pop("skip_first_tick", False):
+                still_pending.append(mord_data)
                 continue
             mord_data["turns_left"] -= 1
-            if mord_data["turns_left"] <= 0:
-                mordecai_respawned.append(i)
-        for i in reversed(mordecai_respawned):
-            mord_data = self.mordecai_respawn_pending.pop(i)
+            if mord_data["turns_left"] > 0:
+                still_pending.append(mord_data)
+                continue
             piece = mord_data["piece"]
-            color = mord_data["color"]
-            # Respawn on back rank
-            back_rank = 0 if color == Color.WHITE else 10
-            for c in range(BOARD_SIZE):
-                if self.board.get(back_rank, c) is None:
-                    self.board.set(back_rank, c, piece)
-                    # NOTE: Mordecai's Manager Benefit respawn is his own passive,
-                    # not an enemy resurrection, so a Juice Box that captured him
-                    # keeps that acquired ability. Only an opponent actively
-                    # resurrecting the pawn (Cockroach / Blood Magic) strips it.
-                    self.log_event("mordecai_respawn", piece=repr(piece), pos=(back_rank, c))
-                    break
+            back_rank = 0 if mord_data["color"] == Color.WHITE else BOARD_SIZE - 1
+            spot = next((sq for sq in [(back_rank, c) for c in range(BOARD_SIZE)]
+                         if self._safe_respawn_square(piece, sq)), None)
+            if spot is None:
+                still_pending.append(mord_data)
+                continue
+            self.board.set(spot[0], spot[1], piece)
+            # NOTE: Mordecai's Manager Benefit respawn is his own passive,
+            # not an enemy resurrection, so a Juice Box that captured him
+            # keeps that acquired ability. Only an opponent actively
+            # resurrecting the pawn (Cockroach / Blood Magic) strips it.
+            self.log_event("mordecai_respawn", piece=repr(piece), pos=spot)
+        self.mordecai_respawn_pending = still_pending
 
         # Matt's Drunk Again -- tick down one full turn (this individual player's
         # turn, not a full white+black round); restore normal control at zero.
@@ -589,6 +589,24 @@ class GameState:
         # Swap player
         self.current_player = self.current_player.opponent
         self.turn_number += 1
+
+    def _safe_respawn_square(self, piece: Piece, pos: Tuple[int, int]) -> bool:
+        """Whether an end-of-turn respawn may put `piece` on pos: an open,
+        unzoned square where it doesn't put the player whose turn is ending
+        in check -- the other side moves next and could take that Carl."""
+        if (not self.board.in_bounds(*pos) or self.board.get(*pos) is not None
+                or self.is_square_blocked(*pos)):
+            return False
+        ender = self.current_player
+        if piece.color == ender or self.board.find_king(ender) is None:
+            return True
+        if is_in_check(self.board, ender):
+            return True  # already in check -- this respawn doesn't change that
+        self.board.set(pos[0], pos[1], piece)
+        try:
+            return not is_in_check(self.board, ender)
+        finally:
+            self.board.set(pos[0], pos[1], None)
 
     # ── Square Blocking ───────────────────────────────────────────
 
@@ -675,6 +693,11 @@ class GameState:
             # Can't capture invulnerable pieces
             target = self.board.get(tr, tc)
             if target and self.is_piece_invulnerable(tr, tc):
+                continue
+            # Carl is never captured outright, as in chess. Normal play can't
+            # leave him exposed, and if some effect ever does, his side still
+            # gets its own turn to get out of check (or is checkmated then).
+            if target and target.is_king:
                 continue
             # During a Boss Event, regular PvP captures are disabled entirely --
             # pieces may still move for positioning, but only Special Event
@@ -1345,6 +1368,49 @@ class GameState:
                 return (r, c)
         return None
 
+    def leaves_carl_in_check(self, color: Color, moves=(), removals=()) -> bool:
+        """True if these board changes would leave `color`'s Carl in check: the
+        squares in `removals` emptied, then each (src, dest) in `moves` applied
+        (dest's occupant is captured). The board is restored afterwards.
+
+        Every ability that moves or removes pieces checks this before spending
+        anything, so no ability can leave its caster's own Carl in check.
+        """
+        if self.board.find_king(color) is None:
+            return False  # boss co-op fallen player -- no Carl to protect
+        saved = {}
+        for pos in list(removals) + [sq for move in moves for sq in move]:
+            saved.setdefault(tuple(pos), self.board.get(*pos))
+        try:
+            for r, c in removals:
+                self.board.set(r, c, None)
+            for (sr, sc), (dr, dc) in moves:
+                piece = self.board.get(sr, sc)
+                self.board.set(sr, sc, None)
+                self.board.set(dr, dc, piece)
+            return is_in_check(self.board, color)
+        finally:
+            for (r, c), piece in saved.items():
+                self.board.set(r, c, piece)
+
+    def apply_ability_move(self, src: Tuple[int, int], dest: Tuple[int, int]) -> Optional[Piece]:
+        """Move the piece on src to dest for an ability (e.g. Special Boy),
+        capturing whatever stands on dest the same way a normal capture does:
+        into the graveyard, with its on-capture effects. A pawn reaching its
+        promotion rank promotes. Returns the captured piece, if any.
+        """
+        piece = self.board.get(*src)
+        captured = self.board.get(*dest)
+        self.board.set(src[0], src[1], None)
+        self.board.set(dest[0], dest[1], piece)
+        piece.has_moved = True
+        if captured is not None:
+            self.board.captured[captured.color].append(captured)
+            self.process_post_capture(captured, dest, piece, src)
+        if self._promotes_on(piece, dest):
+            self.board._promote_pawn(dest[0], dest[1], piece)
+        return captured
+
     def update_katia_threats(self):
         """Store current Katia threatened squares for Combat Roll next turn."""
         self.katia_last_threats.clear()
@@ -1692,67 +1758,109 @@ class GameState:
         self.log_event("biggest_fan", detail="All friendly pieces get +1 to dice next turn")
         return True
 
+    def special_boy_destinations(self, pawn_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Prepotente's Special Boy destinations: 2 squares straight forward,
+        or a 2-forward diagonal capture (up to 2 columns over); any square
+        within 2 while his Carl is in check. Never the enemy Carl, an
+        invulnerable piece (Ren, Body Guard), or Orthrus (only majors capture
+        him), and never a move that leaves his own Carl in check.
+        """
+        piece = self.board.get(*pawn_pos)
+        if piece is None:
+            return []
+        r, c = pawn_pos
+        forward = piece.color.direction
+
+        if is_in_check(self.board, piece.color):
+            candidates = [(r + dr, c + dc) for dr in range(-2, 3) for dc in range(-2, 3)
+                          if (dr, dc) != (0, 0)]
+            captures_only = set()
+        else:
+            nr = r + 2 * forward
+            candidates = [(nr, c)] + [(nr, c + dc) for dc in (-2, -1, 1, 2)]
+            captures_only = set(candidates[1:])  # the diagonals need a piece to capture
+
+        moves = []
+        for nr, nc in candidates:
+            if not self.board.in_bounds(nr, nc) or self.is_square_blocked(nr, nc):
+                continue
+            target = self.board.get(nr, nc)
+            if target is None:
+                if (nr, nc) in captures_only:
+                    continue
+            elif (target.color == piece.color or target.is_king
+                    or self.is_piece_invulnerable(nr, nc) or target.pawn_name == "Orthrus"):
+                continue
+            if self.leaves_carl_in_check(piece.color, moves=[(pawn_pos, (nr, nc))]):
+                continue
+            moves.append((nr, nc))
+        return moves
+
     def try_special_boy(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                         die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Prepotente's Special Boy (Floor 4): Move 2 squares forward."""
+        """Prepotente's Special Boy (Floor 4): Move 2 squares forward.
+
+        Returns the destinations (see special_boy_destinations) on success; the
+        caller moves him with apply_ability_move. With no destination, nothing
+        is spent.
+        """
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name not in ("Prepotente", "Juice Box"):
             return None
         if self.is_piece_suppressed(*pawn_pos):
             return None
+        moves = self.special_boy_destinations(pawn_pos)
+        if not moves:
+            return None
 
         success = dice.spend_die(die_index, 4)
         self.log_event("ability_roll", piece="Prepotente", ability="Special Boy",
                        die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return None
+        return moves if success else None
 
-        r, c = pawn_pos
-        forward = piece.color.direction
-        moves = []
-        
-        # Check if Carl is in check
-        from .movement import is_in_check
-        carl_in_check = is_in_check(self.board, piece.color)
-        
-        if carl_in_check:
-            # Can move 2 squares in any direction
-            for dr in [-2, -1, 0, 1, 2]:
-                for dc in [-2, -1, 0, 1, 2]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    if abs(dr) > 2 or abs(dc) > 2:
-                        continue
-                    nr, nc = r + dr, c + dc
-                    if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                        target = self.board.get(nr, nc)
-                        if target is None or target.color != piece.color:
-                            moves.append((nr, nc))
-        else:
-            # Move 2 squares forward
-            nr = r + (2 * forward)
-            if self.board.in_bounds(nr, c) and not self.is_square_blocked(nr, c):
-                target = self.board.get(nr, c)
-                if target is None or target.color != piece.color:
-                    moves.append((nr, c))
-            # Can also capture diagonally 2 forward
-            for dc in [-2, -1, 1, 2]:
-                nc = c + dc
-                nr = r + (2 * forward)
-                if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                    target = self.board.get(nr, nc)
-                    if target and target.color != piece.color:
-                        moves.append((nr, nc))
-        
-        return moves if moves else None
+    def suppressing_fire_pushes(self, florin_pos: Tuple[int, int]) -> Dict[Tuple[int, int], Tuple[int, int]]:
+        """Enemy pieces within 5 squares Florin can push, mapped to where each
+        ends up: 2 squares directly away from Florin, stopping early at a piece,
+        zone, or the board edge. Never Orthrus (2-square body) or a Body Guard
+        piece, never a piece that can't move at all, and never a push that
+        leaves Florin's own Carl in check.
+        """
+        piece = self.board.get(*florin_pos)
+        if piece is None:
+            return {}
+        r, c = florin_pos
+        pushes = {}
+        for tr in range(max(0, r - 5), min(BOARD_SIZE, r + 6)):
+            for tc in range(max(0, c - 5), min(BOARD_SIZE, c + 6)):
+                target = self.board.get(tr, tc)
+                if (target is None or target.color == piece.color or target.pawn_name == "Orthrus"
+                        or (tr, tc) in self.iron_wall_pieces):
+                    continue
+                dr = (tr > r) - (tr < r)
+                dc = (tc > c) - (tc < c)
+                dest = None
+                for i in (1, 2):
+                    nr, nc = tr + dr * i, tc + dc * i
+                    if (not self.board.in_bounds(nr, nc) or self.is_square_blocked(nr, nc)
+                            or self.board.get(nr, nc) is not None):
+                        break
+                    dest = (nr, nc)
+                if dest and not self.leaves_carl_in_check(piece.color, moves=[((tr, tc), dest)]):
+                    pushes[(tr, tc)] = dest
+        return pushes
 
     def try_suppressing_fire(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                              die_index: int) -> bool:
-        """Florin's Suppressing Fire (Floor 6): Push enemy piece 2 squares away."""
+        """Florin's Suppressing Fire (Floor 6): Push enemy piece 2 squares away.
+        The target is random (see suppressing_fire_pushes); nothing is spent if
+        no enemy piece can be pushed."""
         piece = self.board.get(*pawn_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name not in ("Florin", "Juice Box"):
             return False
         if self.is_piece_suppressed(*pawn_pos):
+            return False
+        pushes = self.suppressing_fire_pushes(pawn_pos)
+        if not pushes:
             return False
 
         success = dice.spend_die(die_index, 6)
@@ -1761,58 +1869,14 @@ class GameState:
         if not success:
             return False
 
-        r, c = pawn_pos
-        # Find enemy pieces
-        targets = []
-        for dr in range(-5, 6):
-            for dc in range(-5, 6):
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    target = self.board.get(nr, nc)
-                    # Orthrus is a 2-square body; a single-square push would corrupt it
-                    if target and target.color != piece.color and target.pawn_name != "Orthrus":
-                        targets.append((nr, nc, target))
-
-        if not targets:
-            return False
-
-        # Pick random target
-        tr, tc, target = random.choice(targets)
-
-        # Calculate push direction (away from Florin)
-        dr = tr - r
-        dc = tc - c
-        # Normalize to direction
-        if dr != 0:
-            dr = dr // abs(dr)
-        if dc != 0:
-            dc = dc // abs(dc)
-        
-        # Try to push 2 squares
-        pushed = 0
-        final_r, final_c = tr, tc
-        for i in range(1, 3):
-            nr = tr + (dr * i)
-            nc = tc + (dc * i)
-            if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                if self.board.get(nr, nc) is None:
-                    final_r, final_c = nr, nc
-                    pushed = i
-                else:
-                    break
-            else:
-                break
-        
-        if pushed > 0:
-            self.board.set(tr, tc, None)
-            self.board.set(final_r, final_c, target)
-            self.log_event("suppressing_fire", target=repr(target),
-                           from_pos=(tr, tc), to_pos=(final_r, final_c), pushed=pushed)
-            return True
-        
-        return False
+        (tr, tc), (final_r, final_c) = random.choice(list(pushes.items()))
+        target = self.board.get(tr, tc)
+        self.board.set(tr, tc, None)
+        self.board.set(final_r, final_c, target)
+        self._relocate_piece_status((tr, tc), (final_r, final_c))
+        self.log_event("suppressing_fire", target=repr(target), from_pos=(tr, tc),
+                       to_pos=(final_r, final_c), pushed=max(abs(final_r - tr), abs(final_c - tc)))
+        return True
 
     def chris_lava_surge_adjacent_enemy(self, pawn_pos: Tuple[int, int]) -> bool:
         """Check whether any enemy piece is adjacent (within 1 square) to Chris."""
@@ -2270,9 +2334,7 @@ class GameState:
                         dest = tuple(target_pos)
                     else:
                         dest = random.choice(result)
-                    self.board.set(juice_box_pos[0], juice_box_pos[1], None)
-                    self.board.set(dest[0], dest[1], piece)
-                    piece.has_moved = True
+                    self.apply_ability_move(juice_box_pos, dest)
                     success = True
             elif name == "Ren":
                 # Indestructible is passive and has no active effect to fire.
@@ -2331,7 +2393,8 @@ class GameState:
         up to `max_distance` squares, respecting that piece's own movement rules
         (diagonal only for Katia, orthogonal only for Samantha, either for Donut)
         and board obstruction. The piece can never land on or pass through any
-        occupied square, and can never land on Carl's own square.
+        occupied square, can never land on Carl's own square, and can't be
+        pulled anywhere that leaves its Carl in check.
         """
         piece = self.board.get(*piece_pos)
         if piece is None or max_distance <= 0:
@@ -2370,6 +2433,8 @@ class GameState:
                 break
             if self.board.get(nr, nc) is not None:
                 break
+            if self.leaves_carl_in_check(piece.color, moves=[(piece_pos, (nr, nc))]):
+                continue
             destinations.append((nr, nc))
         return destinations
 
@@ -2409,7 +2474,7 @@ class GameState:
         distance in any Queen direction, hopping harmlessly over every piece
         (friendly or enemy) in the path. Only a completely empty square is a
         valid destination -- Puddle Jump can never land on or affect an
-        occupied square.
+        occupied square -- and never one that leaves her Carl in check.
         """
         piece = self.board.get(*donut_pos)
         if piece is None or piece.piece_type != PieceType.DONUT:
@@ -2425,7 +2490,8 @@ class GameState:
                     break
                 if self.is_square_blocked(nr, nc):
                     break
-                if self.board.get(nr, nc) is None:
+                if (self.board.get(nr, nc) is None
+                        and not self.leaves_carl_in_check(piece.color, moves=[(donut_pos, (nr, nc))])):
                     destinations.append((nr, nc))
                 # An occupied square (friendly or enemy) is ignored entirely --
                 # Puddle Jump never touches pieces in its path, so scanning
@@ -2476,6 +2542,10 @@ class GameState:
         if piece is None or piece.piece_type != PieceType.MONGO:
             return False
         if self.is_piece_suppressed(*mongo_pos):
+            return False
+        # Storing Mongo takes him off the board -- not if that exposes his Carl.
+        if (not self.mongo_stored.get((piece.color, id(piece)), False)
+                and self.leaves_carl_in_check(piece.color, removals=[mongo_pos])):
             return False
 
         success = dice.spend_die(die_index, 4)
@@ -2897,9 +2967,42 @@ class GameState:
         self.log_event("cockroach", piece_resurrected=repr(resurrected), pos=spawn_pos)
         return resurrected
 
+    def rampage_plan(self, mongo_pos: Tuple[int, int]) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+        """(victims, destinations) for Mongo's Rampage: every enemy piece on his
+        knight squares is captured (never the enemy Carl), then he lands on one
+        of those squares or an empty one. A destination is only offered if,
+        with all the victims gone and Mongo on it, his own Carl isn't in check.
+        """
+        piece = self.board.get(*mongo_pos)
+        if piece is None:
+            return [], []
+        r, c = mongo_pos
+        squares = []
+        victims = []
+        for dr, dc in [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]:
+            nr, nc = r + dr, c + dc
+            if not self.board.in_bounds(nr, nc) or self.is_square_blocked(nr, nc):
+                continue
+            target = self.board.get(nr, nc)
+            if target is None:
+                squares.append((nr, nc))
+            elif target.color != piece.color and not target.is_king:
+                # The enemy Carl is never a valid Rampage target -- as in
+                # standard chess, Carl is never directly capturable (same
+                # rule as plot_armor_destinations's target.is_king check).
+                squares.append((nr, nc))
+                victims.append((nr, nc))
+        destinations = [sq for sq in squares
+                        if not self.leaves_carl_in_check(piece.color, removals=victims,
+                                                         moves=[(mongo_pos, sq)])]
+        return victims, destinations
+
     def try_rampage(self, mongo_pos: Tuple[int, int], dice: DungeonDice) -> Optional[List[Tuple[int, int]]]:
         """Mongo's Rampage (Floor 8, requires combined, once per game):
         Mongo captures any piece within his L-shaped movement path, not just final destination.
+
+        Returns his legal landing squares (see rampage_plan); the caller moves
+        him. Nothing is spent if he'd have nowhere safe to land.
         """
         piece = self.board.get(*mongo_pos)
         if piece is None or piece.piece_type != PieceType.MONGO:
@@ -2915,6 +3018,10 @@ class GameState:
         # Requires combined dice (total >= 8)
         if not dice.can_combine_for_cost(8):
             return None
+
+        captured_pieces, valid_moves = self.rampage_plan(mongo_pos)
+        if not valid_moves:
+            return None
         
         dice.spend_combined(8)
         self.log_event("ability_roll", piece="Mongo", ability="Rampage",
@@ -2922,35 +3029,6 @@ class GameState:
         
         # Mark as used
         self.rampaging_charge_used[key] = True
-        
-        # Get all knight moves from current position
-        r, c = mongo_pos
-        knight_moves = [
-            (r+2, c+1), (r+2, c-1), (r-2, c+1), (r-2, c-1),
-            (r+1, c+2), (r+1, c-2), (r-1, c+2), (r-1, c-2)
-        ]
-        
-        valid_moves = []
-        captured_pieces = []
-        
-        for nr, nc in knight_moves:
-            if not self.board.in_bounds(nr, nc):
-                continue
-            if self.is_square_blocked(nr, nc):
-                continue
-            
-            target = self.board.get(nr, nc)
-            if target is None:
-                valid_moves.append((nr, nc))
-            elif target.color != piece.color:
-                if target.is_king:
-                    # The enemy King is never a valid Rampage target -- as in
-                    # standard chess, Carl is never directly capturable (same
-                    # rule as plot_armor_destinations's target.is_king check).
-                    continue
-                # Enemy piece - can capture
-                valid_moves.append((nr, nc))
-                captured_pieces.append((nr, nc))
         
         # Capture all enemy pieces in the path. Victims go into board.captured
         # (the real graveyard the sidebar shows and Cockroach / Blood Magic
@@ -2970,9 +3048,35 @@ class GameState:
         valid_moves = [m for m in valid_moves if not self.is_square_blocked(*m)]
         return valid_moves if valid_moves else None
 
-    def try_slut_shame(self, samantha_pos: Tuple[int, int], dice: DungeonDice) -> bool:
+    def slut_shame_targets(self, samantha_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Enemy pawns within 3 squares of Samantha that Slut Shame can swallow:
+        never Orthrus (a 2-square body), and never a pawn whose removal opens a
+        line to her own Carl."""
+        piece = self.board.get(*samantha_pos)
+        if piece is None:
+            return []
+        r, c = samantha_pos
+        targets = []
+        for dr in range(-3, 4):
+            for dc in range(-3, 4):
+                nr, nc = r + dr, c + dc
+                if (dr, dc) == (0, 0) or not self.board.in_bounds(nr, nc):
+                    continue
+                target = self.board.get(nr, nc)
+                if (target and target.is_pawn and target.color != piece.color
+                        and target.pawn_name != "Orthrus"
+                        and not self.leaves_carl_in_check(piece.color, removals=[(nr, nc)])):
+                    targets.append((nr, nc))
+        return targets
+
+    def try_slut_shame(self, samantha_pos: Tuple[int, int], dice: DungeonDice,
+                       target_pos: Optional[Tuple[int, int]] = None) -> bool:
         """Samantha's Slut Shame (Floor 8, requires combined, once per game):
         Swallow any pawn within 3 squares, temporarily removing it. Respawns within 1 square of Samantha within 5 turns.
+
+        `target_pos`, if given, is the pawn to swallow (it must be one of
+        slut_shame_targets); otherwise one is picked at random. Nothing is
+        spent if there's no valid target.
         """
         piece = self.board.get(*samantha_pos)
         if piece is None or piece.piece_type != PieceType.SAMANTHA:
@@ -2988,33 +3092,24 @@ class GameState:
         # Requires combined dice (total >= 8)
         if not dice.can_combine_for_cost(8):
             return False
-        
+
+        target_pawns = self.slut_shame_targets(samantha_pos)
+        if target_pos is not None:
+            target_pos = tuple(target_pos)
+            if target_pos not in target_pawns:
+                return False
+        elif target_pawns:
+            target_pos = random.choice(target_pawns)
+        else:
+            return False
+
         dice.spend_combined(8)
         self.log_event("ability_roll", piece="Samantha", ability="Slut Shame",
                        detail="Combined dice for cost 8", result="success")
         
         # Mark as used
         self.slut_shame_used[key] = True
-        
-        # Find pawns within 3 squares
-        r, c = samantha_pos
-        target_pawns = []
-        for dr in range(-3, 4):
-            for dc in range(-3, 4):
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    target = self.board.get(nr, nc)
-                    # Orthrus is a 2-square body; swallowing one square would corrupt it
-                    if target and target.is_pawn and target.color != piece.color and target.pawn_name != "Orthrus":
-                        target_pawns.append((nr, nc))
 
-        if not target_pawns:
-            return False
-        
-        # Pick random pawn to swallow
-        target_pos = random.choice(target_pawns)
         swallowed_pawn = self.board.get(*target_pos)
         
         # Remove from board
@@ -3099,12 +3194,34 @@ class GameState:
                       and id(p) not in pending_respawn]
         return source, candidates
 
+    def blood_magic_sacrifices(self, miriam_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Adjacent friendly pawns Miriam Dom can sacrifice: never Orthrus (a
+        2-square body), and never one whose removal leaves her Carl in check."""
+        piece = self.board.get(*miriam_pos)
+        if piece is None:
+            return []
+        r, c = miriam_pos
+        sacrifices = []
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                nr, nc = r + dr, c + dc
+                if (dr, dc) == (0, 0) or not self.board.in_bounds(nr, nc):
+                    continue
+                target = self.board.get(nr, nc)
+                if (target and target.is_pawn and target.color == piece.color
+                        and target.pawn_name != "Orthrus"
+                        and not self.leaves_carl_in_check(piece.color, removals=[(nr, nc)])):
+                    sacrifices.append((nr, nc))
+        return sacrifices
+
     def try_blood_magic(self, miriam_pos: Tuple[int, int], dice: DungeonDice,
                         target_pos: Optional[Tuple[int, int]] = None) -> bool:
         """Miriam Dom's Blood Magic (Floor 8, requires combined):
         Sacrifice one adjacent friendly pawn, then resurrect any previously captured friendly pawn on back rank.
 
-        `target_pos`, if given, is the adjacent friendly pawn to sacrifice.
+        `target_pos`, if given, is the adjacent friendly pawn to sacrifice (one
+        of blood_magic_sacrifices); otherwise one is picked at random. Nothing is
+        spent unless there's a sacrifice, a pawn to resurrect, and room for it.
         """
         piece = self.board.get(*miriam_pos)
         if piece is None or not piece.is_pawn or piece.pawn_name not in ("Miriam Dom", "Juice Box"):
@@ -3116,59 +3233,33 @@ class GameState:
         if not dice.can_combine_for_cost(8):
             return False
 
+        sacrifices = self.blood_magic_sacrifices(miriam_pos)
+        # Check for captured friendly pawns to resurrect (Orthrus can never be resurrected)
+        source, captured = self.blood_magic_candidates(piece.color)
+        back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
+        back_rank_squares = [(back_rank, col) for col in range(BOARD_SIZE)
+                             if self.board.get(back_rank, col) is None]
+        if not sacrifices or not captured or not back_rank_squares:
+            return False
+        if target_pos is not None:
+            sacrifice_pos = tuple(target_pos)
+            if sacrifice_pos not in sacrifices:
+                return False
+        else:
+            sacrifice_pos = random.choice(sacrifices)
+
         dice.spend_combined(8)
         self.log_event("ability_roll", piece="Miriam Dom", ability="Blood Magic",
                        detail="Combined dice for cost 8", result="success")
 
-        # Find adjacent friendly pawns to sacrifice (only adjacent, not within 2 squares)
-        r, c = miriam_pos
-        adjacent_pawns = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    target = self.board.get(nr, nc)
-                    if target and target.is_pawn and target.color == piece.color:
-                        adjacent_pawns.append((nr, nc))
-
-        # Check for captured friendly pawns to resurrect (Orthrus can never be resurrected)
-        source, captured = self.blood_magic_candidates(piece.color)
-
-        if not adjacent_pawns or not captured:
-            return False
-
-        # Use the requested sacrifice if valid, otherwise pick randomly
-        if target_pos is not None and tuple(target_pos) in adjacent_pawns:
-            sacrifice_pos = tuple(target_pos)
-        else:
-            sacrifice_pos = random.choice(adjacent_pawns)
-        sacrificed = self.board.get(*sacrifice_pos)
-
         # Remove sacrificed pawn without triggering on-capture effects
+        sacrificed = self.board.get(*sacrifice_pos)
         self.board.set(sacrifice_pos[0], sacrifice_pos[1], None)
         # Do NOT add to captured_pieces - it's sacrificed, not captured
 
-        # Pick random captured piece to resurrect (player will target this later)
+        # Resurrect a random captured pawn onto a random open back-rank square
         resurrected = random.choice(captured)
         source.remove(resurrected)
-
-        # Find open squares on player's back rank
-        back_rank = 0 if piece.color == Color.WHITE else (BOARD_SIZE - 1)
-        back_rank_squares = []
-        for col in range(BOARD_SIZE):
-            if self.board.get(back_rank, col) is None:
-                back_rank_squares.append((back_rank, col))
-
-        if not back_rank_squares:
-            # No space on back rank - put piece back in captured
-            source.append(resurrected)
-            # Put sacrificed piece back
-            self.board.set(sacrifice_pos[0], sacrifice_pos[1], sacrificed)
-            return False
-        
-        # Place resurrected piece at random back rank position (player will target this later)
         spawn_pos = random.choice(back_rank_squares)
         self.board.set(spawn_pos[0], spawn_pos[1], resurrected)
         if resurrected.is_pawn and resurrected.pawn_name:
@@ -3244,17 +3335,17 @@ class GameState:
         return (tr + (cr > tr) - (cr < tr), tc + (cc > tc) - (cc < tc))
 
     @staticmethod
-    def _pull_promotes(piece: Piece, dest: Tuple[int, int]) -> bool:
-        """A pawn pulled onto its promotion rank promotes, same as moving there."""
+    def _promotes_on(piece: Piece, dest: Tuple[int, int]) -> bool:
+        """A pawn moved or pulled onto its promotion rank promotes (Orthrus never does)."""
         promotion_rank = BOARD_SIZE - 1 if piece.color == Color.WHITE else 0
-        return piece.is_pawn and dest[0] == promotion_rank
+        return piece.is_pawn and piece.pawn_name != "Orthrus" and dest[0] == promotion_rank
 
     def _pull_exposes_carl(self, color: Color, src: Tuple[int, int], dest: Tuple[int, int]) -> bool:
         """True if pulling the piece on src to dest leaves `color`'s Carl in check."""
         if self.board.find_king(color) is None:
             return False  # boss co-op fallen player -- no Carl to protect
         piece = self.board.get(*src)
-        landed = Piece(PieceType.DUNGEON_BOSS, piece.color) if self._pull_promotes(piece, dest) else piece
+        landed = Piece(PieceType.DUNGEON_BOSS, piece.color) if self._promotes_on(piece, dest) else piece
         self.board.set(src[0], src[1], None)
         self.board.set(dest[0], dest[1], landed)
         try:
@@ -3349,7 +3440,7 @@ class GameState:
         self.board.set(dest[0], dest[1], target)
         target.has_moved = True
         self._relocate_piece_status(target_pos, dest)
-        if self._pull_promotes(target, dest):
+        if self._promotes_on(target, dest):
             self.board._promote_pawn(dest[0], dest[1], target)
 
         caster_label = source_pawn if caster.pawn_name == source_pawn else f"Juice Box ({source_pawn})"

@@ -136,7 +136,8 @@ MAJOR_COST_NOTES = {"Puddle Jump": "10-turn cooldown"}
 
 CARD_BLURBS = {
     "Lottery Ticket": "Roll a die. 1–3, <b>Custard</b>: reset one of your spent limited-use abilities. "
-                      "4–6, <b>Fireball</b>: a random square is struck and its piece is permanently killed.",
+                      "4–6, <b>Fireball</b>: a random square is struck and its piece is permanently killed "
+                      "(it fizzles if Carl is there).",
     "You a Bitch": "If you have fewer pieces than your opponent, roll for a chance to resurrect one of "
                    "your captured major pieces.",
     "AI's Pet": "All your ability costs drop by 1 this turn.",
