@@ -85,9 +85,9 @@ Found: 2026-10-09, in AI-vs-AI testing for v0.79.
 
 Fixed: 2026-10-09 (v0.80). The random AI picks from the same table of current abilities the smart
 AI dispatches (`MAJOR_ABILITY_KEYS` / `PAWN_ABILITY_KEYS`), one per turn, and the retired names
-were removed from the `/ability` route ("Unknown ability"). The retired `try_*` methods remain in
-`abilities.py` only for the old tests in `tests/test_abilities.py`; nothing in the game calls
-them. Tests: `tests/test_ai_turn_safety.py`.
+were removed from the `/ability` route ("Unknown ability"). After v0.80 the retired `try_*`
+methods, the state only they used, and their old tests were deleted as well. Tests:
+`tests/test_ai_turn_safety.py`.
 
 ### A Slut Shame respawn could appear twice and put a Carl in check
 

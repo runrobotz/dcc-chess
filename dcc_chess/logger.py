@@ -81,20 +81,6 @@ class GameRecord:
                     "turn": e.get("turn"),
                     "player": e.get("player"),
                 })
-            elif etype == "mongo_smash_capture":
-                self.captures.append({
-                    "attacker": "Mongo(smash)",
-                    "captured": e.get("target"),
-                    "turn": e.get("turn"),
-                    "player": e.get("player"),
-                })
-            elif etype == "lava_surge_capture":
-                self.captures.append({
-                    "attacker": "Chris(lava)",
-                    "captured": e.get("captured"),
-                    "turn": e.get("turn"),
-                    "player": e.get("player"),
-                })
             elif etype == "lava_spit_capture":
                 self.captures.append({
                     "attacker": "Bad Llama(spit)",

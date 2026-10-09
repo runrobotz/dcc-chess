@@ -208,13 +208,12 @@ def _server_game(A, client, seed, max_turns=120):
     return gs
 
 
+def test_retired_abilities_are_gone():
+    assert not [name for name in LEGACY if hasattr(GameState, name)]
+
+
 def test_random_ai_uses_only_current_abilities(monkeypatch):
     import app as A
-
-    def retired(*_args, **_kwargs):
-        raise AssertionError("random AI used a retired ability")
-    for name in LEGACY:
-        monkeypatch.setattr(GameState, name, retired)
     monkeypatch.setattr(A, "smart_abilities", ai.random_abilities)  # Black's /ai_turn
     monkeypatch.setattr(A, "smart_move", lambda gs, legal: random.choice(legal))
     A.app.testing = True

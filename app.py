@@ -717,7 +717,6 @@ def new_game():
         # Start the first turn immediately: roll dice and enter ability phase
         gs.current_player = Color.WHITE
         gs.start_turn()
-        gs.update_katia_threats()
         if not _end_game_if_no_legal_moves(gs):
             dice.roll()
             gs.log_event("dice_roll", values=dice.dice[:])
@@ -843,7 +842,6 @@ def start_turn_route():
 
     # Start turn
     gs.start_turn()
-    gs.update_katia_threats()
 
     if _end_game_if_no_legal_moves(gs):
         return jsonify(build_game_state_response())
@@ -2055,7 +2053,6 @@ def _play_ai_turn():
     opponent = Color.WHITE
 
     gs.start_turn()
-    gs.update_katia_threats()
 
     # Same start-of-turn check a human gets in /start_turn: no legal move at all
     # ends the game before any dice are rolled.

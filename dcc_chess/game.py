@@ -55,9 +55,6 @@ class Game:
         color = self.state.current_player
         self.state.start_turn()
 
-        # Store Katia threats before move (for Combat Roll next turn)
-        self.state.update_katia_threats()
-
         # 1. No legal move at all ends the game before any dice are rolled
         if not self.state.get_legal_moves_with_status(color):
             self._end_without_a_move(color)

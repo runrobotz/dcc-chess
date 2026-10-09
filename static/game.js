@@ -2546,14 +2546,12 @@ const Game = {
                 }
 
                 // ── Status-effect abilities: "used X on Y (duration)" ───
-                case 'frozen': case 'suppress': case 'suppression_applied':
-                case 'sic_em': case 'sicced_applied': case 'she_tank': {
+                case 'frozen': case 'suppress': case 'sic_em': case 'she_tank': {
                     const ctx = this._precedingAbilityRoll(events, i, consumed);
                     const targetRepr = this._pieceRepr(e.target) || null;
                     const targetPos = e.target_pos ? this.squareLabel(e.target_pos[0], e.target_pos[1]) : null;
                     const targetLabel = targetRepr ? this._pieceText(targetRepr, false) : (targetPos || 'a piece');
-                    const DURATION = { frozen: '1 turn', suppress: '1 turn', suppression_applied: '1 turn',
-                                        sic_em: '1 turn', sicced_applied: '1 turn', she_tank: '1 turn' }[e.type];
+                    const DURATION = { frozen: '1 turn', suppress: '1 turn', sic_em: '1 turn', she_tank: '1 turn' }[e.type];
                     const abilityName = ctx ? ctx.ability : e.type.replace(/_.*/, '');
                     const actor = ctx ? ctx.piece : (e.piece || 'A piece');
                     push(e, moverKind, `${T} ${who}: ${actor} used ${abilityName} on ${targetLabel} (${DURATION})`);

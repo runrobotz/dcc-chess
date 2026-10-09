@@ -333,21 +333,19 @@ def _find_spent_limited_abilities(gs: "GameState", color: Color) -> List[Dict]:
     if gs.leader_uses.get(color, 2) <= 0:
         options.append({"label": "Carl — Leader", "reset": {"type": "leader", "color": color.value}})
 
+    # Cockroach and Rampage keep their once-per-game flags in the fields of the
+    # abilities they replaced (resurrection_used / rampaging_charge_used).
     if gs.resurrection_used.get(color, False):
-        options.append({"label": "Donut — Resurrection", "reset": {"type": "resurrection", "color": color.value}})
+        options.append({"label": "Donut — Cockroach", "reset": {"type": "resurrection", "color": color.value}})
 
     for (c, piece_id), used in gs.rampaging_charge_used.items():
         if c == color and used:
-            options.append({"label": "Mongo — Rampaging Charge",
+            options.append({"label": "Mongo — Rampage",
                              "reset": {"type": "rampaging_charge", "color": color.value, "piece_id": piece_id}})
 
     if gs.she_tank_uses.get(color, 2) <= 0:
         options.append({"label": "Katia — She Tank", "reset": {"type": "she_tank", "color": color.value}})
 
-    for (c, piece_id), used in gs.portal_spike_used.items():
-        if c == color and used:
-            options.append({"label": "Samantha — Portal Spike",
-                             "reset": {"type": "portal_spike", "color": color.value, "piece_id": piece_id}})
     for (c, piece_id), used in gs.slut_shame_used.items():
         if c == color and used:
             options.append({"label": "Samantha — Slut Shame",
@@ -378,8 +376,6 @@ def _apply_custard_reset(gs: "GameState", reset: Dict) -> None:
         gs.rampaging_charge_used[(color, reset["piece_id"])] = False
     elif t == "she_tank":
         gs.she_tank_uses[color] = 2
-    elif t == "portal_spike":
-        gs.portal_spike_used[(color, reset["piece_id"])] = False
     elif t == "slut_shame":
         gs.slut_shame_used[(color, reset["piece_id"])] = False
     elif t == "quasar_mediation":

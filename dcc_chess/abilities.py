@@ -1,7 +1,7 @@
 """Ability implementations and status effect tracking for DCC Chess.
 
 Handles all major piece abilities and pawn abilities, plus the status
-effects they create (ghost tokens, smoke zones, slowed, suppressed, etc.).
+effects they create (ghost tokens, lava and Air Strike zones, frozen, suppressed, etc.).
 """
 
 import random
@@ -49,10 +49,6 @@ class GameState:
 
         # Status effects on squares
         self.ghost_tokens: Dict[Tuple[int, int], int] = {}  # pos -> turns remaining
-        self.smoke_zones: List[Dict] = []  # [{pos: (r,c), turns: int}] (2x2, stored as top-left)
-        self.phantom_threats: Dict[Color, Set[Tuple[int, int]]] = {
-            Color.WHITE: set(), Color.BLACK: set()
-        }
 
         # Status effects on pieces (keyed by (row, col) of piece)
         self.suppressed_pieces: Set[Tuple[int, int]] = set()  # active this turn
@@ -85,13 +81,10 @@ class GameState:
         self.slut_shame_used: Dict[Tuple[Color, int], bool] = {}
         self.swallowed_pawns: List[Dict] = []  # [{piece: Piece, turns_left: int, sam_pos: (r,c)}]
         
-        # ── Old tracking (kept for compatibility) ────────────────
-        self.narrators_favor_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
+        # Once-per-game flags for Cockroach (resurrection_used) and Rampage
+        # (rampaging_charge_used), named after the abilities they replaced.
         self.resurrection_used: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
         self.rampaging_charge_used: Dict[Tuple[Color, int], bool] = {}
-        self.portal_spike_used: Dict[Tuple[Color, int], bool] = {}
-        self.mouth_used_this_turn: bool = False
-        self.katia_last_threats: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
 
         # ── Pawn Ability Tracking (Chunk 2) ──────────────────────
         self.pawn_ability_uses: Dict[str, Dict[str, int]] = {}  # "color_pawnname" -> {ability: uses_left}
@@ -168,16 +161,6 @@ class GameState:
         # Forced retreat (Florin's Suppressing Fire — _apply_forced_retreat reads this)
         self.forced_retreat: Dict[Tuple[int, int], Tuple[int, int]] = {}
         self.forced_retreat_pending: Dict[Tuple[int, int], Tuple[int, int]] = {}
-
-        # Zev — Pack Rally buffed pawn positions
-        self.zev_buff_pawns: Set[Tuple[int, int]] = set()
-
-        # Lucia Mar — Sicced pending (legacy implementation reference)
-        self.sicced_pending: Set[Tuple[int, int]] = set()
-
-        # Raul the Crab — Meditative Strike tracking
-        self.raul_moved_this_turn: Set[Tuple[int, int]] = set()
-        self.meditative_strike_active: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
 
         # Raul the Crab — Group Climax pending next turn
         self.group_climax_pending: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
@@ -414,11 +397,8 @@ class GameState:
 
     def start_turn(self):
         """Called at the start of each turn. Clears per-turn state."""
-        self.mouth_used_this_turn = False
         # Rebuild from persistent tracker so Air Strike zones survive across turns
         self.louie_cant_move = set(self.air_strike_zones.keys())
-        self.phantom_threats[Color.WHITE].clear()
-        self.phantom_threats[Color.BLACK].clear()
         self.blitzed_pieces.clear()
         self.juice_box_used_this_turn.clear()
         # Juice Box's acquired-ability cooldown lasts until the start of her
@@ -480,12 +460,6 @@ class GameState:
                 expired_ghosts.append(pos)
         for pos in expired_ghosts:
             del self.ghost_tokens[pos]
-
-        # Tick smoke zones
-        self.smoke_zones = [
-            {**sz, "turns": sz["turns"] - 1}
-            for sz in self.smoke_zones if sz["turns"] - 1 > 0
-        ]
 
         # Tick stuck pieces
         expired_stuck = [pos for pos, t in self.stuck_pieces.items() if t - 1 <= 0]
@@ -611,25 +585,21 @@ class GameState:
     # ── Square Blocking ───────────────────────────────────────────
 
     def is_square_blocked(self, row: int, col: int) -> bool:
-        """Check if a square is blocked by ghost tokens, smoke zones, lava zones,
-        air strike zones, or Bad Llama's lava spit zones."""
+        """Check if a square is blocked by ghost tokens, lava zones, air strike
+        zones, or Bad Llama's lava spit zones."""
         if (row, col) in self.ghost_tokens:
             return True
         if (row, col) in self.lava_zones:
             return True
         if (row, col) in self.air_strike_zones:
             return True
-        for sz in self.smoke_zones:
-            sr, sc = sz["pos"]
-            if sr <= row <= sr + 1 and sc <= col <= sc + 1:
-                return True
         for zone in self.lava_spit_zones:
             if (row, col) in zone["pos"]:
                 return True
         return False
 
     def is_piece_movable(self, row: int, col: int, piece: Piece) -> bool:
-        """Check if a piece can move (not stuck, not iron-walled, not Carl-slowed, not frozen, etc.)."""
+        """Check if a piece can move (not stuck, not iron-walled, not frozen, etc.)."""
         # Main Character Syndrome (AI Card): pawns can't move this turn, no exceptions.
         # Major pieces are unaffected.
         if self.main_character_syndrome_active and piece.is_pawn:
@@ -786,13 +756,6 @@ class GameState:
                                result="success", detail="Cannot be captured by non-major pieces")
                 return "defended_orthrus"
 
-        # Check Carl's Narrator's Favor
-        if defender.is_king and defender.color in self.narrators_favor_used:
-            if not self.narrators_favor_used[defender.color]:
-                # Narrator's Favor hasn't been used yet — but it requires a die roll
-                # This is handled in the ability phase, not auto. Skip here.
-                pass
-
         # Check Quasar's Mediation (defensive, auto-trigger). Also applies if
         # the defender is Juice Box and has personally captured Mediation --
         # Shapeshift makes it her own passive defense, not just Quasar's.
@@ -863,502 +826,6 @@ class GameState:
                 # juice_box_captured — not attacker_pos, her square before the move.
                 self.process_juice_box_capture(capture_pos, captured_piece, capture_pos)
 
-    # ── Major Piece Abilities ─────────────────────────────────────
-
-    def try_bulldozer(self, carl_pos: Tuple[int, int], dice: DungeonDice,
-                      die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Carl's Bulldozer (Floor 4): move 2 squares instead of 1.
-
-        Returns list of extra destination squares if successful, None if failed.
-        """
-        piece = self.board.get(*carl_pos)
-        if piece is None or piece.piece_type != PieceType.CARL:
-            return None
-        if self.is_piece_suppressed(*carl_pos):
-            return None
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Carl", ability="Bulldozer",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return None
-
-        # Generate 2-square king moves
-        r, c = carl_pos
-        extra_moves = []
-        for dr in [-2, -1, 0, 1, 2]:
-            for dc in [-2, -1, 0, 1, 2]:
-                if abs(dr) <= 1 and abs(dc) <= 1:
-                    continue  # Normal king moves
-                if abs(dr) > 2 or abs(dc) > 2:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                    target = self.board.get(nr, nc)
-                    if target is None or (target.color != piece.color and
-                                          not self.is_piece_invulnerable(nr, nc)):
-                        extra_moves.append((nr, nc))
-        return extra_moves
-
-    def try_divas_entrance(self, donut_pos: Tuple[int, int], dice: DungeonDice,
-                           die_index: int, target_square: Tuple[int, int]) -> bool:
-        """Donut's Diva's Entrance (Floor 4): threaten 1 phantom square for 1 turn."""
-        piece = self.board.get(*donut_pos)
-        if piece is None or piece.piece_type != PieceType.DONUT:
-            return False
-        if self.is_piece_suppressed(*donut_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Donut", ability="Diva's Entrance",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if success:
-            self.phantom_threats[piece.color].add(target_square)
-            return True
-        return False
-
-    def try_resurrection(self, donut_pos: Tuple[int, int], dice: DungeonDice,
-                         die_index: int, color: Color) -> Optional[Piece]:
-        """Donut's Resurrection (Floor 6, 1/game): bring back a captured piece."""
-        if self.resurrection_used[color]:
-            return None
-        piece = self.board.get(*donut_pos)
-        if piece is None or piece.piece_type != PieceType.DONUT:
-            return None
-        if self.is_piece_suppressed(*donut_pos):
-            return None
-
-        success = dice.spend_die(die_index, 6)
-        self.resurrection_used[color] = True
-        self.log_event("ability_roll", piece="Donut", ability="Resurrection",
-                       die_value=dice.dice[die_index], floor=6, result="success" if success else "fail")
-        if not success:
-            return None
-
-        # Find captured pieces (Orthrus and permanently-dead pieces can never be resurrected)
-        source = self.board.captured[color]
-        candidates = [p for p in source
-                      if not p.permanently_dead and not (p.is_pawn and p.pawn_name == "Orthrus")]
-        if not candidates:
-            return None
-
-        # Pick a random captured piece to resurrect
-        revived = random.choice(candidates)
-        source.remove(revived)
-
-        # Find empty square adjacent to Donut
-        dr, dc = donut_pos
-        adj_squares = []
-        for ddr in [-1, 0, 1]:
-            for ddc in [-1, 0, 1]:
-                if ddr == 0 and ddc == 0:
-                    continue
-                nr, nc = dr + ddr, dc + ddc
-                if (self.board.in_bounds(nr, nc) and self.board.get(nr, nc) is None
-                        and not self.is_square_blocked(nr, nc)):
-                    adj_squares.append((nr, nc))
-
-        if not adj_squares:
-            source.append(revived)  # Put it back
-            return None
-
-        place_pos = random.choice(adj_squares)
-        self.board.set(place_pos[0], place_pos[1], revived)
-        revived.has_moved = True
-        self.log_event("resurrection", piece=repr(revived), position=place_pos)
-        return revived
-
-    def try_rampaging_charge(self, mongo_pos: Tuple[int, int], dice: DungeonDice,
-                             die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Mongo's Rampaging Charge (Floor 4, 1/game): move 1 sq orthogonally."""
-        piece = self.board.get(*mongo_pos)
-        if piece is None or piece.piece_type != PieceType.MONGO:
-            return None
-        if self.is_piece_suppressed(*mongo_pos):
-            return None
-
-        key = (piece.color, id(piece))
-        if self.rampaging_charge_used.get(key, False):
-            return None
-
-        success = dice.spend_die(die_index, 4)
-        self.rampaging_charge_used[key] = True
-        self.log_event("ability_roll", piece="Mongo", ability="Rampaging Charge",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return None
-
-        r, c = mongo_pos
-        ortho_moves = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = r + dr, c + dc
-            if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                target = self.board.get(nr, nc)
-                if target is None or (target.color != piece.color and
-                                      not self.is_piece_invulnerable(nr, nc)):
-                    ortho_moves.append((nr, nc))
-        return ortho_moves
-
-    def try_mongo_smash(self, mongo_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int) -> bool:
-        """Mongo's Mongo Smash (Floor 3): capture enemy 1 sq outside normal range."""
-        piece = self.board.get(*mongo_pos)
-        if piece is None or piece.piece_type != PieceType.MONGO:
-            return False
-        if self.is_piece_suppressed(*mongo_pos):
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Mongo", ability="Mongo Smash",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Find enemies 1 square outside normal diagonal range
-        r, c = mongo_pos
-        normal_moves = set(pseudo_legal_moves_for_piece(self.board, r, c))
-        smash_targets = []
-        # Check all adjacent + 1 squares
-        for dr in range(-2, 3):
-            for dc in range(-2, 3):
-                nr, nc = r + dr, c + dc
-                if (nr, nc) == (r, c):
-                    continue
-                if not self.board.in_bounds(nr, nc):
-                    continue
-                if (nr, nc) in normal_moves:
-                    continue
-                target = self.board.get(nr, nc)
-                if target and target.color != piece.color and not self.is_piece_invulnerable(nr, nc):
-                    smash_targets.append((nr, nc))
-
-        if smash_targets:
-            target_pos = random.choice(smash_targets)
-            target_piece = self.board.get(*target_pos)
-            cap_result = self.attempt_capture(mongo_pos, target_pos)
-            if cap_result == "captured":
-                self.board.set(target_pos[0], target_pos[1], None)
-                self.board.captured[target_piece.color].append(target_piece)
-                self.process_post_capture(target_piece, target_pos, piece, mongo_pos)
-                self.log_event("mongo_smash_capture", target=repr(target_piece), pos=target_pos)
-                return True
-        return False
-
-    def try_combat_roll(self, katia_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int) -> Optional[List[Tuple[int, int]]]:
-        """Katia's Combat Roll (Floor 3): retreat to any square she threatened last turn."""
-        piece = self.board.get(*katia_pos)
-        if piece is None or piece.piece_type != PieceType.KATIA:
-            return None
-        if self.is_piece_suppressed(*katia_pos):
-            return None
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Katia", ability="Combat Roll",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return None
-
-        last_threats = self.katia_last_threats.get(katia_pos, [])
-        valid_retreats = [
-            pos for pos in last_threats
-            if self.board.in_bounds(*pos) and self.board.get(*pos) is None
-            and not self.is_square_blocked(*pos)
-        ]
-        return valid_retreats if valid_retreats else None
-
-    def try_dual_threat(self, katia_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int, target_square: Tuple[int, int]) -> bool:
-        """Katia's Dual Threat (Floor 5): after capture, threaten 1 bonus square."""
-        piece = self.board.get(*katia_pos)
-        if piece is None or piece.piece_type != PieceType.KATIA:
-            return False
-        if self.is_piece_suppressed(*katia_pos):
-            return False
-
-        success = dice.spend_die(die_index, 5)
-        self.log_event("ability_roll", piece="Katia", ability="Dual Threat",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if success:
-            self.phantom_threats[piece.color].add(target_square)
-            return True
-        return False
-
-    def try_the_mouth(self, samantha_pos: Tuple[int, int], dice: DungeonDice,
-                      die_index: int) -> Optional[int]:
-        """Samantha's The Mouth (Floor 3, 1/turn): reroll 1 Dungeon Die."""
-        if self.mouth_used_this_turn:
-            return None
-        piece = self.board.get(*samantha_pos)
-        if piece is None or piece.piece_type != PieceType.SAMANTHA:
-            return None
-        if self.is_piece_suppressed(*samantha_pos):
-            return None
-
-        success = dice.spend_die(die_index, 3)
-        self.mouth_used_this_turn = True
-        self.log_event("ability_roll", piece="Samantha", ability="The Mouth",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return None
-
-        # Reroll a different die (pick one that's still available)
-        available = dice.available_dice
-        if available:
-            reroll_idx = random.choice(available)
-            new_val = dice.reroll_die(reroll_idx)
-            self.log_event("the_mouth_reroll", die_index=reroll_idx, new_value=new_val)
-            return new_val
-        return None
-
-    def try_portal_spike(self, samantha_pos: Tuple[int, int], dice: DungeonDice,
-                         die_index: int) -> Optional[Tuple[int, int]]:
-        """Samantha's Portal Spike (Floor 5, 1/game): teleport on rank/file."""
-        piece = self.board.get(*samantha_pos)
-        if piece is None or piece.piece_type != PieceType.SAMANTHA:
-            return None
-        if self.is_piece_suppressed(*samantha_pos):
-            return None
-
-        key = (piece.color, id(piece))
-        if self.portal_spike_used.get(key, False):
-            return None
-
-        success = dice.spend_die(die_index, 5)
-        self.portal_spike_used[key] = True
-        self.log_event("ability_roll", piece="Samantha", ability="Portal Spike",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if not success:
-            return None
-
-        r, c = samantha_pos
-        destinations = []
-        # Same rank
-        for nc in range(BOARD_SIZE):
-            if nc != c and self.board.get(r, nc) is None and not self.is_square_blocked(r, nc):
-                destinations.append((r, nc))
-        # Same file
-        for nr in range(BOARD_SIZE):
-            if nr != r and self.board.get(nr, c) is None and not self.is_square_blocked(nr, c):
-                destinations.append((nr, c))
-
-        if destinations:
-            dest = random.choice(destinations)
-            self.board.set(r, c, None)
-            self.board.set(dest[0], dest[1], piece)
-            self.log_event("portal_spike_teleport", from_pos=samantha_pos, to_pos=dest)
-            return dest
-        return None
-
-    # ── Pawn Abilities ────────────────────────────────────────────
-
-    def try_pack_rally(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                       die_index: int) -> bool:
-        """Zev's Pack Rally (Floor 3): +1 to adjacent friendly pawns' dice."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Zev":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Zev", ability="Pack Rally",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    adj = self.board.get(nr, nc)
-                    if adj and adj.is_pawn and adj.color == piece.color:
-                        self.zev_buff_pawns.add((nr, nc))
-        self.log_event("pack_rally_buff", buffed=list(self.zev_buff_pawns))
-        return True
-
-    def try_glitch(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                   die_index: int) -> bool:
-        """The AI's Glitch: copy a random friendly pawn's ability and use it."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "The AI":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        # Find other friendly pawns
-        friendly_pawns = [
-            (r, c, p) for r, c, p in self.board.all_pieces(piece.color)
-            if p.is_pawn and p.pawn_name and p.pawn_name != "The AI"
-            and PAWN_CHARACTERS.get(p.pawn_name)
-            and PAWN_CHARACTERS[p.pawn_name].ability.trigger == AbilityTrigger.FLOOR_ROLL
-        ]
-        if not friendly_pawns:
-            return False
-
-        # Pick random pawn to copy
-        _, _, copied_pawn = random.choice(friendly_pawns)
-        copied_char = PAWN_CHARACTERS[copied_pawn.pawn_name]
-        copied_floor = copied_char.ability.floor_number
-
-        success = dice.spend_die(die_index, copied_floor)
-        self.log_event("ability_roll", piece="The AI", ability=f"Glitch→{copied_char.ability.name}",
-                       die_value=dice.dice[die_index], floor=copied_floor,
-                       result="success" if success else "fail")
-        return success
-
-    def try_titan_stride(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                         die_index: int) -> Optional[Tuple[int, int]]:
-        """Prepotente's Titan Stride (Floor 3): move 2 squares forward."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Prepotente":
-            return None
-        if self.is_piece_suppressed(*pawn_pos):
-            return None
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Prepotente", ability="Titan Stride",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return None
-
-        r, c = pawn_pos
-        direction = piece.color.direction
-        r2 = r + 2 * direction
-        r1 = r + direction
-        if (self.board.in_bounds(r2, c) and self.board.get(r2, c) is None
-                and self.board.get(r1, c) is None and not self.is_square_blocked(r2, c)):
-            return (r2, c)
-        return None
-
-    def try_suppression(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                        die_index: int) -> bool:
-        """Imani's Suppression (Floor 4): suppress enemy within 1 square."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Imani":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Imani", ability="Suppression",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        targets = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.color != piece.color:
-                        targets.append((nr, nc))
-        if targets:
-            target_pos = random.choice(targets)
-            self.suppressed_pending.add(target_pos)
-            self.log_event("suppression_applied", target_pos=target_pos)
-            return True
-        return False
-
-    def try_recruit(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                    die_index: int) -> bool:
-        """Candy Biggs's Recruit (Floor 3, 1/game): adjacent enemy pawn switches sides."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Candy Biggs":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        key = f"{piece.color.value}_Candy Biggs"
-        uses = self.pawn_ability_uses.get(key, {}).get("Recruit", 1)
-        if uses <= 0:
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        if key in self.pawn_ability_uses:
-            self.pawn_ability_uses[key]["Recruit"] = uses - 1
-        self.log_event("ability_roll", piece="Candy Biggs", ability="Recruit",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        targets = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.is_pawn and t.color != piece.color:
-                        targets.append((nr, nc, t))
-        if targets:
-            tr, tc, target = random.choice(targets)
-            target.color = piece.color  # Switch sides!
-            self.log_event("recruit_success", recruited=repr(target), pos=(tr, tc))
-            return True
-        return False
-
-    def try_smoke_bomb(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                       die_index: int) -> bool:
-        """Louie's Smoke Bomb (Floor 4): create 2x2 blocked zone for 3 turns."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Louie":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Louie", ability="Smoke Bomb",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Find valid 2x2 zones within 3 squares
-        r, c = pawn_pos
-        valid_zones = []
-        for dr in range(-3, 4):
-            for dc in range(-3, 4):
-                nr, nc = r + dr, c + dc
-                if abs(dr) + abs(dc) > 3:
-                    continue
-                # Check all 4 squares of the 2x2 zone
-                if (self.board.in_bounds(nr, nc) and self.board.in_bounds(nr + 1, nc + 1)):
-                    valid_zones.append((nr, nc))
-
-        if valid_zones:
-            zone_pos = random.choice(valid_zones)
-            self.smoke_zones.append({"pos": zone_pos, "turns": 3})
-            self.louie_cant_move.add(pawn_pos)
-            self.log_event("smoke_bomb_placed", zone_pos=zone_pos)
-            return True
-        return False
-
-    def try_iron_wall(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                      die_index: int) -> bool:
-        """Sledge's Iron Wall (Floor 3): immovable + invulnerable for 2 turns."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Sledge":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Sledge", ability="Iron Wall",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if success:
-            self.iron_wall_pieces[pawn_pos] = 2
-            return True
-        return False
-
     # ── Helpers ───────────────────────────────────────────────────
 
     def _find_pawn(self, color: Color, pawn_name: str) -> Optional[Tuple[int, int]]:
@@ -1411,15 +878,6 @@ class GameState:
             self.board._promote_pawn(dest[0], dest[1], piece)
         return captured
 
-    def update_katia_threats(self):
-        """Store current Katia threatened squares for Combat Roll next turn."""
-        self.katia_last_threats.clear()
-        for color in [Color.WHITE, Color.BLACK]:
-            for r, c, p in self.board.all_pieces(color):
-                if p.piece_type == PieceType.KATIA:
-                    threats = pseudo_legal_moves_for_piece(self.board, r, c)
-                    self.katia_last_threats[(r, c)] = threats
-
     def _apply_forced_retreat(self, moves, color):
         """Filter moves for pieces under Florin's Suppressing Fire.
 
@@ -1452,150 +910,6 @@ class GameState:
             return moves
         return result
 
-
-    # ── New Pawn Abilities ─────────────────────────────────────────
-
-    def try_sicced(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                   die_index: int) -> bool:
-        """Lucia Mar's Sicced (Floor 4): pin adjacent enemy piece for 1 turn."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Lucia Mar":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Lucia Mar", ability="Sicced",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        targets = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.color != piece.color:
-                        targets.append((nr, nc))
-        if targets:
-            target_pos = random.choice(targets)
-            self.sicced_pending.add(target_pos)
-            self.log_event("sicced_applied", target_pos=target_pos)
-            return True
-        return False
-
-    def try_lava_surge(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                       die_index: int) -> bool:
-        """Chris's Lava Surge (Floor 4): make adjacent squares impassable for 2 turns."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Chris":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Chris", ability="Lava Surge",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        # Chris's square is lava (but he stays on it)
-        self.chris_stuck.add((r, c))
-        # 4 orthogonal adjacent squares become lava
-        ortho = [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)]
-        lava_squares = []
-        for nr, nc in ortho:
-            if self.board.in_bounds(nr, nc):
-                self.lava_zones[(nr, nc)] = 2
-                lava_squares.append((nr, nc))
-                # Any piece on an adjacent square must move or be captured
-                target = self.board.get(nr, nc)
-                if target and (nr, nc) != pawn_pos:
-                    # Try to find adjacent open square for the displaced piece
-                    escaped = False
-                    for dr2 in [-1, 0, 1]:
-                        for dc2 in [-1, 0, 1]:
-                            if dr2 == 0 and dc2 == 0:
-                                continue
-                            er, ec = nr + dr2, nc + dc2
-                            if (self.board.in_bounds(er, ec)
-                                    and self.board.get(er, ec) is None
-                                    and not self.is_square_blocked(er, ec)):
-                                self.board.set(nr, nc, None)
-                                self.board.set(er, ec, target)
-                                self.log_event("lava_surge_displace", piece=repr(target),
-                                               from_pos=(nr, nc), to_pos=(er, ec))
-                                escaped = True
-                                break
-                        if escaped:
-                            break
-                    if not escaped:
-                        # Piece is captured
-                        self.board.set(nr, nc, None)
-                        self.board.captured[target.color].append(target)
-                        self.log_event("lava_surge_capture", captured=repr(target), pos=(nr, nc))
-        self.log_event("lava_surge_activated", chris_pos=pawn_pos, lava=lava_squares)
-        return True
-
-    def try_shapeshift(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                       die_index: int) -> bool:
-        """Juice Box's Shapeshift (Floor 3): copy any friendly pawn's ability and fire it."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Juice Box":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        # Find ANY friendly pawn with floor_roll ability (no adjacency required)
-        friendly_pawns = [
-            (r, c, p) for r, c, p in self.board.all_pieces(piece.color)
-            if p.is_pawn and p.pawn_name and p.pawn_name != "Juice Box"
-            and PAWN_CHARACTERS.get(p.pawn_name)
-            and PAWN_CHARACTERS[p.pawn_name].ability.trigger == AbilityTrigger.FLOOR_ROLL
-        ]
-        if not friendly_pawns:
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Juice Box", ability="Shapeshift",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Pick a random pawn to copy — fire the copied ability from Juice Box's position
-        _, _, copied_pawn = random.choice(friendly_pawns)
-        copied_name = copied_pawn.pawn_name
-        self.log_event("shapeshift_copy", copied_from=copied_name)
-        # We just log the copy — the actual effect is simplified as a success
-        return True
-
-    def try_meditative_strike(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                              die_index: int) -> bool:
-        """Raul the Crab's Meditative Strike (Floor 3): guarantee next die is 6."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Raul the Crab":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-        # Raul must not have moved this turn
-        if pawn_pos in self.raul_moved_this_turn:
-            return False
-
-        success = dice.spend_die(die_index, 3)
-        self.log_event("ability_roll", piece="Raul the Crab", ability="Meditative Strike",
-                       die_value=dice.dice[die_index], floor=3, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Set the meditative strike flag — next die spent this turn counts as 6
-        self.meditative_strike_active[piece.color] = True
-        self.log_event("meditative_strike_active", detail="Next die treated as 6")
-        return True
 
     # ── Chunk 2 Abilities: Priority Group 1 (Simple Status Effects) ──
 
@@ -3307,11 +2621,10 @@ class GameState:
     _PIECE_STATUS_SETS = (
         "suppressed_pieces", "suppressed_pending", "frozen_pieces", "frozen_pending",
         "restrained_pieces", "restrained_pending", "she_tank_targets", "she_tank_pending",
-        "blitzed_pieces", "juice_box_used_this_turn", "sicced_pending", "zev_buff_pawns",
-        "raul_moved_this_turn", "bad_llama_cant_move",
+        "blitzed_pieces", "juice_box_used_this_turn", "bad_llama_cant_move",
     )
     _PIECE_STATUS_DICTS = (
-        "forced_retreat", "forced_retreat_pending", "recruited_pawns", "katia_last_threats",
+        "forced_retreat", "forced_retreat_pending", "recruited_pawns",
     )
 
     def is_piece_female(self, piece: Piece) -> bool:

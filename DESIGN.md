@@ -237,8 +237,9 @@ always Boss Event Only. Older ability names (Carl's Bulldozer; Donut's Diva's
 Entrance and Resurrection; Mongo's Rampaging Charge and Mongo Smash; Katia's Combat
 Roll and Dual Threat; Samantha's The Mouth and Portal Spike; The AI's Glitch) were
 removed from `use_ability()` and both AIs in v0.80 — the route answers "Unknown
-ability". Their `try_*` methods remain in `abilities.py` only because the old unit tests
-in `tests/test_abilities.py` call them; nothing in the game does.
+ability" — and their `try_*` methods, the state only they used (smoke zones, phantom
+threats, Katia's last threats, The Mouth / Portal Spike / Narrator's Favor flags), and
+their old tests were deleted after v0.80.
 
 | Piece | Ability | Cost | Uses/Game | Combined? | Boss Only? |
 |---|---|---|---|---|---|
