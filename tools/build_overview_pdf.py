@@ -51,8 +51,6 @@ DISCLAIMER = ("A fan project. Not officially affiliated with or endorsed by Matt
 UNDRAFTABLE = {"The AI"}
 
 # ═══ Short descriptions (keep these matching the code; DESIGN.md is the reference) ═══
-# Exception: Gun Show and Succubus describe the abilities as designed. The live code
-# doesn't match the design yet -- see KNOWN_BUGS.md.
 
 PAWN_BLURBS = {
     "Zev": "All friendly dice rolls get +1 on your next turn.",

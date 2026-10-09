@@ -151,6 +151,14 @@ def serialize_dice(dice):
     }
 
 
+def _pull_target_flag(game_state, ability_name, row, col):
+    """{"has_valid_target": bool} for Gun Show / Succubus (whose cards can't be
+    activated without a valid pull target), {} for every other ability."""
+    if ability_name not in GameState.PULL_ABILITIES:
+        return {}
+    return {"has_valid_target": bool(game_state.pull_targets((row, col), ability_name))}
+
+
 def get_piece_abilities(piece, game_state, row, col):
     """Get ability info for a piece for the sidebar."""
     abilities = []
@@ -174,6 +182,7 @@ def get_piece_abilities(piece, game_state, row, col):
                 "uses_per_game": None,
                 "requires_combined": getattr(cab, 'requires_combined', False),
                 "juice_box_source_pawn": captured_name,
+                **_pull_target_flag(game_state, cab.name, row, col),
             })
     elif piece.is_pawn and piece.pawn_name:
         char = PAWN_CHARACTERS.get(piece.pawn_name)
@@ -191,6 +200,7 @@ def get_piece_abilities(piece, game_state, row, col):
                 "uses_left": uses_left,
                 "uses_per_game": ab.uses_per_game,
                 "requires_combined": getattr(ab, 'requires_combined', False),
+                **_pull_target_flag(game_state, ab.name, row, col),
             })
     else:
         type_name = piece.piece_type.value
@@ -290,11 +300,6 @@ def get_status_effects_summary(gs, game_data):
         piece = board.get(*pos)
         if piece:
             add(piece.color, _piece_label(piece), "She Tank", 1)
-
-    for pos in gs.succubus_pieces:
-        piece = board.get(*pos)
-        if piece:
-            add(piece.color, _piece_label(piece), "Succubus (can't move)", 1)
 
     for pos, turns in gs.iron_wall_pieces.items():
         if turns <= 0:
@@ -398,7 +403,6 @@ def build_game_state_response():
         "suppressed_pieces": [[r, c] for r, c in gs.suppressed_pieces],
         "restrained_pieces": [[r, c] for r, c in gs.restrained_pieces],
         "she_tank_targets": [[r, c] for r, c in gs.she_tank_targets],
-        "succubus_pieces": [[r, c] for r, c in gs.succubus_pieces],
         "iron_wall_pieces": {f"{r},{c}": t for (r, c), t in gs.iron_wall_pieces.items() if t > 0},
         "ghost_tokens": {f"{r},{c}": t for (r, c), t in gs.ghost_tokens.items() if t > 0},
         # Meaningless before both Carls are even on the board, and meaningless again
@@ -533,7 +537,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.78"
+SITE_VERSION = "v0.79"
 
 
 @app.route("/")
@@ -1235,6 +1239,7 @@ def get_ability_targets():
     message = f"Select a target for {ability_name}"
     direction_options = None
     combined_total = None
+    pull_squares = None
 
     # For non-combined abilities paid via combined dice, compute the effective die value
     def effective_die_value(idx):
@@ -1413,6 +1418,17 @@ def get_ability_targets():
                             valid_targets.append([nr, nc])
             message = "Select adjacent friendly pawn to sacrifice"
 
+        elif ability_name in GameState.PULL_ABILITIES:
+            # Gun Show / Succubus: every piece with a legal pull, plus where each lands
+            pulls = gs.pull_targets((piece_row, piece_col), ability_name)
+            valid_targets = [list(pos) for pos in pulls]
+            pull_squares = {f"{r},{c}": list(dest) for (r, c), dest in pulls.items()}
+            caster_name = GameState.PULL_ABILITIES[ability_name][0]
+            if piece.pawn_name == "Juice Box":
+                caster_name = "Juice Box"
+            gender = GameState.PULL_ABILITIES[ability_name][2]
+            message = f"Select a {gender} piece to pull 1 square toward {caster_name}"
+
         elif ability_name == "Frozen":
             # Enemy pieces within 5 squares
             for dr in range(-5, 6):
@@ -1475,6 +1491,8 @@ def get_ability_targets():
             resp_data["direction_options"] = direction_options
         if combined_total is not None:
             resp_data["combined_total"] = combined_total
+        if pull_squares is not None:
+            resp_data["pull_squares"] = pull_squares
         return jsonify(resp_data)
 
     except Exception as e:
@@ -1526,6 +1544,15 @@ def use_ability():
     dice = game_data["dice"]
     if die_index < 0 or die_index >= 2 or dice.used[die_index]:
         return jsonify({"error": "Invalid or already used die"}), 400
+
+    # Gun Show / Succubus: with no valid pull target the ability can't be
+    # activated, so reject it here -- before any dice are combined or locked.
+    if ability_name in GameState.PULL_ABILITIES and piece.is_pawn:
+        pulls = gs.pull_targets((piece_row, piece_col), ability_name)
+        if not pulls:
+            return jsonify({"error": f"No valid target for {ability_name}"}), 400
+        if (target_row, target_col) not in pulls:
+            return jsonify({"error": f"Select a highlighted piece to pull with {ability_name}"}), 400
 
     # Determine whether this ability is designed as requires_combined
     # (those abilities handle their own combined dice internally)
@@ -1932,8 +1959,8 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
             success = gs.try_air_strike(pos, dice, die_index)
             msg = "Air strike!" if success else "Failed"
     elif name == "Stripper Anaconda" and ability_name == "Gun Show":
-        success = gs.try_gun_show(pos, dice, die_index)
-        msg = "Gun show!" if success else "Failed"
+        success = gs.try_gun_show(pos, dice, die_index, target_pos=target_pos)
+        msg = "Gun Show!" if success else "Failed"
     elif name == "Lucia Mar" and ability_name == "Sic Em":
         success = gs.try_sic_em(pos, dice, die_index)
         msg = "Restrained!" if success else "Failed"
@@ -1967,7 +1994,7 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         success = gs.try_suppressing_fire(pos, dice, die_index)
         msg = "Suppressing fire!" if success else "Failed"
     elif name == "Signet" and ability_name == "Succubus":
-        success = gs.try_succubus(pos, dice, die_index)
+        success = gs.try_succubus(pos, dice, die_index, target_pos=target_pos)
         msg = "Succubus!" if success else "Failed"
     elif name == "Miriam Dom" and ability_name == "Blood Magic":
         # Blood Magic uses target_pos to select sacrifice pawn

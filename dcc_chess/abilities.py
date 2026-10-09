@@ -169,14 +169,6 @@ class GameState:
         self.forced_retreat: Dict[Tuple[int, int], Tuple[int, int]] = {}
         self.forced_retreat_pending: Dict[Tuple[int, int], Tuple[int, int]] = {}
 
-        # Enthrall / Succubus (Signet — _apply_enthrall reads enthralled_pieces)
-        self.enthralled_pieces: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        self.enthralled_pending: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        # Signet — Succubus: enemy male pieces that can't move (same pending ->
-        # active promotion as frozen/restrained/she_tank, see start_turn)
-        self.succubus_pieces: Set[Tuple[int, int]] = set()  # active this turn
-        self.succubus_pending: Set[Tuple[int, int]] = set()  # applied this turn, active next
-
         # Zev — Pack Rally buffed pawn positions
         self.zev_buff_pawns: Set[Tuple[int, int]] = set()
 
@@ -190,11 +182,8 @@ class GameState:
         # Raul the Crab — Group Climax pending next turn
         self.group_climax_pending: Dict[Color, bool] = {Color.WHITE: False, Color.BLACK: False}
 
-        # Stripper Anaconda — Gun Show buff duration tracking
-        self.gun_show_active: Dict[Color, int] = {Color.WHITE: 0, Color.BLACK: 0}
-
-        # Piece gender overrides (for gender-based abilities: Gun Show, Succubus, Signet)
-        self.piece_genders: Dict[tuple, str] = {}
+        # Stripper Anaconda (Gun Show) / Signet (Succubus): pulls resolve
+        # immediately -- no persistent state (see pull_targets / _try_pull).
 
         # ── AI Card System (Chunk 3) ─────────────────────────────
         self.ai_card_deck: List[str] = ai_cards.build_ai_deck()
@@ -450,9 +439,6 @@ class GameState:
         self.she_tank_targets = self.she_tank_pending.copy()
         self.she_tank_pending.clear()
 
-        self.succubus_pieces = self.succubus_pending.copy()
-        self.succubus_pending.clear()
-
     def promote_group_climax(self, dice: DungeonDice):
         """Apply Raul the Crab's Group Climax if it's pending for the player whose
         turn is starting: all their ability floor costs drop by 2 for this turn.
@@ -645,8 +631,6 @@ class GameState:
             return False
         if (row, col) in self.she_tank_targets:
             return False
-        if (row, col) in self.succubus_pieces:
-            return False
         if (row, col) in self.frozen_pieces:
             return False
         if (row, col) in self.restrained_pieces:
@@ -719,10 +703,7 @@ class GameState:
         # Forced retreat filter (Florin's Suppressing Fire)
         retreat_filtered = self._apply_forced_retreat(filtered, color)
 
-        # Enthrall filter (Signet)
-        enthrall_filtered = self._apply_enthrall(retreat_filtered, color)
-
-        return enthrall_filtered if enthrall_filtered else filtered
+        return retreat_filtered if retreat_filtered else filtered
 
     # ── Capture Interception ──────────────────────────────────────
 
@@ -1364,14 +1345,6 @@ class GameState:
                 return (r, c)
         return None
 
-    def _is_female(self, piece: Piece) -> bool:
-        """Check if a piece is female."""
-        if piece.piece_type.value in FEMALE_MAJOR_PIECE_TYPES:
-            return True
-        if piece.is_pawn and piece.pawn_name in FEMALE_PAWN_NAMES:
-            return True
-        return False
-
     def update_katia_threats(self):
         """Store current Katia threatened squares for Combat Roll next turn."""
         self.katia_last_threats.clear()
@@ -1410,34 +1383,6 @@ class GameState:
         all_have_moves = all(has_move.values())
         if not all_have_moves:
             # Exempt pieces with no valid retreat
-            return moves
-        return result
-
-    def _apply_enthrall(self, moves, color):
-        """Filter moves for pieces under Signet's Enthrall.
-
-        Enthralled pieces must end their move closer to Signet.
-        """
-        if not self.enthralled_pieces:
-            return moves
-
-        result = []
-        for (fr, fc), (tr, tc) in moves:
-            if (fr, fc) in self.enthralled_pieces:
-                signet_r, signet_c = self.enthralled_pieces[(fr, fc)]
-                old_dist = abs(fr - signet_r) + abs(fc - signet_c)
-                new_dist = abs(tr - signet_r) + abs(tc - signet_c)
-                if new_dist >= old_dist:
-                    continue  # Must move closer
-            result.append(((fr, fc), (tr, tc)))
-
-        # If no closer square available, effect is ignored
-        affected_pieces = set(self.enthralled_pieces.keys())
-        has_closer = {pos: False for pos in affected_pieces}
-        for (fr, fc), _ in result:
-            if (fr, fc) in has_closer:
-                has_closer[(fr, fc)] = True
-        if not all(has_closer.values()):
             return moves
         return result
 
@@ -1562,40 +1507,6 @@ class GameState:
         self.log_event("shapeshift_copy", copied_from=copied_name)
         # We just log the copy — the actual effect is simplified as a success
         return True
-
-    def try_enthrall(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
-                     die_index: int) -> bool:
-        """Signet's Enthrall (Floor 4): force adjacent enemy major piece toward Signet."""
-        piece = self.board.get(*pawn_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name != "Signet":
-            return False
-        if self.is_piece_suppressed(*pawn_pos):
-            return False
-
-        success = dice.spend_die(die_index, 4)
-        self.log_event("ability_roll", piece="Signet", ability="Enthrall",
-                       die_value=dice.dice[die_index], floor=4, result="success" if success else "fail")
-        if not success:
-            return False
-
-        r, c = pawn_pos
-        targets = []
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    t = self.board.get(nr, nc)
-                    if t and t.color != piece.color and not t.is_pawn:
-                        targets.append((nr, nc))
-        if targets:
-            target_pos = random.choice(targets)
-            self.enthralled_pending[target_pos] = pawn_pos
-            self.log_event("enthrall_applied", target=repr(self.board.get(*target_pos)),
-                           target_pos=target_pos, signet_pos=pawn_pos)
-            return True
-        return False
 
     def try_meditative_strike(self, pawn_pos: Tuple[int, int], dice: DungeonDice,
                               die_index: int) -> bool:
@@ -2332,7 +2243,7 @@ class GameState:
             elif name == "Sledge":
                 success = self.try_body_guard(juice_box_pos, dice, die_index)
             elif name == "Stripper Anaconda":
-                success = self.try_gun_show(juice_box_pos, dice, die_index)
+                success = self.try_gun_show(juice_box_pos, dice, die_index, target_pos=target_pos)
             elif name == "Quasar":
                 # Mediation is a passive defense (see attempt_capture) that triggers
                 # automatically when Juice Box herself is about to be captured --
@@ -2345,7 +2256,7 @@ class GameState:
             elif name == "Florin":
                 success = self.try_suppressing_fire(juice_box_pos, dice, die_index)
             elif name == "Signet":
-                success = self.try_succubus(juice_box_pos, dice, die_index)
+                success = self.try_succubus(juice_box_pos, dice, die_index, target_pos=target_pos)
             elif name == "Miriam Dom":
                 success = self.try_blood_magic(juice_box_pos, dice, target_pos=target_pos)
             elif name == "Raul the Crab":
@@ -3291,116 +3202,176 @@ class GameState:
         self.log_event("group_climax", detail="All friendly pieces get -2 to ability costs next turn")
         return True
 
-    # ── Chunk 2 Abilities: Priority Group 8 (Gender-Based Abilities) ──
+    # ── Pull Abilities: Gun Show (Stripper Anaconda) / Succubus (Signet) ──
 
-    def is_piece_female(self, piece: Piece, row: int, col: int) -> bool:
-        """Check if a piece is designated as female.
-        Defaults: Donut and Katia are female. Pawns use their character gender from rulebook.
-        """
-        if piece.piece_type == PieceType.DONUT:
-            return True
-        if piece.piece_type == PieceType.KATIA:
-            return True
-        
-        # Check if piece has custom gender designation
-        key = (piece.color, row, col)
-        if key in self.piece_genders:
-            return self.piece_genders[key] == "female"
-        
-        # For pawns, check character gender from rulebook
-        if piece.is_pawn and piece.pawn_name:
-            from .pawns import FEMALE_PAWN_NAMES
+    # ability name -> (source pawn, floor cost, gender it pulls)
+    PULL_ABILITIES = {
+        "Gun Show": ("Stripper Anaconda", 5, "female"),
+        "Succubus": ("Signet", 6, "male"),
+    }
+
+    # Every per-piece status keyed by board square. A pulled piece carries
+    # these to its new square -- otherwise a pull could, say, free a Frozen
+    # piece or let a She Tank target move this turn.
+    _PIECE_STATUS_SETS = (
+        "suppressed_pieces", "suppressed_pending", "frozen_pieces", "frozen_pending",
+        "restrained_pieces", "restrained_pending", "she_tank_targets", "she_tank_pending",
+        "blitzed_pieces", "juice_box_used_this_turn", "sicced_pending", "zev_buff_pawns",
+        "raul_moved_this_turn", "bad_llama_cant_move",
+    )
+    _PIECE_STATUS_DICTS = (
+        "forced_retreat", "forced_retreat_pending", "recruited_pawns", "katia_last_threats",
+    )
+
+    def is_piece_female(self, piece: Piece) -> bool:
+        """Donut, Katia, and Samantha (FEMALE_MAJOR_PIECE_TYPES) plus the female
+        pawns (FEMALE_PAWN_NAMES) are female. Every other piece is male."""
+        if piece.is_pawn:
             return piece.pawn_name in FEMALE_PAWN_NAMES
-        
-        return False
+        return piece.piece_type.value in FEMALE_MAJOR_PIECE_TYPES
 
-    def is_piece_male(self, piece: Piece, row: int, col: int) -> bool:
-        """Check if a piece is designated as male.
-        Defaults: Carl, Mongo, and Samantha are male. Pawns use their character gender from rulebook.
+    @staticmethod
+    def pull_square(caster_pos: Tuple[int, int], target_pos: Tuple[int, int]) -> Tuple[int, int]:
+        """The square a pull moves the piece at target_pos to: one King step
+        toward the caster, 1 square along each axis that still has distance to
+        close. That always cuts the King-move distance by 1 (the shortest
+        route), and when a straight and a diagonal step would both do so (the
+        target is off the caster's row, column, and diagonals) it takes the
+        diagonal, which closes the distance most directly.
         """
-        if piece.piece_type == PieceType.CARL:
-            return True
-        if piece.piece_type == PieceType.MONGO:
-            return True
-        if piece.piece_type == PieceType.SAMANTHA:
-            return True
-        
-        # Check if piece has custom gender designation
-        key = (piece.color, row, col)
-        if key in self.piece_genders:
-            return self.piece_genders[key] == "male"
-        
-        # For pawns, check character gender from rulebook
-        if piece.is_pawn and piece.pawn_name:
-            from .pawns import FEMALE_PAWN_NAMES
-            return piece.pawn_name not in FEMALE_PAWN_NAMES
-        
-        return False
+        tr, tc = target_pos
+        cr, cc = caster_pos
+        return (tr + (cr > tr) - (cr < tr), tc + (cc > tc) - (cc < tc))
+
+    @staticmethod
+    def _pull_promotes(piece: Piece, dest: Tuple[int, int]) -> bool:
+        """A pawn pulled onto its promotion rank promotes, same as moving there."""
+        promotion_rank = BOARD_SIZE - 1 if piece.color == Color.WHITE else 0
+        return piece.is_pawn and dest[0] == promotion_rank
+
+    def _pull_exposes_carl(self, color: Color, src: Tuple[int, int], dest: Tuple[int, int]) -> bool:
+        """True if pulling the piece on src to dest leaves `color`'s Carl in check."""
+        if self.board.find_king(color) is None:
+            return False  # boss co-op fallen player -- no Carl to protect
+        piece = self.board.get(*src)
+        landed = Piece(PieceType.DUNGEON_BOSS, piece.color) if self._pull_promotes(piece, dest) else piece
+        self.board.set(src[0], src[1], None)
+        self.board.set(dest[0], dest[1], landed)
+        try:
+            return is_in_check(self.board, color)
+        finally:
+            self.board.set(dest[0], dest[1], None)
+            self.board.set(src[0], src[1], piece)
+
+    def pull_targets(self, caster_pos: Tuple[int, int],
+                     ability_name: str) -> Dict[Tuple[int, int], Tuple[int, int]]:
+        """Every piece the caster on caster_pos can pull with ability_name
+        ("Gun Show" or "Succubus"), mapped to the square it would land on.
+
+        Either color, anywhere on the board, of the ability's gender. Never:
+        Carl, Orthrus (2-square body), an immovable piece (Body Guard, Lava
+        Surge's stuck Chris, stuck pieces), a piece already adjacent to the
+        caster, a piece whose pull square is occupied, blocked by a zone, or a
+        boss square, or a pull that leaves the caster's own Carl in check.
+        """
+        caster = self.board.get(*caster_pos)
+        if caster is None or ability_name not in self.PULL_ABILITIES:
+            return {}
+        wants_female = self.PULL_ABILITIES[ability_name][2] == "female"
+        boss_squares = set(self.boss_squares)
+        cr, cc = caster_pos
+
+        targets = {}
+        for color in (Color.WHITE, Color.BLACK):
+            for r, c, piece in self.board.all_pieces(color):
+                if max(abs(r - cr), abs(c - cc)) <= 1:
+                    continue  # the caster itself, or already adjacent
+                if piece.is_king or piece.pawn_name == "Orthrus":
+                    continue
+                if self.is_piece_female(piece) != wants_female:
+                    continue
+                if ((r, c) in self.iron_wall_pieces or (r, c) in self.stuck_pieces
+                        or (r, c) in self.chris_stuck):
+                    continue
+                dest = self.pull_square(caster_pos, (r, c))
+                if (self.board.get(*dest) is not None or self.is_square_blocked(*dest)
+                        or dest in boss_squares):
+                    continue
+                if self._pull_exposes_carl(caster.color, (r, c), dest):
+                    continue
+                targets[(r, c)] = dest
+        return targets
+
+    def _relocate_piece_status(self, old: Tuple[int, int], new: Tuple[int, int]):
+        """Move every square-keyed per-piece status from old to new."""
+        for name in self._PIECE_STATUS_SETS:
+            statuses = getattr(self, name)
+            if old in statuses:
+                statuses.discard(old)
+                statuses.add(new)
+        for name in self._PIECE_STATUS_DICTS:
+            statuses = getattr(self, name)
+            if old in statuses:
+                statuses[new] = statuses.pop(old)
+
+    def _try_pull(self, caster_pos: Tuple[int, int], dice: DungeonDice, die_index: int,
+                  ability_name: str, target_pos: Optional[Tuple[int, int]] = None) -> bool:
+        """Shared Gun Show / Succubus implementation (also Juice Box's copies).
+
+        `target_pos` is the piece to pull; a random valid target is used if it's
+        omitted. If there's no valid target, or the requested one isn't valid,
+        nothing is spent and this returns False.
+        """
+        source_pawn, floor, _gender = self.PULL_ABILITIES[ability_name]
+        caster = self.board.get(*caster_pos)
+        if caster is None or not caster.is_pawn or caster.pawn_name not in (source_pawn, "Juice Box"):
+            return False
+        if self.is_piece_suppressed(*caster_pos):
+            return False
+
+        targets = self.pull_targets(caster_pos, ability_name)
+        if target_pos is None and targets:
+            target_pos = random.choice(list(targets))
+        if target_pos is None or tuple(target_pos) not in targets:
+            return False
+        target_pos = tuple(target_pos)
+
+        success = dice.spend_die(die_index, floor)
+        self.log_event("ability_roll", piece=source_pawn, ability=ability_name,
+                       die_value=dice.dice[die_index], floor=floor,
+                       result="success" if success else "fail")
+        if not success:
+            return False
+
+        dest = targets[target_pos]
+        target = self.board.get(*target_pos)
+        self.board.set(target_pos[0], target_pos[1], None)
+        self.board.set(dest[0], dest[1], target)
+        target.has_moved = True
+        self._relocate_piece_status(target_pos, dest)
+        if self._pull_promotes(target, dest):
+            self.board._promote_pawn(dest[0], dest[1], target)
+
+        caster_label = source_pawn if caster.pawn_name == source_pawn else f"Juice Box ({source_pawn})"
+        self.log_event("pull", piece=caster_label, ability=ability_name, target=repr(target),
+                       from_pos=list(target_pos), to_pos=list(dest))
+        return True
 
     def try_gun_show(self, anaconda_pos: Tuple[int, int], dice: DungeonDice,
-                     die_index: int) -> bool:
-        """Stripper Anaconda's Gun Show (Floor 5):
-        All friendly male pieces get +2 to dice rolls for 2 turns.
+                     die_index: int, target_pos: Optional[Tuple[int, int]] = None) -> bool:
+        """Stripper Anaconda's Gun Show (Floor 5): pull any one female piece,
+        friendly or enemy, 1 square closer to Anaconda by the shortest route.
+        Donut always counts as female.
         """
-        piece = self.board.get(*anaconda_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Stripper Anaconda", "Juice Box"):
-            return False
-        if self.is_piece_suppressed(*anaconda_pos):
-            return False
-
-        success = dice.spend_die(die_index, 5)
-        self.log_event("ability_roll", piece="Stripper Anaconda", ability="Gun Show",
-                       die_value=dice.dice[die_index], floor=5, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Set buff for 2 turns
-        self.gun_show_active[piece.color] = 2
-        
-        self.log_event("gun_show", detail="All friendly male pieces get +2 for 2 turns")
-        return True
+        return self._try_pull(anaconda_pos, dice, die_index, "Gun Show", target_pos)
 
     def try_succubus(self, signet_pos: Tuple[int, int], dice: DungeonDice,
-                     die_index: int) -> bool:
-        """Signet's Succubus (Floor 6):
-        All enemy male pieces within 3 squares cannot move next turn. Carl is
-        always excluded.
+                     die_index: int, target_pos: Optional[Tuple[int, int]] = None) -> bool:
+        """Signet's Succubus (Floor 6): pull any one male piece, friendly or
+        enemy, 1 square closer to Signet by the shortest route. Carl can never
+        be targeted.
         """
-        piece = self.board.get(*signet_pos)
-        if piece is None or not piece.is_pawn or piece.pawn_name not in ("Signet", "Juice Box"):
-            return False
-        if self.is_piece_suppressed(*signet_pos):
-            return False
-
-        success = dice.spend_die(die_index, 6)
-        self.log_event("ability_roll", piece="Signet", ability="Succubus",
-                       die_value=dice.dice[die_index], floor=6, result="success" if success else "fail")
-        if not success:
-            return False
-
-        # Find all enemy male pieces within 3 squares. Carl is never affected,
-        # regardless of gender: pinning him could leave his side with no legal
-        # move and soft-lock the game.
-        r, c = signet_pos
-        affected = []
-        for dr in range(-3, 4):
-            for dc in range(-3, 4):
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if self.board.in_bounds(nr, nc):
-                    target = self.board.get(nr, nc)
-                    if target and target.color != piece.color and not target.is_king:
-                        if self.is_piece_male(target, nr, nc):
-                            affected.append((nr, nc))
-        
-        # Add all affected pieces to succubus pending
-        for pos in affected:
-            self.succubus_pending.add(pos)
-        
-        self.log_event("succubus", affected_count=len(affected),
-                       detail=f"{len(affected)} enemy male pieces cannot move next turn")
-        return True
+        return self._try_pull(signet_pos, dice, die_index, "Succubus", target_pos)
 
     # ── Special Event Attacks (Part 3 Stage B, boss battles only) ───
 

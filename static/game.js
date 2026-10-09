@@ -1664,7 +1664,6 @@ const Game = {
         const suppressedSet = new Set((this.state.suppressed_pieces || []).map(z => `${z[0]},${z[1]}`));
         const restrainedSet = new Set((this.state.restrained_pieces || []).map(z => `${z[0]},${z[1]}`));
         const sheTankSet = new Set((this.state.she_tank_targets || []).map(z => `${z[0]},${z[1]}`));
-        const succubusSet = new Set((this.state.succubus_pieces || []).map(z => `${z[0]},${z[1]}`));
         const ironWallMap = this.state.iron_wall_pieces || {};
         const ghostMap = this.state.ghost_tokens || {};
         const ghostSet = new Set(Object.keys(ghostMap));
@@ -1797,6 +1796,11 @@ const Game = {
                 const sqKey = `${row},${col}`;
                 const tooltipLines = [];
 
+                // Gun Show / Succubus targeting: say where each highlighted piece would land
+                const pullTo = this.targetingMode && this.targetingAbility && this.targetingAbility.pullSquares
+                    ? this.targetingAbility.pullSquares[sqKey] : null;
+                if (pullTo) tooltipLines.push(`Pull to ${this.squareLabel(pullTo[0], pullTo[1])}`);
+
                 if (piece) {
                     const pieceEl = document.createElement('div');
                     pieceEl.className = `piece ${piece.color}`;
@@ -1821,11 +1825,6 @@ const Game = {
                     if (sheTankSet.has(sqKey)) {
                         effectSymbols.push('🚫');
                         tooltipLines.push('She Tank — 1 turn remaining');
-                        primaryEffect = primaryEffect || 'piece-she-tank';
-                    }
-                    if (succubusSet.has(sqKey)) {
-                        effectSymbols.push('💋');
-                        tooltipLines.push('Succubus — cannot move, 1 turn remaining');
                         primaryEffect = primaryEffect || 'piece-she-tank';
                     }
                     if (primaryEffect) pieceEl.classList.add(primaryEffect);
@@ -2563,12 +2562,13 @@ const Game = {
                     push(e, moverKind, `${T} ${who}: ${actor} used ${abilityName} on ${targetLabel} (${DURATION})`);
                     break;
                 }
-                case 'enthrall_applied': {
+                case 'pull': {
+                    // Gun Show / Succubus: "Signet used Succubus — pulled White Mongo to E5"
                     const ctx = this._precedingAbilityRoll(events, i, consumed);
-                    const targetRepr = this._pieceRepr(e.target) || null;
-                    const targetLabel = targetRepr ? this._pieceText(targetRepr, false) : 'a piece';
-                    const actor = ctx ? ctx.piece : 'Signet';
-                    push(e, moverKind, `${T} ${who}: ${actor} used Enthrall on ${targetLabel} — pulled toward Signet`);
+                    const targetLabel = this._pieceText(this._pieceRepr(e.target), false);
+                    const sq = e.to_pos ? this.squareLabel(e.to_pos[0], e.to_pos[1]) : '?';
+                    const actor = ctx ? ctx.piece : e.piece;
+                    push(e, moverKind, `${T} ${who}: ${actor} used ${e.ability} — pulled ${targetLabel} to ${sq}`);
                     break;
                 }
                 case 'blitzed': {
@@ -3364,9 +3364,11 @@ const Game = {
         const floor = this.effectiveFloor(ab.floor);
         const onPuddleJumpCooldown = ab.name === 'Puddle Jump' && (this.state.puddle_jump_cooldown || 0) > 0;
 
+        const noPullTarget = ab.has_valid_target === false;
+
         if (this.state.system_reset_active) {
             status = 'grey';
-        } else if (onPuddleJumpCooldown) {
+        } else if (onPuddleJumpCooldown || noPullTarget) {
             status = 'grey';
         } else if (ab.is_boss_only && !this.state.boss_active) {
             status = 'purple';
@@ -3407,9 +3409,11 @@ const Game = {
             ? '🔒 System Reset'
             : onPuddleJumpCooldown
                 ? '🔒 Cooldown'
-                : (ab.is_boss_only && !this.state.boss_active)
-                    ? '🔒 Boss Event Only'
-                    : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
+                : noPullTarget
+                    ? 'No valid target'
+                    : (ab.is_boss_only && !this.state.boss_active)
+                        ? '🔒 Boss Event Only'
+                        : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
 
         card.innerHTML = `
             <span class="ac-piece-name">${pieceLabel}</span>
@@ -3541,7 +3545,8 @@ const Game = {
             let status = 'grey';
             let bestDie = null;
             let useCombined = false;
-            if (!onCooldown && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
+            const noPullTarget = ab.has_valid_target === false;
+            if (!onCooldown && !noPullTarget && !this.state.system_reset_active && !pc.suppressed && availableDice.length > 0) {
                 const single = this.findBestDie(availableDice, jbFloor);
                 if (ab.requires_combined) {
                     // Combined-dice abilities (Gang Gang!, Air Strike, Blood Magic,
@@ -3573,7 +3578,9 @@ const Game = {
                 ? '🔒 System Reset'
                 : onCooldown
                     ? 'Cooldown — 1 turn'
-                    : `${useCombined ? '⚄+⚄ ' : ''}${jbFloor} Mana (via Juice Box)`;
+                    : noPullTarget
+                        ? 'No valid target'
+                        : `${useCombined ? '⚄+⚄ ' : ''}${jbFloor} Mana (via Juice Box)`;
 
             const card = document.createElement('div');
             card.className = `ability-card status-${status}`;
@@ -4004,6 +4011,9 @@ const Game = {
             'Blood Magic': 'sacrifice',
             // Freeze abilities
             'Frozen': 'target_piece',
+            // Pull abilities (Gun Show / Succubus): pick the piece to pull
+            'Gun Show': 'target_piece',
+            'Succubus': 'target_piece',
             // Direction-toggle abilities
             'Lava Surge': 'direction',
             // Two-stage pull ability (select piece, then destination)
@@ -4326,6 +4336,7 @@ const Game = {
                 dieIndex,
                 targetingType,
                 useCombined,
+                pullSquares: data.pull_squares || null,
             };
             this.validTargets = data.valid_targets;
             this.targetingMessage = data.message || `Select a target for ${abilityName}`;

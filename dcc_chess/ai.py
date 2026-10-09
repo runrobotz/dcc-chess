@@ -968,6 +968,9 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
             return
         for captured_name in gs.juice_box_captured.get(gs.juice_box_key((row, col)), []):
             cchar = PAWN_CHARACTERS.get(captured_name)
+            if (cchar and cchar.ability.name in GameState.PULL_ABILITIES
+                    and _best_pull(gs, (row, col), cchar.ability.name, piece.color) is None):
+                continue  # no pull worth her dice
             if cchar and cchar.ability.trigger == AbilityTrigger.FLOOR_ROLL:
                 offensive.append((f"juice_box:{cchar.ability.name}", (row, col), piece,
                                   cchar.ability.floor_number + 1))
@@ -989,7 +992,8 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         if _has_enemy_in_range(board, row, col, 2, opponent):
             offensive.append(("candy_biggs", (row, col), piece, floor))
     elif name == "Stripper Anaconda":
-        if _has_enemy_in_range(board, row, col, 1, opponent):
+        # Gun Show: only when some female piece's pull actually helps
+        if _best_pull(gs, (row, col), "Gun Show", piece.color) is not None:
             offensive.append(("gun_show", (row, col), piece, floor))
     elif name == "Louie":
         if _has_enemy_in_range(board, row, col, 3, opponent):
@@ -1037,19 +1041,9 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
         if _has_enemy_in_range(board, row, col, 3, opponent):
             offensive.append(("florin", (row, col), piece, floor))
     elif name == "Signet":
-        # Enthrall: only useful if adjacent enemy major piece
-        has_adj_major = False
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = row + dr, col + dc
-                if board.in_bounds(nr, nc):
-                    t = board.get(nr, nc)
-                    if t and t.color == opponent and not t.is_pawn:
-                        has_adj_major = True
-        if has_adj_major:
-            offensive.append(("signet", (row, col), piece, floor))
+        # Succubus: only when some male piece's pull actually helps
+        if _best_pull(gs, (row, col), "Succubus", piece.color) is not None:
+            offensive.append(("succubus", (row, col), piece, floor))
     elif name == "Miriam Dom":
         # Blood Magic: need adjacent friendly pawn AND captured friendly pawn
         has_adj_pawn = False
@@ -1075,6 +1069,80 @@ def _categorize_pawn_ability(gs, board, row, col, piece, opponent,
     elif name == "Bad Llama":
         if _has_enemy_in_range(board, row, col, 2, opponent):
             offensive.append(("bad_llama", (row, col), piece, floor))
+
+
+# ── Gun Show / Succubus pull evaluation ─────────────────────────────
+
+# A pull has to be worth at least a pawn to be worth spending dice on.
+MIN_PULL_SCORE = 1.0
+
+
+def _attacked_squares(board: Board, color: Color) -> set:
+    """Every square `color` could capture on (pawns only diagonally forward;
+    Orthrus never captures)."""
+    squares = set()
+    for r, c, p in board.all_pieces(color):
+        if p.pawn_name == "Orthrus":
+            continue
+        if p.is_pawn:
+            squares.update({(r + p.color.direction, c - 1), (r + p.color.direction, c + 1)})
+        else:
+            squares.update(pseudo_legal_moves_for_piece(board, r, c))
+    return squares
+
+
+def _hanging_values(gs: GameState, victim: Color) -> List[int]:
+    """Values of `victim`'s capturable non-Carl pieces the other side attacks."""
+    board = gs.board
+    attacked = _attacked_squares(board, victim.opponent)
+    return [PIECE_VALUES.get(p.piece_type, 1)
+            for r, c, p in board.all_pieces(victim)
+            if (r, c) in attacked and not p.is_king and p.pawn_name != "Orthrus"
+            and not gs.is_piece_invulnerable(r, c)]
+
+
+def _threat_balance(gs: GameState, color: Color) -> float:
+    """How well the material threats stand for `color`, with the opponent to
+    move next: they'll take our most valuable hanging piece, and can only save
+    one of theirs, so their hanging material counts for half."""
+    ours = _hanging_values(gs, color)
+    theirs = _hanging_values(gs, color.opponent)
+    return 0.5 * max(theirs, default=0) - max(ours, default=0)
+
+
+def _pull_score(gs: GameState, color: Color, src: Tuple[int, int], dest: Tuple[int, int]) -> float:
+    """Change in `color`'s threat balance if the piece on src is pulled to dest:
+    positive for pulling an enemy piece into our attacks or out of a spot where
+    it threatens us, or a friendly piece out of danger."""
+    board = gs.board
+    before = _threat_balance(gs, color)
+    piece = board.get(*src)
+    board.set(src[0], src[1], None)
+    board.set(dest[0], dest[1], piece)
+    try:
+        after = _threat_balance(gs, color)
+    finally:
+        board.set(dest[0], dest[1], None)
+        board.set(src[0], src[1], piece)
+    score = after - before
+    if GameState._pull_promotes(piece, dest):
+        promo = PIECE_VALUES[PieceType.DUNGEON_BOSS] - 1
+        score += promo if piece.color == color else -promo
+    return score
+
+
+def _best_pull(gs: GameState, caster_pos: Tuple[int, int], ability_name: str,
+               color: Color) -> Optional[Tuple[int, int]]:
+    """The most useful Gun Show / Succubus target for `color`'s caster, or
+    None if no legal pull is worth MIN_PULL_SCORE (don't waste the dice)."""
+    if gs.boss_active:
+        return None  # captures are off during a boss fight -- a pull gains nothing
+    best, best_score = None, MIN_PULL_SCORE
+    for src, dest in gs.pull_targets(caster_pos, ability_name).items():
+        score = _pull_score(gs, color, src, dest)
+        if score >= best_score:
+            best, best_score = src, score
+    return best
 
 
 def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
@@ -1134,7 +1202,9 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
     elif ability_name == "candy_biggs":
         gs.try_gang_gang(pos, dice)
     elif ability_name == "gun_show":
-        gs.try_gun_show(pos, dice, die_idx)
+        target = _best_pull(gs, pos, "Gun Show", piece.color)
+        if target is not None:
+            gs.try_gun_show(pos, dice, die_idx, target_pos=target)
     elif ability_name == "louie":
         gs.try_air_strike(pos, dice, die_idx)
     elif ability_name == "prepotente":
@@ -1161,12 +1231,20 @@ def _execute_smart_ability(gs, dice, ability_name, pos, piece, die_idx, color):
         cchar = gs.find_captured_ability(pos, captured_ability_name)
         use_combined = bool(cchar and cchar.ability.requires_combined)
         direction = _pick_chris_direction(gs, pos) if cchar and cchar.name == "Chris" else None
+        target = None
+        if captured_ability_name in GameState.PULL_ABILITIES:
+            target = _best_pull(gs, pos, captured_ability_name, piece.color)
+            if target is None:
+                return
         gs.try_juice_box_use_captured_ability(pos, captured_ability_name, dice, die_idx,
-                                              use_combined=use_combined, direction=direction)
+                                              use_combined=use_combined, direction=direction,
+                                              target_pos=target)
     elif ability_name == "florin":
         gs.try_suppressing_fire(pos, dice, die_idx)
-    elif ability_name == "signet":
-        gs.try_succubus(pos, dice, die_idx)
+    elif ability_name == "succubus":
+        target = _best_pull(gs, pos, "Succubus", piece.color)
+        if target is not None:
+            gs.try_succubus(pos, dice, die_idx, target_pos=target)
     elif ability_name == "miriam_dom":
         gs.try_blood_magic(pos, dice)
     elif ability_name == "raul":
