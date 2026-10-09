@@ -19,9 +19,8 @@ reaching the graveyard (they now land in `board.captured` and run `process_post_
 
 ### Gun Show and Succubus don't match their designed abilities
 
-The designed behavior (the ability text in `dcc_chess/pawns.py` and the game overview PDF) is
-correct; the code needs to change to match it. DESIGN.md currently records the code as
-authoritative for these two and should be updated when they're fixed.
+The designed behavior (DESIGN.md, the ability text in `dcc_chess/pawns.py`, and the game
+overview PDF) is correct; the code needs to change to match it.
 
 - **Gun Show** (Stripper Anaconda) should pull any one female piece, friendly or enemy, 1
   square closer to Anaconda by the shortest route. Donut always counts as female. The live
