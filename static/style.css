@@ -709,6 +709,12 @@ body.light-theme .board .square.dark { background: #8b7355; }
     font-weight: 600;
     white-space: nowrap;
 }
+.boss-health-bar .insta-kill-btn {
+    margin-left: auto;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
 
 /* Boss-occupied board squares */
 .square.boss-square {
@@ -2045,6 +2051,11 @@ body.light-theme .board .square.dark { background: #8b7355; }
 .piece-card.suppressed {
     opacity: 0.5;
     border-color: var(--danger);
+}
+/* Pet Carrier: a stored Mongo, off the board */
+.piece-card.stored-piece {
+    border-style: dashed;
+    border-color: var(--accent-gold);
 }
 .piece-card .pc-header {
     display: flex;

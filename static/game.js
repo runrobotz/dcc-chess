@@ -937,7 +937,7 @@ const Game = {
             { name: 'Magic Missile', floor: 5, boss_only: true, description: 'Shoots a magic missile 5 squares in any direction to damage a summoned boss.' },
         ] },
         { name: 'Mongo', type: 'Knight', abilities: [
-            { name: 'Pet Carrier', floor: 4, description: 'Remove Mongo from the board and store him. He can be released for free on your turn within 2 squares of Donut. If Donut is captured while Mongo is stored, Mongo is captured too. Only 1 stored at a time.' },
+            { name: 'Pet Carrier', floor: 4, description: 'Store Mongo off the board (needs Donut on the board; 1 stored at a time). On a later turn, release him for free onto an open square within 2 of Donut, before you move; he can\'t move or capture that turn. If Donut leaves the board while he\'s stored, Mongo is captured too.' },
             { name: 'Rampage', floor: 8, requires_combined: true, uses_per_game: 1, description: "Mongo captures any piece within his L-shaped movement path, not just the final destination." },
             { name: 'Gorefest', floor: 4, boss_only: true, description: 'Mongo attacks 2 squares from his current location in any direction to damage a summoned boss.' },
         ] },
@@ -1573,16 +1573,47 @@ const Game = {
                 <span class="boss-name">👹 ${this.state.active_boss}</span>
                 <span class="boss-hp-label">🧩 Puzzle — Place pieces on all corners + center</span>
             `;
-            return;
+        } else {
+            const hp = this.state.boss_hp || 0;
+            const maxHp = this.state.boss_max_hp || 0;
+            const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+            bar.innerHTML = `
+                <span class="boss-name">👹 ${this.state.active_boss}</span>
+                <div class="boss-hp-track"><div class="boss-hp-fill" style="width: ${pct}%;"></div></div>
+                <span class="boss-hp-label">${hp} / ${maxHp} HP</span>
+            `;
         }
-        const hp = this.state.boss_hp || 0;
-        const maxHp = this.state.boss_max_hp || 0;
-        const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
-        bar.innerHTML = `
-            <span class="boss-name">👹 ${this.state.active_boss}</span>
-            <div class="boss-hp-track"><div class="boss-hp-fill" style="width: ${pct}%;"></div></div>
-            <span class="boss-hp-label">${hp} / ${maxHp} HP</span>
-        `;
+
+        // Insta-Kill Boss Card (What a Bitch): only for the holder, on their
+        // own turn before they move. Never for the AI's seat in PvAI.
+        const holder = this.state.current_player;
+        const canInstaKill = (this.state.insta_kill_card || {})[holder]
+            && this.state.phase === 'ability' && !this.state.game_over
+            && !(this.mode === 'pvai' && holder === 'black');
+        if (canInstaKill) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-primary insta-kill-btn';
+            btn.textContent = '💀 Use Insta-Kill Card';
+            btn.title = `Instantly defeat ${this.state.active_boss}. Free — uses up the card.`;
+            btn.addEventListener('click', () => this.useInstaKillCard());
+            bar.appendChild(btn);
+        }
+    },
+
+    async useInstaKillCard() {
+        if (this.targetingMode) this.exitTargetingMode();
+        try {
+            const resp = await fetch('/insta_kill', { method: 'POST' });
+            const data = await resp.json();
+            if (data.error) {
+                this.showToast(data.error, 'fail');
+                return;
+            }
+            this.state = data;
+            this.render();  // the boss_defeated event shows the victory overlay
+        } catch (e) {
+            this.showToast('Failed to use the Insta-Kill Card', 'fail');
+        }
     },
 
     renderHeader() {
@@ -2566,6 +2597,31 @@ const Game = {
                     push(e, moverKind, `${T} ${who}: ${actor} used ${e.ability} — pulled ${targetLabel} to ${sq}`);
                     break;
                 }
+                case 'rampage_capture': {
+                    this._precedingAbilityRoll(events, i, consumed);
+                    push(e, moverKind, `${T} ${who}: Mongo's Rampage captured ${this._pieceText(this._pieceRepr(e.piece), false)}`);
+                    break;
+                }
+                case 'rampage_skip': {
+                    this._precedingAbilityRoll(events, i, consumed);
+                    const why = e.reason === 'defended_quasar' ? "saved by Quasar's Mediation" : 'protected';
+                    push(e, moverKind, `${T} ${who}: Mongo's Rampage spared ${this._pieceText(this._pieceRepr(e.piece), false)} — ${why}`);
+                    break;
+                }
+                case 'pet_carrier_store': {
+                    const ctx = this._precedingAbilityRoll(events, i, consumed);
+                    const actor = ctx ? ctx.piece : 'Mongo';
+                    push(e, moverKind, `${T} ${who}: ${actor} used Pet Carrier — stored off the board`);
+                    break;
+                }
+                case 'pet_carrier_release': {
+                    const sq = e.pos ? this.squareLabel(e.pos[0], e.pos[1]) : '?';
+                    push(e, moverKind, `${T} ${who}: released Mongo from Pet Carrier onto ${sq}`);
+                    break;
+                }
+                case 'pet_carrier_lost':
+                    push(e, 'neutral', `${T} ${this._pieceText(this._pieceRepr(e.piece), false)} was captured in Pet Carrier — Donut left the board`);
+                    break;
                 case 'blitzed': {
                     const ctx = this._precedingAbilityRoll(events, i, consumed);
                     const targetRepr = this._pieceRepr(e.target) || null;
@@ -2642,9 +2698,13 @@ const Game = {
                 case 'boss_damage_blocked':
                     push(e, 'boss', `${T} Boss: Feral Goose shrugs off the attack`);
                     break;
+                case 'insta_kill':
+                    push(e, 'boss', `${T} ${this._sideWord(e.player)} used the Insta-Kill Card — ${e.boss} defeated!`);
+                    break;
                 case 'boss_defeated': {
                     const prev = i > 0 ? events[i - 1] : null;
                     if (prev && prev.type === 'feral_goose_puzzle_solved' && !consumed.has(prev.seq)) break; // avoid duplicate line
+                    if (prev && prev.type === 'insta_kill') break; // that line already says so
                     push(e, 'boss', `${T} Boss: ${e.boss} defeated!`);
                     break;
                 }
@@ -3258,6 +3318,7 @@ const Game = {
                     });
                 }
             }
+            this.appendReleaseMongoCard(container, color);
         }
 
         // Game Settings: "Pawn Abilities" off hides every pawn ability card, so
@@ -3291,6 +3352,94 @@ const Game = {
             msg.textContent = 'No pieces available';
             container.appendChild(msg);
         }
+    },
+
+    // ═══ PET CARRIER RELEASE ═══
+
+    // The army a sidebar panel shows: its own color, or the opponent's during
+    // a Matt's Drunk Again control swap (see build_game_state_response).
+    panelArmy(color) {
+        if (!this.state.swap_active) return color;
+        return color === 'white' ? 'black' : 'white';
+    },
+
+    // The turn this panel's army stored its Mongo, or null if none is stored.
+    storedMongoTurn(color) {
+        const turn = (this.state.stored_mongo || {})[this.panelArmy(color)];
+        return turn === undefined ? null : turn;
+    },
+
+    // True if the player at this panel can release their stored Mongo right now.
+    canReleaseMongo(color) {
+        return this.state.current_player === color && this.state.phase === 'ability'
+            && !this.state.game_over && !this.targetingMode
+            && (this.state.mongo_release_squares || []).length > 0;
+    },
+
+    // "Release Mongo" tile, shown while this panel's army has a Mongo in Pet
+    // Carrier. Releasing is free (no dice), isn't the turn's ability, and
+    // isn't its move -- so it stays usable after the dice are spent.
+    appendReleaseMongoCard(container, color) {
+        const storedTurn = this.storedMongoTurn(color);
+        if (storedTurn === null) return;
+
+        const clickable = this.canReleaseMongo(color);
+        const acting = this.state.current_player === color && this.state.phase === 'ability';
+        let label;
+        if (storedTurn === this.state.turn_number) label = 'Stored — release next turn';
+        else if (!acting) label = 'Stored';
+        else if ((this.state.mongo_release_squares || []).length === 0) label = 'No open square near Donut';
+        else if (this.targetingMode) label = 'Choosing a square…';
+        else label = 'Free — near Donut';
+
+        const card = document.createElement('div');
+        card.className = `ability-card status-${clickable ? 'green' : 'grey'}`;
+        card.innerHTML = `
+            <span class="ac-piece-name">${this.majorDisplayName('Mongo')}</span>
+            <span class="ac-ability-name">Release Mongo</span>
+            <span class="ac-mana">${label}</span>
+        `;
+        if (clickable) {
+            card.addEventListener('click', () => this.enterReleaseMongoTargeting());
+        }
+        const releaseAb = {
+            name: 'Release Mongo', floor: 0, trigger: 'floor_roll',
+            description: 'Put your stored Mongo back on any open square within 2 of Donut. Free: no dice, and you still use an ability and make your move. Mongo can\'t move or capture on the turn he comes out.',
+        };
+        card.addEventListener('mouseenter', () => this.showAbilityTooltip(card, releaseAb, this.majorDisplayName('Mongo')));
+        card.addEventListener('mouseleave', () => this.hideAbilityTooltip());
+        container.appendChild(card);
+    },
+
+    enterReleaseMongoTargeting() {
+        this.selectedSquare = null;
+        this.legalMoves = [];
+        this.targetingMode = true;
+        this.targetingAbility = { abilityName: 'Release Mongo', targetingType: 'release' };
+        this.validTargets = this.state.mongo_release_squares || [];
+        this.targetingMessage = 'Select a highlighted square within 2 of Donut to release Mongo';
+        this.showTargetingUI();
+        this.render();
+    },
+
+    async handleReleaseClick(row, col) {
+        if (!this.validTargets.some(t => t[0] === row && t[1] === col)) {
+            this.showToast('Invalid square - click a highlighted square', 'fail');
+            return;
+        }
+        try {
+            const resp = await fetch('/release_mongo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ row, col }),
+            });
+            const data = await resp.json();
+            if (data.error) this.showToast(data.error, 'fail');
+            else this.state = data;
+        } catch (e) {
+            this.showToast('Failed to release Mongo', 'fail');
+        }
+        this.exitTargetingMode();
     },
 
     // Leader's cost isn't a fixed floor -- it's whatever dice are available
@@ -3360,17 +3509,24 @@ const Game = {
         const onPuddleJumpCooldown = ab.name === 'Puddle Jump' && (this.state.puddle_jump_cooldown || 0) > 0;
 
         const noPullTarget = ab.has_valid_target === false;
+        // Server-side reason a copy can't be activated right now (e.g. Pet
+        // Carrier with no Donut on the board); the card is grey only when
+        // every copy is unavailable, and shows the first copy's reason.
+        const usable = allInstances.filter(inst => !inst.ab.unavailable);
+        const unavailableLabel = usable.length === 0 ? allInstances[0].ab.unavailable : null;
+        let clickInstances = allInstances;
 
         if (this.state.system_reset_active) {
             status = 'grey';
-        } else if (onPuddleJumpCooldown || noPullTarget) {
+        } else if (onPuddleJumpCooldown || noPullTarget || unavailableLabel) {
             status = 'grey';
         } else if (ab.is_boss_only && !this.state.boss_active) {
             status = 'purple';
         } else {
-            const eligible = allInstances.filter(inst =>
+            const eligible = usable.filter(inst =>
                 !inst.suppressed && (ab.uses_per_game == null || inst.ab.uses_left === null || inst.ab.uses_left === undefined || inst.ab.uses_left > 0)
             );
+            clickInstances = eligible;
             if (eligible.length === 0) {
                 status = 'grey';
             } else if (availableDice.length === 0) {
@@ -3406,9 +3562,11 @@ const Game = {
                 ? '🔒 Cooldown'
                 : noPullTarget
                     ? 'No valid target'
-                    : (ab.is_boss_only && !this.state.boss_active)
-                        ? '🔒 Boss Event Only'
-                        : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
+                    : unavailableLabel
+                        ? unavailableLabel
+                        : (ab.is_boss_only && !this.state.boss_active)
+                            ? '🔒 Boss Event Only'
+                            : `${(ab.requires_combined || useCombined) ? '⚄+⚄ ' : ''}${floor} Mana${discounted ? ' ▼' : ''}`;
 
         card.innerHTML = `
             <span class="ac-piece-name">${pieceLabel}</span>
@@ -3425,10 +3583,10 @@ const Game = {
 
         if (clickable) {
             card.addEventListener('click', () => {
-                if (allInstances.length > 1) {
-                    this.showCopySelectPopover(card, allInstances, ab.name, bestDie.index, useCombined);
+                if (clickInstances.length > 1) {
+                    this.showCopySelectPopover(card, clickInstances, ab.name, bestDie.index, useCombined);
                 } else {
-                    this.useAbility(allInstances[0].row, allInstances[0].col, ab.name, bestDie.index, useCombined);
+                    this.useAbility(clickInstances[0].row, clickInstances[0].col, ab.name, bestDie.index, useCombined);
                 }
             });
         }
@@ -3702,6 +3860,24 @@ const Game = {
 
             list.appendChild(card);
         }
+
+        // Pet Carrier: the stored Mongo isn't on the board, so it has no entry
+        // above -- show it here, clickable to release when that's possible.
+        if (this.storedMongoTurn(color) !== null) {
+            const card = document.createElement('div');
+            card.className = 'piece-card stored-piece';
+            card.innerHTML = `
+                <div class="pc-header">
+                    <span class="pc-name">${this.majorDisplayName('Mongo')}</span>
+                    <span class="pc-type">Stored in Pet Carrier</span>
+                </div>
+                <div class="pc-ability">Off the board. Release him for free on a later turn, within 2 squares of Donut, before you move.</div>
+            `;
+            if (this.canReleaseMongo(color)) {
+                card.addEventListener('click', () => this.enterReleaseMongoTargeting());
+            }
+            list.appendChild(card);
+        }
     },
 
     renderStatusEffectsForColor(color) {
@@ -3814,6 +3990,8 @@ const Game = {
                 // Direction is chosen via the Horizontal/Vertical panel buttons, not board clicks
             } else if (abilityName === 'Leader') {
                 await this.handleLeaderClick(row, col);
+            } else if (abilityName === 'Release Mongo') {
+                await this.handleReleaseClick(row, col);
             } else {
                 await this.handleTargetSelection(row, col);
             }
@@ -3997,7 +4175,6 @@ const Game = {
             'Puddle Jump': 'movement',
             'Blitzed': 'target_piece',
             'She Tank': 'target_piece',
-            'Pet Carrier': 'movement',
             // Capture/resurrection abilities
             'Cockroach': 'resurrection',
             'Rampage': 'movement',
@@ -4406,8 +4583,9 @@ const Game = {
     },
 
     cancelTargeting() {
+        const reservedDie = this.targetingAbility && this.targetingAbility.dieIndex !== undefined;
         this.exitTargetingMode();
-        this.showToast('Ability cancelled - die returned', '');
+        this.showToast(reservedDie ? 'Ability cancelled - die returned' : 'Cancelled', '');
     },
 
     exitTargetingMode() {

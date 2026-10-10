@@ -3,35 +3,13 @@
 Pre-existing issues found incidentally while working on other features.
 Tracked here so they don't get lost or re-"discovered" later.
 
-### Rampage bypasses every capture protection
+### Rampage still captures during a boss battle
 
-`try_rampage()` removes each enemy piece on Mongo's knight squares directly (`board.set(...,
-None)`) instead of going through `attempt_capture()`, and neither it nor app.py's
-`/ability/get_targets` Rampage branch checks `is_piece_invulnerable()`. So Rampage:
-
-- captures **Ren**, ignoring Indestructible (per DESIGN.md he can only be removed by the
-  enemy Carl or Blood Magic);
-- captures **Sledge** (or Juice Box) while **Body Guard** is active (`iron_wall_pieces`);
-- never gives **Quasar's Mediation** its chance to defend the threatened piece.
-
-The enemy Carl is already excluded. Found: 2026-10-01, while fixing Rampage victims not
-reaching the graveyard (they now land in `board.captured` and run `process_post_capture`).
-
-### What a Bitch's Insta-Kill Boss Card can't be used
-
-The What a Bitch AI card sets `GameState.insta_kill_card[color] = True` and the sidebar shows an
-Insta-Kill badge, but nothing in `app.py`, `abilities.py`, or `game.js` ever reads or spends
-it: there's no route, button, or AI logic for playing the card during a boss battle.
-Found: 2026-10-09, while rebuilding the game overview PDF.
-
-### Mongo's Pet Carrier can never release him once stored
-
-Storing Mongo takes him off the board (`board.set(mongo_pos, None)`), but `try_pet_carrier()`
-starts with `piece = self.board.get(*mongo_pos)` and returns False when that square is empty --
-so the release branch below it is unreachable. The sidebar card and `/ability/get_targets` both
-work from Mongo's board square too, and a stored Mongo has none. Once stored, he never comes
-back (and the AI's Pet Carrier "release" pick never fires).
-Found: 2026-10-09, while making Pet Carrier check for self-check (v0.80).
+During a Boss Event normal captures are off (`get_legal_moves_with_status` and `/move` reject any
+move onto an occupied square), but neither `rampage_plan()` nor `try_rampage()` checks
+`boss_active`, so Mongo's Rampage can still capture enemy pieces mid-fight. Needs a decision: block Rampage entirely during a boss battle, or let it
+act as a plain knight move with no captures.
+Found: 2026-10-10, while routing Rampage through the normal capture rules (v0.81).
 
 ### The offline simulator starts every game on an empty board
 
@@ -47,9 +25,114 @@ pieces itself (placement phase, or Dev Game layouts). AI-vs-AI testing currently
 server routes instead.
 Found: 2026-10-09, while testing the v0.80 random AI.
 
+### The AI never defeats a boss
+
+In AI-vs-AI testing for v0.81 (23 games through the server routes, AI cards on), a boss was summoned
+in every game and none was ever defeated -- every game ran to the turn cap mid-boss-fight, since the
+game can't end by checkmate while a boss is active. The direct cause: neither AI ever uses a Special
+Event Attack. `MAJOR_ABILITY_KEYS` in `dcc_chess/ai.py` (the table both `smart_abilities` and
+`random_abilities` draw from) deliberately lists only non-boss abilities, so Jug-o-Boom, Magic
+Missile, Gorefest, I Need My Space, and IWKYM are never tried. Nothing in `smart_move` steers major
+pieces into range of the boss either, and nothing works toward the Feral Goose's corner/center puzzle.
+Found: 2026-10-10, in AI-vs-AI testing for v0.81.
+
+### Quasar's Mediation doesn't match DESIGN.md
+
+DESIGN.md says Mediation costs 6, spent as a banked die, and that winning the roll-off by 2+ saves
+the threatened piece. The live path, `attempt_capture()` in `dcc_chess/abilities.py`, fires
+automatically without spending any die, and on a defender win `_resolve_capture_result()` /
+`_play_ai_turn()` in app.py capture the *attacker* instead ("mediation_capture"). It also counts uses
+in `quasar_uses`, while the unused `try_mediation_chunk2()` (which does spend a banked die) counts
+them in `pawn_ability_uses` -- so Custard's reset and the two code paths track different counters.
+Found: 2026-10-10, reading the code at the start of the v0.81 session.
+
+### Some abilities spend dice before checking for a valid target
+
+These `try_*` methods in `dcc_chess/abilities.py` spend the die (or both dice) first and only then
+look for a target, returning False with the dice already gone when there's none: `try_frozen`,
+`try_suppress`, `try_sic_em`, `try_air_strike`, `try_gang_gang`, `try_lava_spit_chunk2`, and
+`try_she_tank` (which also spends before checking that the target is an enemy). `try_plot_armor`
+spends both dice *and* burns its once-per-game use before computing destinations, so it can come
+back with nowhere to go. The human UI mostly pre-checks targets through `/ability/get_targets`, but
+Juice Box's copies and the AI call these directly.
+Found: 2026-10-10, reading the code at the start of the v0.81 session.
+
+### Lava Spit's placement rules disagree between the picker and the ability
+
+`/ability/get_targets` only offers strips whose two squares are both empty, but
+`try_lava_spit_chunk2()` accepts any in-bounds anchor -- occupied or not -- and doesn't check that a
+player-supplied `target_pos` is within 4 squares. DESIGN.md Section 4's "any piece currently in the
+zone when placed must move out" implies occupied squares are meant to be allowed, so the picker may
+be the side that's wrong. The rule needs a decision before this is fixed.
+Found: 2026-10-10, reading the code at the start of the v0.81 session.
+
+### Air Strike's targeted handler has no range check
+
+`_handle_pawn_ability()` in app.py places Louie's 2x2 zone at whatever `target_pos` the request sends
+(checking only that the squares are empty), without the 4-square range `try_air_strike()` and
+`/ability/get_targets` use. It also skips the suppression check the `try_*` path makes. Same shape as
+the Gang Gang! split DESIGN.md already describes (targeted handler vs shared implementation).
+Found: 2026-10-10, reading the code at the start of the v0.81 session.
+
 ---
 
 ## Fixed
+
+### Rampage bypasses every capture protection
+
+`try_rampage()` removes each enemy piece on Mongo's knight squares directly (`board.set(...,
+None)`) instead of going through `attempt_capture()`, and neither it nor app.py's
+`/ability/get_targets` Rampage branch checks `is_piece_invulnerable()`. So Rampage:
+
+- captures **Ren**, ignoring Indestructible (per DESIGN.md he can only be removed by the
+  enemy Carl or Blood Magic);
+- captures **Sledge** (or Juice Box) while **Body Guard** is active (`iron_wall_pieces`);
+- never gives **Quasar's Mediation** its chance to defend the threatened piece.
+
+The enemy Carl is already excluded. Found: 2026-10-01, while fixing Rampage victims not
+reaching the graveyard (they now land in `board.captured` and run `process_post_capture`).
+
+Fixed: 2026-10-10 (v0.81). `rampage_plan()` leaves out invulnerable pieces (`is_piece_invulnerable`:
+Ren while pawn abilities are on, and any Body Guard piece, Sledge or Juice Box), so `/ability/get_targets`
+and the AI never promise those captures and Mongo can't land on their squares. `try_rampage()` sends
+each remaining victim through `attempt_capture()`, so Quasar's Mediation gets its chance; a saved
+victim is skipped (stays put, Mongo isn't captured, `rampage_skip` event). Landing squares are
+re-checked against the board afterwards, and Mongo stays put if none is left. The smart AI only
+considers Rampage when `rampage_plan` has a victim and a landing square. Tests: `tests/test_rampage.py`.
+
+### What a Bitch's Insta-Kill Boss Card can't be used
+
+The What a Bitch AI card sets `GameState.insta_kill_card[color] = True` and the sidebar shows an
+Insta-Kill badge, but nothing in `app.py`, `abilities.py`, or `game.js` ever reads or spends
+it: there's no route, button, or AI logic for playing the card during a boss battle.
+Found: 2026-10-09, while rebuilding the game overview PDF.
+
+Fixed: 2026-10-10 (v0.81). `GameState.try_insta_kill()` plays the card: during a boss battle it
+consumes the card and calls `defeat_boss()` (so it works on the Feral Goose, shows the victory overlay,
+and spawns a queued boss). Humans play it from a "Use Insta-Kill Card" button on the boss health bar,
+shown only to the holder on their own turn, via the new `/insta_kill` route; it's free and doesn't use
+up the turn's ability or move. The battle log reads "White used the Insta-Kill Card — Emberus
+defeated!". The AI plays its card as soon as a boss is active (`use_insta_kill_card`). Tests:
+`tests/test_insta_kill.py`.
+
+### Mongo's Pet Carrier can never release him once stored
+
+Storing Mongo takes him off the board (`board.set(mongo_pos, None)`), but `try_pet_carrier()`
+starts with `piece = self.board.get(*mongo_pos)` and returns False when that square is empty --
+so the release branch below it is unreachable. The sidebar card and `/ability/get_targets` both
+work from Mongo's board square too, and a stored Mongo has none. Once stored, he never comes
+back (and the AI's Pet Carrier "release" pick never fires).
+Found: 2026-10-09, while making Pet Carrier check for self-check (v0.80).
+
+Fixed: 2026-10-10 (v0.81). Storing and releasing are now separate: `try_pet_carrier()` only stores
+(cost 4; needs Donut on the board, one stored Mongo per side, no exposed Carl) and keeps the Piece in
+`GameState.stored_mongo`; `try_release_mongo()` / `/release_mongo` release him for free on a later
+turn onto an open, unzoned, non-boss square within 2 of Donut that doesn't leave his Carl in check.
+He can't move, capture, or Rampage that turn. A stored Mongo goes to the graveyard whenever Donut
+leaves the board. The sidebar shows a stored-Mongo entry, a status effect, and a "Release Mongo" card
+that highlights the valid squares; the Pet Carrier card explains why it's grey. The AI stores an
+attacked Mongo and releases him on a later turn (`release_stored_mongo`). Tests:
+`tests/test_pet_carrier.py`.
 
 ### The AI used abilities after it moved, and an ability could leave its own Carl in check
 

@@ -142,8 +142,12 @@ def _ability_options(gs: GameState, row: int, col: int, piece: Piece) -> List[Tu
 def random_abilities(game_state: GameState, dice: DungeonDice, color: Color):
     """Use one random current ability this turn, like a human: each piece's
     real abilities only (never boss-only ones), and nothing at all under System
-    Reset. Stops after the first ability that spends dice.
+    Reset. Stops after the first ability that spends dice. Free actions come
+    first: an Insta-Kill Boss Card against an active boss, and releasing a
+    stored Mongo (neither is the turn's ability).
     """
+    use_insta_kill_card(game_state, color)
+    release_stored_mongo(game_state, color)
     if dice.remaining_count == 0 or game_state.system_reset_active:
         return
 
@@ -170,6 +174,46 @@ def random_abilities(game_state: GameState, dice: DungeonDice, color: Color):
         _execute_smart_ability(game_state, dice, key, pos, piece, idx, color)
         if (list(dice.used), dict(dice.banked_die)) != before:
             return  # one ability per turn
+
+
+def use_insta_kill_card(gs: GameState, color: Color) -> None:
+    """Play `color`'s Insta-Kill Boss Card as soon as a boss is active."""
+    if gs.boss_active and gs.insta_kill_card.get(color):
+        gs.try_insta_kill(color)
+
+
+# Full turns (either side's) the AI waits for a safe release square before
+# releasing its stored Mongo onto any legal one, so he's never stored forever.
+MONGO_RELEASE_PATIENCE = 4
+
+
+def release_stored_mongo(gs: GameState, color: Color) -> None:
+    """Release `color`'s stored Mongo if there's a good square for him: one the
+    enemy doesn't attack, preferring squares where he attacks the most enemy
+    material. After MONGO_RELEASE_PATIENCE turns stored, any legal square will do."""
+    squares = gs.mongo_release_squares(color)
+    if not squares:
+        return
+    enemy_attacks = _attacked_squares(gs.board, color.opponent)
+    safe = [sq for sq in squares if sq not in enemy_attacks]
+    if safe:
+        def threat_value(sq):
+            r, c = sq
+            total = 0
+            for dr, dc in [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]:
+                if gs.board.in_bounds(r + dr, c + dc):
+                    target = gs.board.get(r + dr, c + dc)
+                    if target is not None and target.color != color and not target.is_king:
+                        total += PIECE_VALUES.get(target.piece_type, 1)
+            return total
+        values = {sq: threat_value(sq) for sq in safe}
+        best = max(values.values())
+        choice = random.choice([sq for sq, v in values.items() if v == best])
+    elif gs.turn_number - gs.stored_mongo[color]["turn"] >= MONGO_RELEASE_PATIENCE:
+        choice = random.choice(squares)
+    else:
+        return
+    gs.try_release_mongo(color, choice)
 
 
 def _pick_chris_direction(gs: GameState, pos: Tuple[int, int]) -> Optional[str]:
@@ -636,13 +680,18 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
     """Spend dice on abilities intelligently based on board state.
 
     Priority: offensive abilities when enemies in range > defensive/utility > skip.
+    Free actions come first: an Insta-Kill Boss Card is played whenever a boss
+    is active, and a stored Mongo is released -- neither is the turn's ability.
     """
+    use_insta_kill_card(game_state, color)
+    release_stored_mongo(game_state, color)
     if dice.remaining_count == 0 or game_state.system_reset_active:
         return
 
     board = game_state.board
     opponent = color.opponent
     pieces = board.all_pieces(color)
+    enemy_attacks = None  # computed on first use (Pet Carrier)
 
     # Categorize abilities into offensive and defensive attempts
     offensive_attempts = []
@@ -661,15 +710,15 @@ def smart_abilities(game_state: GameState, dice: DungeonDice, color: Color):
         if piece.piece_type == PieceType.MONGO:
             # Rampage: offensive, only when there's something nearby worth
             # rampaging through, and the once-per-game charge is unspent.
-            if (_has_enemy_in_range(board, row, col, 2, opponent)
-                    and not game_state.rampaging_charge_used.get((piece.color, id(piece)), False)):
+            if (not game_state.rampaging_charge_used.get((piece.color, id(piece)), False)
+                    and all(game_state.rampage_plan((row, col)))):  # a victim and a landing square
                 offensive_attempts.append(("rampage", (row, col), piece, 8))
-            # Pet Carrier: retreat Mongo to safety when threatened, or release
-            # him once he's already stored — never a routine pick otherwise.
-            key = (piece.color, id(piece))
-            if game_state.mongo_stored.get(key, False):
-                defensive_attempts.append(("pet_carrier", (row, col), piece, 4))
-            elif _has_enemy_in_range(board, row, col, 1, opponent):
+            # Pet Carrier: store Mongo only to save him from an actual attack
+            # (release_stored_mongo brings him back on a later turn).
+            if enemy_attacks is None:
+                enemy_attacks = _attacked_squares(board, opponent)
+            if ((row, col) in enemy_attacks
+                    and game_state.pet_carrier_store_blocker((row, col)) is None):
                 defensive_attempts.append(("pet_carrier", (row, col), piece, 4))
 
         elif piece.piece_type == PieceType.KATIA:

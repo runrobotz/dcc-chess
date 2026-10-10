@@ -88,7 +88,7 @@ MAJOR_ABILITIES = {
         {"name": "Magic Missile", "floor": 5, "description": "Shoots a magic missile 5 squares in any direction to damage a summoned boss.", "is_boss_only": True},
     ],
     "Mongo": [
-        {"name": "Pet Carrier", "floor": 4, "description": "Remove Mongo from the board and store him. He can be released at any time on your turn at no cost and must spawn within 2 squares of Donut. If Donut is captured while Mongo is stored, Mongo is also captured. Only 1 Mongo can be stored at a time."},
+        {"name": "Pet Carrier", "floor": 4, "description": "Store Mongo off the board (Donut must be on the board; only 1 Mongo can be stored at a time). On a later turn, release him for free onto an open square within 2 squares of Donut, before you move -- releasing isn't your ability or your move, but he can't move or capture that turn. If Donut leaves the board while he's stored, Mongo is captured too."},
         {"name": "Rampage", "floor": 8, "description": "Mongo captures any piece within his L-shaped movement path, not just the final destination.", "uses_per_game": 1, "requires_combined": True},
         {"name": "Gorefest", "floor": 4, "description": "Mongo attacks 2 squares from his current location in any direction to damage a summoned boss.", "is_boss_only": True},
     ],
@@ -224,6 +224,14 @@ def get_piece_abilities(piece, game_state, row, col):
                     k = (color, id(piece))
                     uses_left = 0 if game_state.slut_shame_used.get(k, False) else 1
 
+            # Why this card can't be activated right now, shown in place of its cost.
+            unavailable = None
+            if type_name == "Mongo" and mab["name"] == "Pet Carrier":
+                unavailable = game_state.pet_carrier_store_blocker((row, col))
+            elif type_name == "Mongo" and mab["name"] == "Rampage":
+                if (row, col) in game_state.mongo_released_this_turn:
+                    unavailable = "Just released"
+
             abilities.append({
                 "name": mab["name"],
                 "floor": mab["floor"],
@@ -234,6 +242,7 @@ def get_piece_abilities(piece, game_state, row, col):
                 "is_boss_only": mab.get("is_boss_only", False),
                 "is_reaction": mab.get("is_reaction", False),
                 "requires_combined": mab.get("requires_combined", False),
+                "unavailable": unavailable,
             })
     return abilities
 
@@ -308,6 +317,10 @@ def get_status_effects_summary(gs, game_data):
         # Sledge's own Body Guard, or Juice Box casting it via Shapeshift
         if piece and piece.is_pawn and piece.pawn_name in ("Sledge", "Juice Box"):
             add(piece.color, piece.pawn_name, "Body Guard", turns)
+
+    for color, entry in gs.stored_mongo.items():
+        if entry is not None:
+            add(color, "Mongo", "Stored in Pet Carrier", None)
 
     for entry in gs.mordecai_respawn_pending:
         add(entry["color"], "Mordecai", "Ghost Zone (awaiting respawn)", entry["turns_left"])
@@ -423,6 +436,14 @@ def build_game_state_response():
         "main_character_syndrome_active": gs.main_character_syndrome_active,
         "juice_box_cooldown": {c.value: v for c, v in gs.juice_box_cooldown.items()},
         "puddle_jump_cooldown": gs.puddle_jump_cooldown,
+        # Pet Carrier: the turn each side's stored Mongo went in (null if none),
+        # and where the current player can release theirs right now.
+        "stored_mongo": {c.value: (entry["turn"] if entry else None)
+                         for c, entry in gs.stored_mongo.items()},
+        "mongo_release_squares": (
+            [list(sq) for sq in gs.mongo_release_squares(gs.controlled_color(gs.current_player))]
+            if game_data.get("phase") == "ability" and not game_data.get("game_over") else []
+        ),
         "insta_kill_card": {c.value: has for c, has in gs.insta_kill_card.items()},
         "pending_ai_card_decision": gs.pending_ai_card_decision,
         "swap_active": gs.swap_active,
@@ -537,7 +558,7 @@ def _submit_boss_roll(gs, color):
 
 # Single source of truth for the version — shown in the homepage footer and
 # the game's #version-tag. Bump this on each push.
-SITE_VERSION = "v0.80"
+SITE_VERSION = "v0.81"
 
 
 @app.route("/")
@@ -1314,35 +1335,10 @@ def get_ability_targets():
                 valid_targets = [list(pos) for pos in gs.puddle_jump_destinations((piece_row, piece_col))]
             message = "Select destination (unlimited Queen movement, must be a completely empty square)"
         
-        elif ability_name == "Pet Carrier":
-            # Check if Mongo is stored
-            key = (piece.color, id(piece))
-            if gs.mongo_stored.get(key, False):
-                # Find Donut, get squares within 2
-                donut_pos = None
-                for r in range(11):
-                    for c in range(11):
-                        p = gs.board.get(r, c)
-                        if p and p.piece_type == PieceType.DONUT and p.color == piece.color:
-                            donut_pos = (r, c)
-                            break
-                    if donut_pos:
-                        break
-                
-                if donut_pos:
-                    for dr in range(-2, 3):
-                        for dc in range(-2, 3):
-                            nr, nc = donut_pos[0] + dr, donut_pos[1] + dc
-                            if gs.board.in_bounds(nr, nc) and gs.board.get(nr, nc) is None:
-                                valid_targets.append([nr, nc])
-                    message = "Select where to spawn Mongo (within 2 of Donut)"
-            else:
-                # Storing Mongo - no target needed, but return empty to trigger normal flow
-                return jsonify({"error": "Pet Carrier store doesn't need targeting"}), 400
-        
         elif ability_name == "Rampage":
             # Combined dice check only — do NOT call try_rampage (would spend dice)
-            if dice.can_combine_for_cost(8):
+            if ((piece_row, piece_col) not in gs.mongo_released_this_turn
+                    and dice.can_combine_for_cost(8)):
                 _victims, destinations = gs.rampage_plan((piece_row, piece_col))
                 valid_targets = [list(pos) for pos in destinations]
             message = "Select destination after capturing all in path"
@@ -1894,6 +1890,53 @@ def _handle_pawn_ability(gs, dice, piece, row, col, ability_name, die_index, tar
         msg = f"Unknown pawn ability: {ability_name}"
 
     return success, msg
+
+
+@app.route("/insta_kill", methods=["POST"])
+def insta_kill():
+    """Play the current player's Insta-Kill Boss Card (from What a Bitch):
+    instantly defeat the active boss. Free -- no dice, not the turn's ability
+    or its move -- and usable only on the holder's own turn, before moving."""
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
+    if game_data.get("game_over"):
+        return jsonify({"error": "Game is over"}), 400
+    if game_data.get("phase") != "ability":
+        return jsonify({"error": "The Insta-Kill Card can only be played on your turn, before you move"}), 400
+    if not gs.boss_active:
+        return jsonify({"error": "There's no boss to kill"}), 400
+    if not gs.try_insta_kill(gs.current_player):
+        return jsonify({"error": "You don't hold an Insta-Kill Card"}), 400
+    return jsonify(build_game_state_response())
+
+
+@app.route("/release_mongo", methods=["POST"])
+def release_mongo():
+    """Release the current player's stored Mongo from Pet Carrier.
+
+    Body: {row, col} -- one of the state's mongo_release_squares.
+    Free: no dice, not the turn's ability and not its move.
+    """
+    gs = game_data.get("game_state")
+    if gs is None:
+        return jsonify({"error": "No game in progress"}), 400
+    if gs.pending_ai_card_decision:
+        return jsonify({"error": "Resolve the pending AI Card decision first"}), 400
+    if game_data.get("game_over"):
+        return jsonify({"error": "Game is over"}), 400
+    if game_data.get("phase") != "ability":
+        return jsonify({"error": "Mongo can only be released during your turn, before you move"}), 400
+
+    data = request.get_json(force=True)
+    row, col = data.get("row"), data.get("col")
+    if not isinstance(row, int) or not isinstance(col, int):
+        return jsonify({"error": "Missing release square"}), 400
+    if not gs.try_release_mongo(gs.controlled_color(gs.current_player), (row, col)):
+        return jsonify({"error": "Mongo can't be released there"}), 400
+    return jsonify(build_game_state_response())
 
 
 @app.route("/bank_die", methods=["POST"])

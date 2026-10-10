@@ -119,6 +119,8 @@ def test_puddle_jump_stays_on_the_pin_line():
 
 def test_pet_carrier_cannot_store_a_pinned_mongo():
     gs, mongo = pinned(PieceType.MONGO)
+    place(gs.board, (0, 5), PieceType.DONUT, Color.WHITE)  # storing needs a Donut
+    assert gs.pet_carrier_store_blocker((2, 2)) == "Would expose Carl"
     dice = sixes()
     assert not gs.try_pet_carrier((2, 2), dice, 0)
     assert gs.board.get(2, 2) is mongo and dice.used == [False, False]

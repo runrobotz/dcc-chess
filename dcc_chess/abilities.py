@@ -66,9 +66,13 @@ class GameState:
         # Puddle Jump: shared 10-turn cooldown after use, ticked down in end_turn().
         self.puddle_jump_cooldown: int = 0
         
-        # Mongo
-        self.mongo_stored: Dict[Tuple[Color, int], bool] = {}  # (color, piece_id) -> is_stored
-        self.mongo_stored_pos: Dict[Tuple[Color, int], Tuple[int, int]] = {}  # where mongo was stored from
+        # Mongo -- Pet Carrier: the Mongo each side has stored off the board
+        # ({"piece": Piece, "turn": turn_number he went in}, or None). He can be
+        # released on any later turn of that side's (see mongo_release_squares).
+        self.stored_mongo: Dict[Color, Optional[Dict]] = {Color.WHITE: None, Color.BLACK: None}
+        # Squares of Mongos released this turn -- they can't move or capture
+        # (or Rampage) until their side's next turn.
+        self.mongo_released_this_turn: Set[Tuple[int, int]] = set()
         self.rampage_used: Dict[Tuple[Color, int], bool] = {}  # (color, piece_id) -> used
         
         # Katia
@@ -360,6 +364,17 @@ class GameState:
             ai_cards.spawn_boss(self, queued)
             self.log_event("queued_boss_spawned", boss=queued)
 
+    def try_insta_kill(self, color: Color) -> bool:
+        """Play `color`'s Insta-Kill Boss Card (from What a Bitch): instantly
+        defeat the active boss -- any boss, the Feral Goose included -- at no
+        dice cost. Consumes the card. False if there's no boss or no card."""
+        if not self.boss_active or not self.insta_kill_card.get(color):
+            return False
+        self.insta_kill_card[color] = False
+        self.log_event("insta_kill", player=color.value, boss=self.active_boss)
+        self.defeat_boss()
+        return True
+
     # The 4 board corners + center square Feral Goose's puzzle requires to be
     # simultaneously occupied (by any piece, either color) to defeat her.
     FERAL_GOOSE_PUZZLE_SQUARES = [(0, 0), (0, BOARD_SIZE - 1), (BOARD_SIZE - 1, 0),
@@ -400,6 +415,7 @@ class GameState:
         # Rebuild from persistent tracker so Air Strike zones survive across turns
         self.louie_cant_move = set(self.air_strike_zones.keys())
         self.blitzed_pieces.clear()
+        self.mongo_released_this_turn.clear()
         self.juice_box_used_this_turn.clear()
         # Juice Box's acquired-ability cooldown lasts until the start of her
         # side's next turn (see try_juice_box_use_captured_ability).
@@ -446,6 +462,11 @@ class GameState:
         # Bad Llama's Lava Spit "cannot move this turn" is scoped to the
         # single turn it was cast on (same pattern as louie_cant_move).
         self.bad_llama_cant_move = set()
+        self.mongo_released_this_turn = set()
+        # Catch-all for any way Donut left the board this turn that didn't go
+        # through process_post_capture / eliminate_piece_permanently (e.g. a
+        # Mediation reversal capturing her as the attacker).
+        self.drop_stored_mongos_without_donut()
 
         # Tick ghost tokens. A Mordecai ghost square placed this turn skips its
         # first tick -- the capture turn's own end_turn() shouldn't burn a turn
@@ -603,6 +624,9 @@ class GameState:
         # Main Character Syndrome (AI Card): pawns can't move this turn, no exceptions.
         # Major pieces are unaffected.
         if self.main_character_syndrome_active and piece.is_pawn:
+            return False
+        # A Mongo released from Pet Carrier this turn can't move or capture.
+        if (row, col) in self.mongo_released_this_turn:
             return False
         # Blitzed pieces can skip movement requirement
         if (row, col) in self.blitzed_pieces:
@@ -809,6 +833,11 @@ class GameState:
         if captured_piece.is_pawn and captured_piece.pawn_name == "Orthrus":
             self.process_orthrus_permanent_death(captured_piece, capture_pos)
 
+        # Pet Carrier: a captured Donut takes her side's stored Mongo with her.
+        # A major-piece rule, so it also runs when pawn abilities are off.
+        if captured_piece.piece_type == PieceType.DONUT:
+            self.drop_stored_mongos_without_donut()
+
         # Every other post-capture pawn auto-trigger below is skipped when
         # pawn abilities are disabled via Game Settings.
         if not self.pawns_enabled:
@@ -835,10 +864,11 @@ class GameState:
                 return (r, c)
         return None
 
-    def leaves_carl_in_check(self, color: Color, moves=(), removals=()) -> bool:
+    def leaves_carl_in_check(self, color: Color, moves=(), removals=(), placements=()) -> bool:
         """True if these board changes would leave `color`'s Carl in check: the
         squares in `removals` emptied, then each (src, dest) in `moves` applied
-        (dest's occupant is captured). The board is restored afterwards.
+        (dest's occupant is captured), then each (pos, piece) in `placements`
+        put on the board. The board is restored afterwards.
 
         Every ability that moves or removes pieces checks this before spending
         anything, so no ability can leave its caster's own Carl in check.
@@ -846,7 +876,8 @@ class GameState:
         if self.board.find_king(color) is None:
             return False  # boss co-op fallen player -- no Carl to protect
         saved = {}
-        for pos in list(removals) + [sq for move in moves for sq in move]:
+        for pos in (list(removals) + [sq for move in moves for sq in move]
+                    + [pos for pos, _piece in placements]):
             saved.setdefault(tuple(pos), self.board.get(*pos))
         try:
             for r, c in removals:
@@ -855,6 +886,8 @@ class GameState:
                 piece = self.board.get(sr, sc)
                 self.board.set(sr, sc, None)
                 self.board.set(dr, dc, piece)
+            for (r, c), piece in placements:
+                self.board.set(r, c, piece)
             return is_in_check(self.board, color)
         finally:
             for (r, c), piece in saved.items():
@@ -1497,6 +1530,8 @@ class GameState:
 
         piece.permanently_dead = True
         self.board.captured[piece.color].append(piece)
+        if piece.piece_type == PieceType.DONUT:
+            self.drop_stored_mongos_without_donut()
         return piece
 
     def juice_box_key(self, juice_box_pos_or_piece):
@@ -1849,17 +1884,40 @@ class GameState:
         self.log_event("puddle_jump", from_pos=donut_pos, to_pos=target_square)
         return target_square
 
+    def _find_donut(self, color: Color) -> Optional[Tuple[int, int]]:
+        """Where `color`'s Donut is on the board, or None."""
+        for r, c, p in self.board.all_pieces(color):
+            if p.piece_type == PieceType.DONUT:
+                return (r, c)
+        return None
+
+    def pet_carrier_store_blocker(self, mongo_pos: Tuple[int, int]) -> Optional[str]:
+        """Why the Mongo on mongo_pos can't be stored right now, or None if he can.
+        Storing needs his side's Donut on the board (she's where he's released),
+        no other Mongo of his side already stored, and his Carl staying out of
+        check once he's off the board."""
+        piece = self.board.get(*mongo_pos)
+        if piece is None or piece.piece_type != PieceType.MONGO:
+            return "Not a Mongo"
+        if self._find_donut(piece.color) is None:
+            return "Needs Donut on the board"
+        if self.stored_mongo.get(piece.color) is not None:
+            return "A Mongo is already stored"
+        if self.leaves_carl_in_check(piece.color, removals=[mongo_pos]):
+            return "Would expose Carl"
+        return None
+
     def try_pet_carrier(self, mongo_pos: Tuple[int, int], dice: DungeonDice,
                         die_index: int) -> bool:
-        """Mongo's Pet Carrier (Floor 4): Store Mongo or release stored Mongo."""
+        """Mongo's Pet Carrier (Floor 4): store Mongo off the board. Releasing
+        him later is free and separate (see try_release_mongo). Nothing is
+        spent if he can't be stored (see pet_carrier_store_blocker)."""
         piece = self.board.get(*mongo_pos)
         if piece is None or piece.piece_type != PieceType.MONGO:
             return False
         if self.is_piece_suppressed(*mongo_pos):
             return False
-        # Storing Mongo takes him off the board -- not if that exposes his Carl.
-        if (not self.mongo_stored.get((piece.color, id(piece)), False)
-                and self.leaves_carl_in_check(piece.color, removals=[mongo_pos])):
+        if self.pet_carrier_store_blocker(mongo_pos) is not None:
             return False
 
         success = dice.spend_die(die_index, 4)
@@ -1868,52 +1926,61 @@ class GameState:
         if not success:
             return False
 
-        key = (piece.color, id(piece))
-        
-        # Check if this Mongo is already stored
-        if self.mongo_stored.get(key, False):
-            # Release Mongo - must spawn within 2 squares of Donut
-            donut_pos = None
-            for row in range(BOARD_SIZE):
-                for col in range(BOARD_SIZE):
-                    p = self.board.get(row, col)
-                    if p and p.piece_type == PieceType.DONUT and p.color == piece.color:
-                        donut_pos = (row, col)
-                        break
-                if donut_pos:
-                    break
-            
-            if not donut_pos:
-                # Donut not found - cannot release
-                return False
-            
-            # Find valid spawn positions within 2 squares of Donut
-            dr, dc = donut_pos
-            valid_spawns = []
-            for r_offset in range(-2, 3):
-                for c_offset in range(-2, 3):
-                    nr, nc = dr + r_offset, dc + c_offset
-                    if self.board.in_bounds(nr, nc) and not self.is_square_blocked(nr, nc):
-                        if self.board.get(nr, nc) is None:
-                            valid_spawns.append((nr, nc))
-            
-            if not valid_spawns:
-                return False
-            
-            # Release Mongo at random valid position
-            spawn_pos = random.choice(valid_spawns)
-            self.board.set(spawn_pos[0], spawn_pos[1], piece)
-            self.mongo_stored[key] = False
-            del self.mongo_stored_pos[key]
-            self.log_event("pet_carrier_release", pos=spawn_pos, detail="Mongo released")
-            return True
-        else:
-            # Store Mongo
-            self.board.set(*mongo_pos, None)
-            self.mongo_stored[key] = True
-            self.mongo_stored_pos[key] = mongo_pos
-            self.log_event("pet_carrier_store", pos=mongo_pos, detail="Mongo stored")
-            return True
+        self.board.set(*mongo_pos, None)
+        self.stored_mongo[piece.color] = {"piece": piece, "turn": self.turn_number}
+        self.log_event("pet_carrier_store", piece=repr(piece), pos=list(mongo_pos),
+                       detail="Mongo stored")
+        return True
+
+    def mongo_release_squares(self, color: Color) -> List[Tuple[int, int]]:
+        """Where `color`'s stored Mongo can be released right now: any square
+        within 2 of Donut that's empty, not in a blocked zone, not a boss
+        square, and doesn't leave his Carl in check. Empty if nothing is
+        stored, he went in this same turn, or there's no Donut."""
+        entry = self.stored_mongo.get(color)
+        if entry is None or entry["turn"] == self.turn_number:
+            return []
+        donut_pos = self._find_donut(color)
+        if donut_pos is None:
+            return []
+        mongo = entry["piece"]
+        boss_squares = set(self.boss_squares)
+        dr, dc = donut_pos
+        squares = []
+        for r in range(dr - 2, dr + 3):
+            for c in range(dc - 2, dc + 3):
+                if (not self.board.in_bounds(r, c) or self.board.get(r, c) is not None
+                        or self.is_square_blocked(r, c) or (r, c) in boss_squares):
+                    continue
+                if self.leaves_carl_in_check(color, placements=[((r, c), mongo)]):
+                    continue
+                squares.append((r, c))
+        return squares
+
+    def try_release_mongo(self, color: Color, pos: Tuple[int, int]) -> bool:
+        """Release `color`'s stored Mongo onto pos (one of mongo_release_squares).
+        Free: no dice, not the turn's ability, not its move. He can't move or
+        capture for the rest of this turn."""
+        pos = tuple(pos)
+        if pos not in self.mongo_release_squares(color):
+            return False
+        mongo = self.stored_mongo[color]["piece"]
+        self.stored_mongo[color] = None
+        self.board.set(pos[0], pos[1], mongo)
+        self.mongo_released_this_turn.add(pos)
+        self.log_event("pet_carrier_release", piece=repr(mongo), pos=list(pos),
+                       detail="Mongo released")
+        return True
+
+    def drop_stored_mongos_without_donut(self):
+        """A stored Mongo goes to the graveyard, like a normal capture, as soon
+        as his side's Donut is off the board -- however she left it."""
+        for color, entry in self.stored_mongo.items():
+            if entry is not None and self._find_donut(color) is None:
+                self.stored_mongo[color] = None
+                self.board.captured[color].append(entry["piece"])
+                self.log_event("pet_carrier_lost", piece=repr(entry["piece"]),
+                               detail="Donut left the board, so the stored Mongo is captured too")
 
     def try_blitzed(self, katia_pos: Tuple[int, int], dice: DungeonDice,
                     die_index: int) -> bool:
@@ -2283,9 +2350,13 @@ class GameState:
 
     def rampage_plan(self, mongo_pos: Tuple[int, int]) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
         """(victims, destinations) for Mongo's Rampage: every enemy piece on his
-        knight squares is captured (never the enemy Carl), then he lands on one
-        of those squares or an empty one. A destination is only offered if,
-        with all the victims gone and Mongo on it, his own Carl isn't in check.
+        knight squares that a normal capture could take is captured -- never
+        the enemy Carl, and never an invulnerable piece (Ren's Indestructible,
+        Body Guard, including Juice Box's copy) -- then he lands on one of
+        those squares or an empty one. A destination is only offered if, with
+        all the victims gone and Mongo on it, his own Carl isn't in check.
+        Quasar's Mediation can still save a victim when the Rampage happens
+        (see try_rampage); the picker can't know that in advance.
         """
         piece = self.board.get(*mongo_pos)
         if piece is None:
@@ -2300,10 +2371,13 @@ class GameState:
             target = self.board.get(nr, nc)
             if target is None:
                 squares.append((nr, nc))
-            elif target.color != piece.color and not target.is_king:
+            elif (target.color != piece.color and not target.is_king
+                    and not self.is_piece_invulnerable(nr, nc)):
                 # The enemy Carl is never a valid Rampage target -- as in
                 # standard chess, Carl is never directly capturable (same
                 # rule as plot_armor_destinations's target.is_king check).
+                # Ren / Body Guard pieces are skipped like any normal capture
+                # would skip them (and he can't land on their squares).
                 squares.append((nr, nc))
                 victims.append((nr, nc))
         destinations = [sq for sq in squares
@@ -2315,13 +2389,17 @@ class GameState:
         """Mongo's Rampage (Floor 8, requires combined, once per game):
         Mongo captures any piece within his L-shaped movement path, not just final destination.
 
-        Returns his legal landing squares (see rampage_plan); the caller moves
+        Returns his legal landing squares (see rampage_plan) -- just his own
+        square if a Mediation save left nowhere else safe; the caller moves
         him. Nothing is spent if he'd have nowhere safe to land.
         """
         piece = self.board.get(*mongo_pos)
         if piece is None or piece.piece_type != PieceType.MONGO:
             return None
         if self.is_piece_suppressed(*mongo_pos):
+            return None
+        # Just released from Pet Carrier: he can't capture this turn.
+        if mongo_pos in self.mongo_released_this_turn:
             return None
         
         # Check if already used
@@ -2344,23 +2422,35 @@ class GameState:
         # Mark as used
         self.rampaging_charge_used[key] = True
         
-        # Capture all enemy pieces in the path. Victims go into board.captured
-        # (the real graveyard the sidebar shows and Cockroach / Blood Magic
-        # resurrect from), and process_post_capture runs the same on-capture
-        # effects as a normal capture -- clearing Orthrus's other body square
-        # and triggering Mordecai's Manager Benefit.
+        # Each victim goes through the normal capture rules (attempt_capture):
+        # Quasar's Mediation can save it, in which case it's simply skipped --
+        # it stays on its square and Mongo isn't hurt. Captured victims go
+        # into board.captured (the graveyard Cockroach / Blood Magic resurrect
+        # from) and run process_post_capture, the same on-capture effects as a
+        # normal capture -- clearing Orthrus's other body square and
+        # triggering Mordecai's Manager Benefit.
         for cap_pos in captured_pieces:
             cap_piece = self.board.get(*cap_pos)
-            if cap_piece:
-                self.board.set(cap_pos[0], cap_pos[1], None)
-                self.board.captured[cap_piece.color].append(cap_piece)
-                self.log_event("rampage_capture", pos=cap_pos, piece=repr(cap_piece))
-                self.process_post_capture(cap_piece, cap_pos, piece, mongo_pos)
+            if cap_piece is None:
+                continue  # e.g. Orthrus's second square, cleared with his first
+            outcome = self.attempt_capture(mongo_pos, cap_pos)
+            if outcome != "captured":
+                self.log_event("rampage_skip", pos=list(cap_pos), piece=repr(cap_piece),
+                               reason=outcome)
+                continue
+            self.board.set(cap_pos[0], cap_pos[1], None)
+            self.board.captured[cap_piece.color].append(cap_piece)
+            self.log_event("rampage_capture", pos=cap_pos, piece=repr(cap_piece))
+            self.process_post_capture(cap_piece, cap_pos, piece, mongo_pos)
 
-        # A capture can block its own square (Mordecai's ghost token), so
-        # Mongo can't land there.
-        valid_moves = [m for m in valid_moves if not self.is_square_blocked(*m)]
-        return valid_moves if valid_moves else None
+        # Re-check the landing squares against the board as it now is: a saved
+        # victim still occupies its square (and may still guard a line to
+        # Carl), and a capture can block its own square (Mordecai's ghost
+        # token). If nowhere is left, Mongo stays where he is.
+        valid_moves = [m for m in valid_moves
+                       if self.board.get(*m) is None and not self.is_square_blocked(*m)
+                       and not self.leaves_carl_in_check(piece.color, moves=[(mongo_pos, m)])]
+        return valid_moves if valid_moves else [mongo_pos]
 
     def slut_shame_targets(self, samantha_pos: Tuple[int, int]) -> List[Tuple[int, int]]:
         """Enemy pawns within 3 squares of Samantha that Slut Shame can swallow:
@@ -2622,6 +2712,7 @@ class GameState:
         "suppressed_pieces", "suppressed_pending", "frozen_pieces", "frozen_pending",
         "restrained_pieces", "restrained_pending", "she_tank_targets", "she_tank_pending",
         "blitzed_pieces", "juice_box_used_this_turn", "bad_llama_cant_move",
+        "mongo_released_this_turn",
     )
     _PIECE_STATUS_DICTS = (
         "forced_retreat", "forced_retreat_pending", "recruited_pawns",

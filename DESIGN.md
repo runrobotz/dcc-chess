@@ -285,11 +285,32 @@ their old tests were deleted after v0.80.
   hits if any boss square lies on the path.
 
 **Mongo**
-- *Pet Carrier* — removes Mongo from the board (stored); can be released for free
-  on a later turn within 2 squares of Donut; if Donut is captured while he's
-  stored, Mongo is captured too; only one Mongo can be stored at a time. He can't be
-  stored if leaving the board would put his Carl in check (v0.80). Known issue:
-  a stored Mongo can never be released -- see `KNOWN_BUGS.md`.
+- *Pet Carrier* — storing Mongo is the ability (cost 4, single die): he's removed
+  from the board. Rules (settled 2026-10-10):
+  - Storing needs that side's Donut on the board, only one Mongo per side can be
+    stored at a time, and he can't be stored if leaving the board would put his
+    Carl in check (v0.80).
+  - Releasing him finishes the ability rather than being a new one: it's free (no
+    dice), doesn't use up the turn's one ability, and isn't the turn's move. The
+    player can release him on any later turn of their own, before moving, and still
+    use an ability and make a normal move with another piece.
+  - He's released onto an open square within 2 of Donut: empty, not in any blocked
+    zone, not a boss square, and not one that leaves his own Carl in check.
+  - On the turn he's released, Mongo himself can't move or capture (no surprise
+    "drop in and capture"), so he can't Rampage that turn either.
+  - If Donut leaves the board in any way while he's stored (captured, killed by a
+    boss or Fireball, anything), Mongo goes to the graveyard too, like a normal
+    capture.
+  Implementation (v0.81): `GameState.stored_mongo` holds each side's stored
+  Mongo; `pet_carrier_store_blocker` says why one can't be stored (shown on the
+  greyed card); `mongo_release_squares` / `try_release_mongo` and the
+  `/release_mongo` route handle the release, which the sidebar offers as a
+  "Release Mongo" card and a stored-Mongo entry; `drop_stored_mongos_without_donut`
+  runs after any capture or permanent kill of Donut and at every `end_turn()`.
+  The AI (`release_stored_mongo` in `ai.py`, called at the start of both
+  `smart_abilities` and `random_abilities`) stores Mongo only when he's attacked,
+  releases him onto a square the enemy doesn't attack (preferring one where he
+  threatens the most), and after 4 turns stored takes any legal square.
 - *Rampage* — captures every enemy piece found along any of his knight-shaped
   movement paths, not just the final landing square. The enemy King is explicitly
   excluded as a valid target/capture (fixed in v0.59, mirroring Plot Armor's own
@@ -299,9 +320,16 @@ their old tests were deleted after v0.80.
   Manager Benefit fires; Mongo can't land on a square a capture just blocked
   (Mordecai's ghost token). Since v0.80 (`rampage_plan`) he only lands where, with
   every victim gone, his Carl isn't in check; with no such square nothing is spent.
-  Known issue: Rampage removes pieces directly instead of
-  via `attempt_capture`, so it ignores Ren's Indestructible, Body Guard, and Quasar's
-  Mediation -- see `KNOWN_BUGS.md`.
+  Since v0.81 every victim goes through the normal capture rules: Ren
+  (Indestructible) and Body Guard pieces (Sledge's, or Juice Box's copy) are never
+  victims -- `rampage_plan` leaves them out, so the target picker and the AI never
+  count on them, and Mongo can't land on their squares -- and each remaining victim
+  goes through `attempt_capture`, so Quasar's Mediation can save it. A saved victim is
+  simply skipped: it stays on its square and Mongo isn't captured. Landing squares are
+  re-checked afterwards; if a saved victim left nowhere safe to land, Mongo stays on
+  his own square. Battle log: "Mongo's Rampage captured Black Zev" / "Mongo's Rampage
+  spared Black Zev — saved by Quasar's Mediation". Known issue: Rampage still captures
+  during a boss battle, when normal captures are off -- see `KNOWN_BUGS.md`.
 - *Gorefest (Boss Event Only)* — attacks 2 squares from Mongo's current position
   in any direction to damage a summoned boss.
 
@@ -386,6 +414,17 @@ open questions to re-litigate.
 - **The AI drafts a random roster (v0.80).** In Player vs AI, `/new_game` ignores any
   roster sent for Black and drafts 8 distinct random pawns from all 20 (`random_draft`,
   never "The AI"), independent of the player's picks. Placement and play are unchanged.
+
+- **Insta-Kill Boss Card (What a Bitch AI card, v0.81).** The player holding it can
+  play it on their own turn (after rolling, before moving) during any boss battle to
+  instantly defeat the active boss -- every boss, the Feral Goose included. It's free:
+  no dice, and it isn't the turn's ability or its move; it's a card, not an ability, so
+  System Reset doesn't block it. Playing it consumes the card and runs the normal
+  boss-defeat flow (`GameState.try_insta_kill` -> `defeat_boss`: victory overlay, a
+  queued boss spawns). It's played from a button on the boss health bar (`/insta_kill`)
+  that only the holder sees, on their turn; the battle log reads "White used the
+  Insta-Kill Card — Rage Elemental defeated!". The AI plays its card as soon as a boss
+  is active (`use_insta_kill_card` in `ai.py`). A player holds at most one card.
 
 ---
 
